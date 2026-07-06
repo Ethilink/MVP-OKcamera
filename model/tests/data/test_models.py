@@ -394,6 +394,16 @@ def test_clip_from_directory(tmp_path: Path):
     assert np.array_equal(ann_b.to_mask(), mask_b_expected)
 
 
+def test_clip_from_directory_suppresses_pycocotools_stdout(tmp_path: Path, capsys):
+    clip_dir = tmp_path / "SYNTH_CLIP_STDOUT"
+    _write_synthetic_clip(clip_dir)
+
+    Clip.from_directory(clip_dir)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+
+
 def test_instrument_annotation_propagated_from_via_clip(tmp_path: Path):
     clip_dir = tmp_path / "SYNTH_CLIP2"
     coco_dict = _write_synthetic_clip(clip_dir)

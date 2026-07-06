@@ -4,6 +4,7 @@ Loads COCO-format annotations (with a few project-specific extra fields) via
 `pycocotools`, and bridges to `supervision.Detections` for visualization.
 """
 
+import contextlib
 import io
 from dataclasses import dataclass
 from pathlib import Path
@@ -94,7 +95,12 @@ class Clip:
     @classmethod
     def from_directory(cls, clip_dir: Path) -> "Clip":
         annotations_path = clip_dir / "annotations" / "annotations.json"
-        coco = COCO(str(annotations_path))
+        # pycocotools.coco.COCO's __init__/createIndex() print progress
+        # messages unconditionally (no verbosity flag exists), which spams
+        # notebook cell output when loading multiple clips. Suppress just
+        # this construction call, not the whole method.
+        with contextlib.redirect_stdout(io.StringIO()):
+            coco = COCO(str(annotations_path))
 
         assert len(coco.getCatIds()) == 1, "expected exactly one category"
 
