@@ -9,6 +9,7 @@ model/
 │   └── pipelines/    # wired components → per-instrument track history
 ├── artifacts/         # trained output (gitignored, not code)
 ├── playground/        # notebooks, example scripts
+├── docs/              # context/reference docs for humans and agents
 └── tests/
 ```
 
