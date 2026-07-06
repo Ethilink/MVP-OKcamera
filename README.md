@@ -41,3 +41,5 @@ claude mcp add company-brain --scope local -- npx -y @modelcontextprotocol/serve
 ```
 
 Verify with `/mcp` inside Claude Code. No plugins or skills are enabled by default — enable/pull in whatever you personally need (e.g. the org's `ethi-code` plugin) as you go.
+
+See [`AGENTS.md`](AGENTS.md) (symlinked as `CLAUDE.md`) for the agent-facing version of this — including what to do when `company-brain` isn't set up yet.
