@@ -88,8 +88,12 @@ pip-wheel-metadata/
 instance/
 
 # ---------------------------------------------------------------------------
-# model/ — trained artifacts (binary, not code)
+# model/ — binary data/weights/artifacts (not code)
 # ---------------------------------------------------------------------------
+model/data/*
+!model/data/.gitkeep
+model/weights/*
+!model/weights/.gitkeep
 model/artifacts/*
 !model/artifacts/.gitkeep
 
