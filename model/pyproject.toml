@@ -1,7 +1,7 @@
 [project]
 name = "orc-model"
 version = "0.1.0"
-description = "ORC detection/tracking model — trained offline, produces the artifact app/backend consumes."
+description = "ORC detection/tracking — wraps pre-trained models into components, produces the artifact app/backend consumes."
 readme = "README.md"
 authors = [
     { name = "Constantijn", email = "constantijn.coppers@ethilink.com" }
