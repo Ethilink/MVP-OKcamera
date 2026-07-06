@@ -32,14 +32,6 @@ Each folder is a placeholder for now (see its own `README.md`) — internals (la
 
 ## Agent setup
 
-This repo doesn't ship a shared MCP config or any pinned Claude Code skills — nothing machine-specific is committed.
+Nothing machine-specific is committed — no shared MCP config, no pinned skills. Project context lives in the `company-brain` Obsidian vault; see [`docs/obsidian-vault-setup.md`](docs/obsidian-vault-setup.md) to connect it. Enable whatever plugins/skills you personally need (e.g. `ethi-code`) as you go.
 
-If you want the team's `company-brain` Obsidian vault available to Claude Code (client brief, PRD, design docs), register it yourself at **local scope** so it's stored in your own `~/.claude.json`, never in this repo:
-
-```bash
-claude mcp add company-brain --scope local -- npx -y @modelcontextprotocol/server-filesystem /absolute/path/to/your/company-brain/root
-```
-
-Verify with `/mcp` inside Claude Code. No plugins or skills are enabled by default — enable/pull in whatever you personally need (e.g. the org's `ethi-code` plugin) as you go.
-
-See [`AGENTS.md`](AGENTS.md) (symlinked as `CLAUDE.md`) for the agent-facing version of this — including what to do when `company-brain` isn't set up yet.
+See [`AGENTS.md`](AGENTS.md) (symlinked `CLAUDE.md`) for the agent-facing version.
