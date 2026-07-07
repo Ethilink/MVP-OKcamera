@@ -35,10 +35,14 @@ Thumbs.db
 *.key
 secrets.json
 
+# ---------------------------------------------------------------------------
+# Agent config (registered per-user at local scope, never committed)
+# ---------------------------------------------------------------------------
+.mcp.json
+
 # ===========================================================================
-# Python / FastAPI backend
+# Python (model/, app/backend/)
 # ===========================================================================
-# Byte-compiled / optimized
 __pycache__/
 *.py[cod]
 *$py.class
@@ -78,14 +82,23 @@ coverage.xml
 pip-log.txt
 pip-wheel-metadata/
 
-# FastAPI / app runtime
+# Runtime
 *.db
 *.sqlite3
 instance/
-celerybeat-schedule
+
+# ---------------------------------------------------------------------------
+# model/ — binary data/weights/artifacts (not code)
+# ---------------------------------------------------------------------------
+model/data/*
+!model/data/.gitkeep
+model/weights/*
+!model/weights/.gitkeep
+model/artifacts/*
+!model/artifacts/.gitkeep
 
 # ===========================================================================
-# React / Node frontend
+# Node / frontend (app/frontend/)
 # ===========================================================================
 node_modules/
 .pnp
