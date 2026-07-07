@@ -1,8 +1,8 @@
 # Plan: first detections (RF-DETR)
 
-Design rationale for the first detection component (`components/detector.py`,
-`components/_rfdetr_postprocess.py`), wrapping the pre-trained RF-DETR
-instance-segmentation ONNX export.
+Design rationale for the first detection component
+(`components/detector/detector.py`, `components/detector/_rfdetr_postprocess.py`),
+wrapping the pre-trained RF-DETR instance-segmentation ONNX export.
 
 ## Phase 2: detector.py
 
@@ -17,8 +17,8 @@ by position, since ONNX does not guarantee output order across export runs.
 
 ## RF-DETR ONNX contract
 
-`_rfdetr_postprocess.py` is internal to `components/` — nothing outside this
-package should import it directly; go through `Detector` instead.
+`_rfdetr_postprocess.py` is internal to `components/detector/` — nothing
+outside this package should import it directly; go through `Detector` instead.
 
 `preprocess`: BGR HWC uint8 (any H, W) -> float32 (1,3,768,768) NCHW, RGB,
 ImageNet-normalized. RF-DETR was trained on square 768x768 RGB input

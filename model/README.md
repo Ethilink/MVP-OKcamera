@@ -11,7 +11,10 @@ No model training is done here.
 ```
 model/
 ├── src/orc_model/
-│   ├── components/   # Detector, Tracker, Classifier — wrap pre-trained weights/ONNX
+│   ├── components/    # one subpackage per component — wraps pre-trained weights/ONNX
+│   │   ├── detector/    # Detector + model-specific pre/postprocessing (private)
+│   │   ├── tracker/     # Tracker (planned)
+│   │   └── classifier/  # Classifier (planned)
 │   └── pipelines/    # wired components → per-instrument track history
 ├── artifacts/         # packaged model artifact (gitignored, not code)
 ├── playground/        # notebooks, example scripts

@@ -1,10 +1,10 @@
 """Pre/post-processing helpers for the RF-DETR ONNX model.
 
-Internal to `components/` — nothing outside this package should import this
-module directly; go through `Detector` instead.
+Internal to `components/detector/` — nothing outside this package should
+import this module directly; go through `Detector` instead.
 
-See `../../../docs/plan-first-detections.md` ("RF-DETR ONNX contract") for the
-verified contract this implements.
+See `../../../../docs/plan-first-detections.md` ("RF-DETR ONNX contract") for
+the verified contract this implements.
 """
 
 import cv2
