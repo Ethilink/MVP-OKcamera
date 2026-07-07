@@ -1,5 +1,14 @@
 {
   "enabledPlugins": {
     "ethi-code@ethilink": true
+  },
+  "permissions": {
+    "additionalDirectories": [
+      "/Users/bramdecraeke/Documents/Obsidian/company-brain/root"
+    ],
+    "deny": [
+      "Edit(//Users/bramdecraeke/Documents/Obsidian/company-brain/root/**)",
+      "Write(//Users/bramdecraeke/Documents/Obsidian/company-brain/root/**)"
+    ]
   }
 }
