@@ -3,8 +3,8 @@
 Internal to `components/` — nothing outside this package should import this
 module directly; go through `Detector` instead.
 
-See `docs/plan-first-detections.md` ("RF-DETR ONNX contract") for the verified
-contract this implements.
+See `../../../docs/plan-first-detections.md` ("RF-DETR ONNX contract") for the
+verified contract this implements.
 """
 
 import cv2
@@ -40,7 +40,7 @@ def decode_predictions(
     logits -> `sv.Detections` in the *original* image's pixel coordinates.
 
     Order of operations (see "RF-DETR ONNX contract" in
-    `docs/plan-first-detections.md` for why each step is here):
+    `../../../docs/plan-first-detections.md` for why each step is here):
     1. `sigmoid(labels)` -> per-(query, class) probability.
     2. Flatten the (query, class) grid into one length-`300*num_classes` axis.
     3. Take the top-`top_k` flat indices by probability, descending. Recover

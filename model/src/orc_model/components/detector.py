@@ -2,8 +2,8 @@
 
 Wraps the pre-trained RF-DETR instance-segmentation ONNX export: loads the
 model, runs a single image through `preprocess` -> `session.run` ->
-`decode_predictions`. See `docs/plan-first-detections.md` ("Phase 2",
-"detector.py" subsection) for the design rationale.
+`decode_predictions`. See `../../../docs/plan-first-detections.md` ("Phase 2:
+detector.py" section) for the design rationale.
 """
 
 from pathlib import Path
