@@ -1,0 +1,59 @@
+name: Finding
+description: Report a correctness, architecture, tech-debt, tooling, or documentation finding.
+title: "[Finding]: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Fields marked required must be filled in. After submitting, a maintainer should attach the label(s) matching your Category/Severity answers below — GitHub issue forms can't apply labels automatically based on a dropdown answer.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One-sentence statement of the issue.
+    validations:
+      required: true
+  - type: input
+    id: location
+    attributes:
+      label: Location
+      description: File path and line number, or component name.
+      placeholder: model/src/orc_model/components/detector.py:42
+    validations:
+      required: true
+  - type: textarea
+    id: why-it-matters
+    attributes:
+      label: Why it matters / failure scenario
+      description: Concrete inputs/state that trigger the problem, or the impact of leaving it unaddressed.
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - bug
+        - documentation
+        - architecture
+        - tech-debt
+        - tooling
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - high
+        - medium
+        - low
+    validations:
+      required: true
+  - type: textarea
+    id: suggested-fix
+    attributes:
+      label: Suggested fix (optional)
+    validations:
+      required: false
