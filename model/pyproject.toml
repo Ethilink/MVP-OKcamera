@@ -11,6 +11,7 @@ dependencies = [
     "onnxruntime>=1.26.0",
     "supervision>=0.26.1",
     "pycocotools>=2.0.11",
+    "trackers",
 ]
 
 [build-system]
@@ -23,3 +24,6 @@ dev = [
     "jupyterlab>=4.6.1",
     "pytest>=9.1.1",
 ]
+
+[tool.uv.sources]
+trackers = { git = "https://github.com/roboflow/trackers.git", rev = "2.5.0" }
