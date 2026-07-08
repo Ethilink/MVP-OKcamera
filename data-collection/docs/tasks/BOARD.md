@@ -57,7 +57,7 @@ of truth**; update both when they touch your task.
 | TR4 | [Post-pass job runner](TR4-postpass.md)           | TR1 (test fakes), TR2, TR3 | done | orchestrator (blind-tdd) |
 | TR5 | [Recording API + state machine](TR5-api.md)       | TR1, TR2, TR3, TR4 | done | orchestrator (blind-tdd) |
 | TR6 | [Recording frontend](TR6-frontend.md)             | TR5 (endpoint contract only) | done (R4 manual pass green; 1 CSS fix; 2 findings → TR5/TR1) | claude |
-| TR7 | [Recording integration + 60fps spike](TR7-integration.md) | TR5, TR6 | done (e2e ACs 1–6 green; spike: Camo=30fps@1080p60; real e2e + encoder check ✓; CVAT-open left for Bram) | claude |
+| TR7 | [Recording integration + 60fps spike](TR7-integration.md) | TR5, TR6 | done (ACs 1–9 ✓; spike: Camo=30fps@1080p60; entry opens headlessly via annotation-tool Project.from_directory; 1 file_name spec-nit → TR3) | claude |
 
 ## Phases / parallelism
 

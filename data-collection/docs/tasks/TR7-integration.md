@@ -1,6 +1,6 @@
 # TR7 — Recording integration + 1080p60 spike
 
-status: done (AC1–AC7, AC9 verified; AC8 verified except the CVAT-open step, left for Bram)
+status: done (AC1–AC9 verified)
 depends-on: TR5, TR6
 blocks: — (last recording task)
 spec: [RECORDING.md](../RECORDING.md) §Acceptance criteria (1–8), §FPS — 30 vs 60 (spike), §Encoder
@@ -119,9 +119,25 @@ so they gate in CI. Hardware ACs (**AC7–AC9**) need Bram + Camo.
     **Live overlay FPS while recording ≈ idle** (0.33 vs 0.25 overlay fps —
     detector-bound both ways; the hardware avc1 encoder adds no meaningful load,
     spec AC6). Video-project **discovery rule holds** (annotations.json +
-    non-empty video/). *Remaining human step:* dropping the entry into the live
-    CVAT annotation dashboard's `data/processed/` and opening it there — the
-    contract is verified, but the CVAT stack must be up; left for Bram.
+    non-empty video/). **Open-step confirmed headlessly (2026-07-08):** the
+    consumer is NOT CVAT — it's the pure-Python `Project.from_directory` in
+    `Surgical-sets-AI/annotation_tool/src/models/project.py` (the desktop
+    annotation tool; `data/processed/` scanned by `Project.scan_all`). Ran it
+    against `mini-take`: `Project(name='mini-take', project_type='video',
+    is_partial=False, status='new', image_count=2, annotation_count=4,
+    mask_count=4, source_video=…/video/mini-take.mp4)` — recognized as a full
+    (non-partial) VIDEO project. AC8 fully satisfied. (Optional UI confirmation
+    for Bram, no Docker: copy the entry into `annotation_tool/data/processed/`
+    and `python app.py`.)
+
+  **Spec-nit found during AC8 verification (follow-up, NOT fixed here — TR3's
+  `VideoEntryWriter`):** the `annotations.json` `video` block omits `file_name`
+  ("<entry>.mp4"), which IMPORT_FORMAT_VIDEO.md §2 requires. Benign today
+  (discovery uses first-file-in-`video/`; every `images[]` record already
+  carries its own `file_name`), but the annotation tool's `dataset.py:517`
+  fallback reads `video["file_name"]` when an image record lacks one — that path
+  would `KeyError`. One-line fix: `VideoEntryWriter.finalize()` should set
+  `video_block["file_name"] = f"{entry_name}.mp4"` (and TR7's e2e can assert it).
   - **AC9 ✓ encoder reality check**: `ffprobe` on the real MP4 →
     `codec_name=h264`, `codec_tag_string=avc1` (VideoToolbox hardware path, NOT
     the ffmpeg fallback), 1920×1080, 30/1 fps, `nb_frames=58` (== writer
