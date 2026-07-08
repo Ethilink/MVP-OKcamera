@@ -32,11 +32,23 @@ class Detector:
         self.top_k = top_k
         self.session = onnxruntime.InferenceSession(str(weights_path), providers=providers)
 
-    def predict(self, image: np.ndarray) -> sv.Detections:
+    def predict(
+        self, image: np.ndarray, confidence_threshold: float | None = None
+    ) -> sv.Detections:
         """image: BGR np.ndarray (H,W,3) e.g. from cv2.imread or Frame.load_image().
         Returns sv.Detections in the image's own pixel coordinate space.
+
+        ``confidence_threshold`` defaults to ``self.confidence_threshold``. Pass it
+        explicitly to pin the exact value used for this call: the dashboard's
+        capture loop records the threshold as annotation provenance, and reading
+        the mutable attribute once here would leave a race where a concurrent
+        ``/confidence`` change makes the recorded value disagree with the value
+        that actually filtered the detections.
         """
         height, width = image.shape[:2]
+        threshold = (
+            self.confidence_threshold if confidence_threshold is None else confidence_threshold
+        )
 
         preprocessed = preprocess(image)
 
@@ -54,6 +66,6 @@ class Detector:
             masks,
             image_width=width,
             image_height=height,
-            confidence_threshold=self.confidence_threshold,
+            confidence_threshold=threshold,
             top_k=self.top_k,
         )
