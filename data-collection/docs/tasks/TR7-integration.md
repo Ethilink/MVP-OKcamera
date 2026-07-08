@@ -130,14 +130,15 @@ so they gate in CI. Hardware ACs (**AC7–AC9**) need Bram + Camo.
     for Bram, no Docker: copy the entry into `annotation_tool/data/processed/`
     and `python app.py`.)
 
-  **Spec-nit found during AC8 verification (follow-up, NOT fixed here — TR3's
-  `VideoEntryWriter`):** the `annotations.json` `video` block omits `file_name`
-  ("<entry>.mp4"), which IMPORT_FORMAT_VIDEO.md §2 requires. Benign today
-  (discovery uses first-file-in-`video/`; every `images[]` record already
-  carries its own `file_name`), but the annotation tool's `dataset.py:517`
-  fallback reads `video["file_name"]` when an image record lacks one — that path
-  would `KeyError`. One-line fix: `VideoEntryWriter.finalize()` should set
-  `video_block["file_name"] = f"{entry_name}.mp4"` (and TR7's e2e can assert it).
+  **Spec-nit found during AC8 verification — FIXED (2026-07-08, claude):** the
+  `annotations.json` `video` block (and the §5 sidecar copy) omitted `file_name`
+  ("<entry>.mp4"), required by IMPORT_FORMAT_VIDEO.md §2/§5. Was benign today
+  (discovery uses first-file-in-`video/`; every `images[]` record carries its own
+  `file_name`) but the annotation tool's `dataset.py` fallback reads
+  `video["file_name"]` when an image record lacks one → latent `KeyError`.
+  Fixed in `VideoEntryWriter.finalize()` (`file_name = f"{entry_name}.mp4"` on
+  both the annotations video block and the sidecar video block); TR7 e2e AC3
+  now asserts it. Full suite 158 green.
   - **AC9 ✓ encoder reality check**: `ffprobe` on the real MP4 →
     `codec_name=h264`, `codec_tag_string=avc1` (VideoToolbox hardware path, NOT
     the ffmpeg fallback), 1920×1080, 30/1 fps, `nb_frames=58` (== writer

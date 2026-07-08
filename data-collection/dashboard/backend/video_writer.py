@@ -124,8 +124,14 @@ class VideoEntryWriter:
             self._next_track_id += 1
 
     def finalize(self) -> None:
+        # `file_name` = the basename inside video/ (IMPORT_FORMAT_VIDEO.md §2,
+        # required on the annotations.json video block; §5 sidecar carries a
+        # copy). Consumers fall back to this when an image record lacks its own
+        # file_name — omitting it KeyErrors that path in the annotation tool.
+        mp4_name = f"{self._entry_name}.mp4"
         video_block = dict(self._video)
         video_block["id"] = 1
+        video_block["file_name"] = mp4_name
         video_block["source_type"] = "video"
 
         document = {
@@ -144,7 +150,7 @@ class VideoEntryWriter:
         metadata_dir.mkdir(parents=True, exist_ok=True)
         sidecar = {
             "schema_version": 1,
-            "video": dict(self._video),
+            "video": {**dict(self._video), "file_name": mp4_name},
             "model": {
                 "name": self._model_name,
                 "version": self._model_version,

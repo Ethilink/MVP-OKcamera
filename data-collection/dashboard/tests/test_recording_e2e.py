@@ -412,10 +412,13 @@ def test_ac3_sidecar_has_every_frame_with_stream_dims(tmp_path):
     assert frame_numbers == list(range(frames_written))  # 0..frame_count-1, contiguous
     assert sidecar["video"]["width"] == _W and sidecar["video"]["height"] == _H
     assert sidecar["video"]["frame_count"] == frames_written
+    # file_name = basename inside video/ (IMPORT_FORMAT_VIDEO.md §2/§5).
+    assert sidecar["video"]["file_name"] == "take3.mp4"
 
     anns = _load(entry, "annotations/annotations.json")
     assert anns["video"]["width"] == _W and anns["video"]["height"] == _H
     assert anns["video"]["frame_count"] == frames_written
+    assert anns["video"]["file_name"] == "take3.mp4"
     for im in anns["images"]:
         assert im["width"] == _W and im["height"] == _H
     # coords in original pixel space: every sidecar bbox fits inside the frame.

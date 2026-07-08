@@ -183,3 +183,8 @@ No real video decode — feed `add_frame` synthetic frames + `make_fake_dets`
   Followup nit (non-blocking, deferred): `dataset_writer._CATEGORIES` still
   duplicates `coco.CATEGORIES` — geometry path is shared (the AC1/AC3 requirement);
   fold the constant too if we ever touch that file.
+- 2026-07-08 (claude, via TR7) — Added the `file_name` (`<entry>.mp4`) field to
+  `VideoEntryWriter.finalize()`'s annotations.json `video` block and the §5
+  sidecar `video` block (IMPORT_FORMAT_VIDEO.md §2/§5 required it; its absence
+  was a latent `KeyError` in the annotation tool's `dataset.py` file_name
+  fallback). Found during TR7's AC8 headless open-check. Full suite 158 green.
