@@ -101,3 +101,34 @@ solve it locally.
   owner): make `read()` a rate-limiter that subtracts elapsed loop time instead
   of a fixed pre-sleep, so scenario-seconds ≈ wall-seconds as the docstring
   claims. Bram to decide whether the demo needs true-time or the caveat suffices.
+
+- **[2026-07-09] Codex post-build review — 4 edge-case bugs (none on the demo
+  happy-path; full suite + adversarial verify + e2e `--fake` smoke all pass).**
+  Codex session `019f43fa-40b6-7ca0-9006-b40691b9c518`. Bram to triage/assign:
+  - **CONFIRMED ❌ `capture.py:94` `stop()` doesn't guarantee release/dead on a
+    hung read.** Only sets `_stop` + `join(timeout=2.0)`; `cap.release()` is only
+    in the thread's `finally` (:150). A real camera blocked in `read()` >2 s →
+    `stop()` returns with thread alive, capture unreleased, `health != "dead"`
+    (T03 AC9 gap). Fake returns promptly, so demo unaffected; matters for
+    real-camera + the crash playbook. Fix: release + mark dead even on join
+    timeout. Small, but wants a test — do supervised, not blind at night.
+  - **CONFIRMED ❌ `capture.py:79` `start()` has no already-running guard.**
+    Double-`start()` spawns two daemon threads on one tracker (violates "exactly
+    one thread"). Low real-world risk (app starts once); add a guard + test.
+  - **NEEDS ADJUDICATION ❌ `main.py:89` `/stream` reads `generation` then
+    `snapshot()` as two ops** → a publish landing between them can re-yield a
+    frame while recording the stale generation (T04 AC5 "no duplicate frames").
+    Real TOCTOU on the stream path; cosmetic-ish (video feed). Fix = snapshot +
+    generation under one lock read.
+  - **NEEDS ADJUDICATION ❌ `session.py:183` projected debounce transition not
+    committed if the next observe contradicts it.** Codex scenario: `start(0)`,
+    `observe(0.1,{9})`, then `observe(2.0,∅)`, `stop(3.0)` → instrument 9 absent
+    from report though `recording_status(1.2)` had projected it confirmed. MAY
+    be a misread of the intentionally NON-mutating projection (AC10) rather than
+    a bug, and the scenario (one sparse observe, no ~10 fps stream between) is
+    unrealistic. Bram/spec call — this is the correctness heart, do NOT patch
+    blindly.
+  - ✅ Codex confirmed: publish path lock-correct, exception isolation/rate-limit
+    (AC4/6/7/8), `/status` shape + 409/503 + tz-aware timestamps + stop==report,
+    scenario boundary convention, and that the time-dilation finding above does
+    NOT corrupt recorded report values (they're wall-clock, not scenario-frame).
