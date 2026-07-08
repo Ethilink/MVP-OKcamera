@@ -179,6 +179,10 @@ main {
   backdrop-filter: blur(8px);
 }
 .hud-pill b { font-variant-numeric: tabular-nums; }
+/* .hud-pill sets display:inline-flex, which beats the UA [hidden] rule on
+   specificity — without this, rec-badge / keyframe-pill ignore `hidden` and
+   show while idle. Mirrors the [hidden] guards on .no-signal/.saved-chip/etc. */
+.hud-pill[hidden] { display: none; }
 .live-badge .dot {
   width: 0.5rem; height: 0.5rem; border-radius: 50%;
   background: var(--faint);

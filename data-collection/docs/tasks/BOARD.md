@@ -56,8 +56,8 @@ of truth**; update both when they touch your task.
 | TR3 | [Shared COCO helper + `VideoEntryWriter`](TR3-video-writer.md) | —  | done   | orchestrator (blind-tdd) |
 | TR4 | [Post-pass job runner](TR4-postpass.md)           | TR1 (test fakes), TR2, TR3 | done | orchestrator (blind-tdd) |
 | TR5 | [Recording API + state machine](TR5-api.md)       | TR1, TR2, TR3, TR4 | done | orchestrator (blind-tdd) |
-| TR6 | [Recording frontend](TR6-frontend.md)             | TR5 (endpoint contract only) | review (code done; manual pass → R4) | tr6-frontend-v2 |
-| TR7 | [Recording integration + 60fps spike](TR7-integration.md) | TR5, TR6 | todo | |
+| TR6 | [Recording frontend](TR6-frontend.md)             | TR5 (endpoint contract only) | done (R4 manual pass green; 1 CSS fix; 2 findings → TR5/TR1) | claude |
+| TR7 | [Recording integration + 60fps spike](TR7-integration.md) | TR5, TR6 | in-progress (claude) | claude |
 
 ## Phases / parallelism
 

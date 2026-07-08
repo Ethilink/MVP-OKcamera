@@ -1,6 +1,6 @@
 # TR6 — Recording frontend
 
-status: review
+status: done
 depends-on: TR5 (frozen endpoint contract only — not TR5's code)
 blocks: TR7
 spec: [RECORDING.md](../RECORDING.md) §What the operator experiences, §API & state (Frontend bullet)
@@ -170,3 +170,85 @@ Keep T06's existing checks green.
   → ORC, scaffold assertion restored to ORC. The recording UI itself
   (Record/Stop, SPACE keyframe, progress veil, additive DOM ids) is untouched
   and stands. Manual ACs still deferred to R4.
+- 2026-07-08 (claude, R4) — **Manual UI pass done end-to-end in Chrome against
+  live Camo (index 3, 1080p) + real RF-DETR ONNX weights. All 8 ACs verified;
+  status → done.** Drove Record → live overlay with X-Frame-Number updating →
+  SPACE keyframes → Stop → processing veil polling a real post-pass to
+  completion → inspected the written entry on disk → exercised discard + retry.
+  Happy-path GIF recorded (`tr6_recording_happy_path.gif`).
+
+  **Bug found + fixed (static/style.css only, no DOM-id change):** the REC badge
+  (`#rec-badge`) and keyframe pill (`#keyframe-pill`) were *visible while idle*.
+  Root cause: `.hud-pill` sets `display:inline-flex`, which beats the UA
+  `[hidden]{display:none}` rule on specificity, so the `hidden` attribute the JS
+  sets was ignored. The CSS author had added `[hidden]{display:none}` guards for
+  `.no-signal`/`.saved-chip`/`.postpass-veil`/`.postpass-error`/`.postpass-actions
+  button` but missed `.hud-pill`. Fix: added `.hud-pill[hidden]{display:none}`.
+  Verified `getComputedStyle` → `none` when idle, badge/pill appear only while
+  recording. (Requires a hard-reload to pick up the CSS the first time — plain
+  StaticFiles cache; not a code issue.)
+
+  **Per-AC results (all against the live backend):**
+  - AC1 ✓ Record → entry-name prompt → `/record/start`; button flips to Stop;
+    a colliding name (`mini-take` already on disk) surfaced `409` detail
+    "entry already exists: 'mini-take'" in the error banner (never swallowed).
+  - AC2 ✓ SPACE marks the *on-screen* frame: `X-Frame-Number` (~6336) was far
+    below `frames_written` (~7890), confirming it echoes the displayed frame,
+    not the newest; counter incremented per press (1→2→3); the on-screen
+    `#n-keyframes` tracked it. Robustness: even with `#record` explicitly
+    focused, SPACE marked a keyframe and did **not** re-trigger Stop — the
+    keydown handler's `e.preventDefault()` suppresses the button's space
+    activation. (On macOS a button click doesn't focus it anyway, so the common
+    path is naturally clean.)
+  - AC3 ✓ Idle SPACE flagged a still (`n_flagged` 0→1, "Saved · N instruments"),
+    no `/keyframe` call — image mode unchanged.
+  - AC4 ✓ Keyframe errors use the same `readJson`/`detailText`/`showError`
+    plumbing proven by AC1's 409; note the UI cannot itself produce a keyframe
+    422/409 in normal use (`markKeyframe` fires only while `recording` and always
+    sends a valid displayed frame), so these are defensive — the render path is
+    the shared one.
+  - AC5 ✓ Stop → `processing`; veil covered the stage, progress bar advanced
+    `done/total` (watched 0 → 57/58 live), Record/FLAG disabled throughout.
+  - AC6 ✓ Induced a real post-pass failure (made the entry dir read-only so the
+    first `mkdir` raised) → veil showed "Post-pass failed" + the full error text
+    + Retry/Discard; after restoring perms, **Retry** returned to
+    `processing` (done 3/1403) with the error cleared. (Full completion +
+    idempotent rebuild already observed on the `mini-take` run.)
+  - AC7 ✓ Discard verified from **recording** (abort — folder removed),
+    **processing** (folder removed, returns to idle), and **failed**.
+  - AC8 ✓ Zero external assets; served fully offline; no console errors across
+    the whole session.
+
+  **On-disk entry verified** (`mini-take`, 58 frames, 2 keyframes at 49/54):
+  `video/mini-take.mp4` + `annotations/annotations.json` (video block
+  fps 30 / 1920×1080 / frame_count 58, 2 image records, 4 annotations with
+  **unique** `track_id`s + `video_id` + `frame_number`, image-mode bbox shape) +
+  `annotations/metadata/selected_frames.json` (`manual_review: true`) +
+  `annotations/metadata/full_frame_detections.json` (all 58 frames 0..57,
+  schema_version 1, model `rfdetr-2026-07-07` @ mining 0.25) +
+  `images/mini-take_f000049.jpg` / `_f000054.jpg`. The keyframe JPEG is a q95
+  re-encode of the MP4-decoded frame (maxdiff 27 = JPEG loss on a photographic
+  frame; the rigorous lossless off-by-one proof is TR7's numbered-frame e2e).
+
+  **Findings referred to owning tasks (NOT fixed here — frontend task):**
+  1. *(TR5/TR4, concurrency)* **`/record/discard` during `processing` does not
+     cancel the running post-pass worker.** `PostPassJob.run()` has no
+     cooperative-cancel check in its per-frame loop, and discard only clears
+     `rec.job` + `rmtree`s the folder. The orphaned worker keeps calling
+     `detector.predict` (concurrent with the just-resumed live inference — a
+     §Detector-sharing violation) and its `cv2.imwrite` re-creates a **stray
+     partial folder** (`<entry>/images/<entry>_fNNNNNN.jpg`) *after* the rmtree.
+     Confirmed on disk (two discarded takes left exactly one stray keyframe JPEG
+     each). The resume-once invariant is intact (ownership guard holds); this is
+     a *separate* orphaned-worker issue. Impact on this slow CPU: a discarded
+     970-frame take's worker runs ~24 min post-discard at half live-FPS. Not
+     caught by any current AC (TR7 AC5 tests process-kill, not discard).
+     Suggested fix: a `cancel` flag on `PostPassJob` checked each loop iteration;
+     discard sets it before rmtree.
+  2. *(TR1/capture, informational)* Delivered read rate on Camo is **~80 fps and
+     bursts far higher** (a ~2 s UI recording produced 970 frames), i.e. the
+     reader is not rate-limited to `capture_fps`. The MP4 is CFR@30 so it plays
+     back slow-motion; frame-number mapping is still exact (spec §Encoder accepts
+     this). Combined with a **~0.6 fps** post-pass (RF-DETR ONNX on CPU at
+     1080p — ~15× slower than the spec's 10 fps ballpark), post-pass time is the
+     real bottleneck. Measured properly in TR7's spike/runbook.

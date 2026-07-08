@@ -152,7 +152,26 @@ post-pass video (inject a fake `PostPassJob` / fake video reader).
   detector mid-way through a *later* take → §Detector-sharing violation). Fixed by
   tying resume to job ownership — invariant: `resume_inference()` fires **exactly
   once** per processing episode (worker iff `rec.job is job` at completion, else
-  discard when it takes ownership away; an orphaned worker never resumes). Codex
+  discard when it takes ownership away; an orphaned worker never resumes).
+
+  > **Follow-up bug surfaced during TR6 R4 manual pass (2026-07-08, claude) —
+  > NOT yet fixed.** The resume-once invariant above holds, but the orphaned
+  > worker is never *cancelled*: `PostPassJob.run()` (TR4) has no cooperative-
+  > cancel check in its `for frame_number in range(...)` loop, and
+  > `/record/discard` during `processing` only clears `rec.job`, resumes
+  > inference, and `rmtree`s the folder. The still-running worker therefore keeps
+  > calling `detector.predict` **concurrently with the just-resumed live
+  > inference** (a §Detector-sharing violation) for the full remaining duration,
+  > and its `writer.add_frame` → `cv2.imwrite` **re-creates a stray partial
+  > folder** (`<entry>/images/<entry>_fNNNNNN.jpg`) *after* the rmtree deleted it.
+  > Reproduced on disk: two discard-during-processing takes each left exactly one
+  > stray keyframe JPEG. On the CPU-bound detector (~0.6 fps) a discarded
+  > 970-frame take's worker runs ~24 min post-discard at halved live FPS. Not
+  > caught by any AC (TR7 AC5 exercises process-kill, not discard). Suggested
+  > fix: add a `cancel`/`cancelled` flag to `PostPassJob`, check it at the top of
+  > each loop iteration (bail before predict/imwrite), and have `/record/discard`
+  > set it before the rmtree. Owner decision needed (TR5 discard + TR4 job).
+
   review independently corroborated the lock area (noted GET-side `rec.state`
   reads outside the lock — harmless, read-only) but **stalled before a verdict**;
   consensus rested on Opus + the green test gate. Phase-4 fixes: (1) /record/start
