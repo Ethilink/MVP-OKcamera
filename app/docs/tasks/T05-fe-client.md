@@ -35,7 +35,7 @@ export interface Status { phase: Phase; capture_health: "ok" | "stalled";
   model_version: string; setup: SetupStatus | null; recording: RecordingStatus | null }
 export interface UsageWindow { off_s: number; on_s: number | null }
 export interface InstrumentReport { tracker_id: number; label: string;
-  completeness: "present" | "lost"; usage: UsageWindow[] }
+  completeness: "present" | "missing"; usage: UsageWindow[] }
 export interface Report { started_at: string; stopped_at: string;
   duration_s: number; model_version: string; instruments: InstrumentReport[] }
 
@@ -65,7 +65,7 @@ export function useStatus(intervalMs?: number): {
 //   finishedStatus (phase "finished": setup block PRESENT & stable,
 //     recording null — drives the run-2 gate; T06 AC4b needs it),
 //   captureStalled (capture_health "stalled" — T06 AC1 banner + disabled Start),
-//   demoReport (2 instruments with windows incl. one lost), plus
+//   demoReport (2 instruments with windows incl. one missing), plus
 //   scriptedHandlers(sequence) -> MSW handlers stepping through it.
 ```
 

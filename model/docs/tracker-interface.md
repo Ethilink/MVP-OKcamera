@@ -71,6 +71,41 @@ exactly these shapes — your tracker's job is to **add `tracker_id` and preserv
 the rest** (watch that `ByteTrack` doesn't drop `mask` / `data` on the way
 through).
 
+## `tracker_id` across absence — track linking
+
+"Stable, unique per instrument this recording" includes absence: an instrument
+that leaves the frame and later returns must come back under its **original**
+`tracker_id`. A plain ByteTrack does not do this — it spawns a fresh track on
+return. The agreed mechanism (2026-07-08) is **track linking** behind this
+interface: the fresh track gets linked to the old one, and from the moment the
+link resolves, `update()` re-emits the original id. Two hard requirements:
+
+- **The link never leaks.** No alias map, no retroactive id rewrites on the
+  consumer's side — once linked, the output simply carries the original
+  `tracker_id` again, for the rest of the recording.
+- **Linking resolves within ≤ 1.0 s** of the instrument being back in frame.
+  The demo app only registers an id once it has been present > 1.0 s (entry
+  debounce, `app/docs/tasks/T02-session.md`), so a provisional pre-link id that
+  lives < 1.0 s leaves no trace; one that survives longer surfaces on the
+  client-facing report as a phantom instrument that never returned.
+
+> **Open items (2026-07-08):**
+> - **Who builds the linker** — to be confirmed (Constantijn assumed). Wherever
+>   it's authored, it lives in `model/` and is composed inside `load_tracker()`
+>   — the consumer only ever sees linked, original ids through this interface.
+>   Raw short-tracks / detection cutouts never cross the seam.
+> - **Linking is appearance-based** (match a returning instrument's cutout to
+>   old tracks) ⇒ the demo instrument set must contain **no duplicate types**,
+>   or the linker can't tell twins apart (mvp issue #2).
+> - **fps alignment** — the autoresearch harness replays cached detections at
+>   `TARGET_FPS=30`, which is free offline; live fps is inference-bound
+>   (historically ~10–15). Measure real end-to-end `update()` fps on the demo
+>   machine with real weights at 1080p, then pin THAT number in the harness so
+>   association gates are tuned at the motion gaps the demo will actually see.
+> - The `trackers` library emits `tracker_id == -1` for immature tracks; this
+>   interface forbids −1 — the production wrapper must strip them (the eval
+>   harness already does).
+
 ## `confidence` — a setting, not a slider hack
 
 `confidence` is a plain read/write attribute. Set at startup; the dashboard may

@@ -35,14 +35,23 @@ class StubCapture:
     so stream-pacing and provenance assertions are race-free.
     """
 
-    def __init__(self, latest=None, health="ok", generation=0):
+    def __init__(self, latest=None, health="ok", generation=0, camera_index=0):
         self._latest = latest
         self._health = health
         self._generation = generation
+        self.camera_index = camera_index
         self.set_camera_calls: list[int] = []
 
     def snapshot(self):
         return self._latest
+
+    def snapshot_with_generation(self):
+        return self._generation, self._latest
+
+    def snapshot_at(self, generation):
+        # The ring holds only the current generation in this stub; anything else
+        # reads as "aged out" so the /flag eviction path is exercisable.
+        return self._latest if generation == self._generation else None
 
     @property
     def generation(self) -> int:
@@ -289,6 +298,7 @@ def test_ac7_status_fields_and_health_ok(tmp_path):
             "output_path",
             "n_flagged",
             "capture_health",
+            "camera_index",
         }
         assert body["confidence"] == 0.6
         assert body["dataset_name"] is None
@@ -296,6 +306,7 @@ def test_ac7_status_fields_and_health_ok(tmp_path):
         assert body["n_flagged"] == 0
         assert isinstance(body["count"], int)
         assert body["capture_health"] == "ok"
+        assert body["camera_index"] == 0  # the index the loop opened on
     finally:
         capture.stop()
 
@@ -390,6 +401,112 @@ def test_ac9_flag_records_snapshot_threshold(tmp_path):
         # The frozen snapshot value survives — not the live 0.8 slider.
         assert ann["confidence_threshold"] == 0.3
         assert ann["model_version"] == "rfdetr-test"
+
+
+# --- /frame: client-driven display carries the frame generation -------------
+
+
+def test_frame_returns_jpeg_with_generation_header():
+    stub = StubCapture(latest=_latest(jpeg=b"JPEGBYTES"), generation=7)
+    app = create_app(FakeDetector(), _writer_factory(), stub)
+    client = TestClient(app)
+
+    r = client.get("/frame")
+    assert r.status_code == 200
+    assert r.content == b"JPEGBYTES"
+    assert r.headers["x-frame-generation"] == "7"
+    assert r.headers["content-type"] == "image/jpeg"
+
+
+def test_frame_204_when_client_already_has_that_generation():
+    stub = StubCapture(latest=_latest(jpeg=b"JPEGBYTES"), generation=7)
+    app = create_app(FakeDetector(), _writer_factory(), stub)
+    client = TestClient(app)
+
+    # Client says it already painted gen 7 -> no redundant JPEG download.
+    assert client.get("/frame", params={"after": 7}).status_code == 204
+    # A different (older) generation still gets the current frame.
+    assert client.get("/frame", params={"after": 6}).status_code == 200
+
+
+def test_frame_503_before_first_frame():
+    stub = StubCapture(latest=None, generation=0)
+    app = create_app(FakeDetector(), _writer_factory(), stub)
+    client = TestClient(app)
+    assert client.get("/frame").status_code == 503
+
+
+# --- /flag by generation: capture the EXACT frozen frame, not the newest -----
+
+
+def test_flag_by_generation_captures_that_frame(tmp_path):
+    stub = StubCapture(latest=_snap_latest(), generation=5)
+    app = create_app(FakeDetector(), _writer_factory(), stub)
+    client = TestClient(app)
+    client.post(
+        "/settings", json={"output_path": str(tmp_path), "dataset_name": "ds"}
+    ).raise_for_status()
+
+    r = client.post("/flag", json={"generation": 5})
+    assert r.status_code == 200
+    assert r.json()["image_id"] == 1
+
+
+def test_flag_with_evicted_generation_returns_409(tmp_path):
+    stub = StubCapture(latest=_snap_latest(), generation=5)
+    app = create_app(FakeDetector(), _writer_factory(), stub)
+    client = TestClient(app)
+    client.post(
+        "/settings", json={"output_path": str(tmp_path), "dataset_name": "ds"}
+    ).raise_for_status()
+
+    # A generation no longer in the ring must be rejected, never silently save a
+    # different frame.
+    r = client.post("/flag", json={"generation": 999})
+    assert r.status_code == 409
+    assert "aged out" in r.json()["detail"]
+
+
+def test_flag_without_body_still_flags_newest(tmp_path):
+    """Back-compat: a no-body POST /flag falls back to the newest frame."""
+    stub = StubCapture(latest=_snap_latest(), generation=5)
+    app = create_app(FakeDetector(), _writer_factory(), stub)
+    client = TestClient(app)
+    client.post(
+        "/settings", json={"output_path": str(tmp_path), "dataset_name": "ds"}
+    ).raise_for_status()
+
+    assert client.post("/flag").status_code == 200
+
+
+# --- /discard: undo the most recent capture ---------------------------------
+
+
+def test_discard_removes_last_capture(tmp_path):
+    stub = StubCapture(latest=_snap_latest(), generation=5)
+    app = create_app(FakeDetector(), _writer_factory(), stub)
+    client = TestClient(app)
+    client.post(
+        "/settings", json={"output_path": str(tmp_path), "dataset_name": "ds"}
+    ).raise_for_status()
+    client.post("/flag", json={"generation": 5}).raise_for_status()
+    assert client.get("/status").json()["n_flagged"] == 1
+
+    r = client.post("/discard")
+    assert r.status_code == 200
+    assert r.json()["discarded_image_id"] == 1
+    assert r.json()["n_flagged"] == 0
+    assert not (tmp_path / "ds" / "images" / "frame_00001.jpg").exists()
+
+    # Nothing left to discard -> 409, not a crash.
+    assert client.post("/discard").status_code == 409
+
+
+def test_discard_without_dataset_returns_409():
+    stub = StubCapture(latest=_snap_latest())
+    app = create_app(FakeDetector(), _writer_factory(), stub)
+    client = TestClient(app)
+    assert client.post("/discard").status_code == 409
 
 
 # --- static assets: index.html's CSS + JS must actually be served -----------

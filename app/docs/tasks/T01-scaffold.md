@@ -43,7 +43,7 @@ Any endpoint, screen, session logic, or capture thread. The TS API types
 class ScenarioEvent:
     tracker_id: int
     leave_s: float
-    return_s: float | None      # None = never returns ("lost")
+    return_s: float | None      # None = never returns ("missing")
 
 class ScenarioTracker:
     """Implements InstrumentTracker (model/docs/tracker-interface.md).

@@ -401,6 +401,89 @@ def test_ac12_categories_info_and_stable_date_created(tmp_path, fake_frame, fake
 
 
 # ---------------------------------------------------------------------------
+# Regression — a failed cv2.imwrite must raise, not silently record a missing
+# image; and the writer must stay retryable (counters untouched) so the next
+# flag can succeed. cv2.imwrite returns False on failure instead of raising.
+# ---------------------------------------------------------------------------
+
+
+def test_failed_imwrite_raises_and_leaves_writer_retryable(
+    tmp_path, fake_frame, fake_dets, monkeypatch
+):
+    frame = fake_frame(1920, 1080)
+    dets = fake_dets([[10, 10, 60, 60]], size=(1920, 1080))
+    writer = DatasetWriter(tmp_path, "set_imwrite_fail", "model-v1")
+
+    import backend.dataset_writer as dw
+
+    monkeypatch.setattr(dw.cv2, "imwrite", lambda *a, **k: False)
+    with pytest.raises(OSError):
+        writer.flag(frame, dets, threshold=0.5)
+
+    # No state advanced: no image record, no annotations, no annotations.json,
+    # counter still zero — the flag is as if it never happened.
+    assert writer.n_flagged == 0
+    assert writer.images == []
+    assert writer.annotations == []
+    assert not (writer.dataset_dir / "annotations" / "annotations.json").exists()
+
+    # Recover: with imwrite working again the next flag succeeds as frame 1
+    # (the earlier failure did not consume the id or trip on the existing dirs).
+    monkeypatch.undo()
+    result = writer.flag(frame, dets, threshold=0.5)
+    assert result.image_id == 1
+    assert result.file_name == "frame_00001.jpg"
+    assert (writer.dataset_dir / "images" / "frame_00001.jpg").is_file()
+    assert writer.n_flagged == 1
+
+
+# ---------------------------------------------------------------------------
+# Regression — discard_last() undoes the most recent flag: its image record, its
+# annotations (the contiguous tail), and its JPEG; the freed id is cleanly reused.
+# ---------------------------------------------------------------------------
+
+
+def test_discard_last_removes_tail_and_reuses_id(tmp_path, fake_frame, fake_dets):
+    frame = fake_frame(1920, 1080)
+    writer = DatasetWriter(tmp_path, "set_discard", "model-v1")
+
+    writer.flag(frame, fake_dets([[10, 10, 60, 60]], size=(1920, 1080)), threshold=0.5)
+    writer.flag(
+        frame,
+        fake_dets([[20, 20, 80, 80], [100, 100, 160, 160]], size=(1920, 1080)),
+        threshold=0.5,
+    )
+    assert writer.n_flagged == 2
+
+    removed = writer.discard_last()
+    assert removed == 2
+    assert writer.n_flagged == 1
+    assert not (writer.dataset_dir / "images" / "frame_00002.jpg").exists()
+
+    data = _read_json(writer.dataset_dir)
+    assert [i["id"] for i in data["images"]] == [1]
+    # image 2's two annotations are gone; image 1's single annotation remains.
+    assert [a["image_id"] for a in data["annotations"]] == [1]
+    assert [a["id"] for a in data["annotations"]] == [1]
+
+    # The freed id is reused with no gap or duplicate on the next flag.
+    r = writer.flag(frame, fake_dets([[30, 30, 90, 90]], size=(1920, 1080)), threshold=0.5)
+    assert r.image_id == 2
+    assert r.file_name == "frame_00002.jpg"
+    assert (writer.dataset_dir / "images" / "frame_00002.jpg").is_file()
+
+    # And the result still validates cleanly (ids continuous, no dupes).
+    errors, _warnings = validate(writer.dataset_dir)
+    assert errors == []
+
+
+def test_discard_last_on_empty_raises(tmp_path):
+    writer = DatasetWriter(tmp_path, "set_discard_empty", "model-v1")
+    with pytest.raises(IndexError):
+        writer.discard_last()
+
+
+# ---------------------------------------------------------------------------
 # AC13 — produced dataset passes validate() with zero errors
 # ---------------------------------------------------------------------------
 

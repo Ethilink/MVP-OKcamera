@@ -58,8 +58,11 @@ def main(argv: list[str] | None = None) -> None:
         return DatasetWriter(output_path, dataset_name, args.model_version)
 
     capture = CaptureLoop(detector, args.camera_index, render)
-    capture.start()
     try:
+        # Inside the try so a start() failure (dead camera) still hits stop() —
+        # start() also releases its own handle on that path, so this is belt and
+        # suspenders, but it keeps shutdown uniform for every exit.
+        capture.start()
         app = create_app(detector, writer_factory=writer_factory, capture=capture)
         uvicorn.run(app, host=args.host, port=args.port)
     finally:

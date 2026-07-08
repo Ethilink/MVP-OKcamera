@@ -31,7 +31,8 @@ One operator screen:
    with one at a time).
 3. **Report** (after **Stop**) — per instrument: a **Usage** timeline (its
    off-table windows) and a **Completeness** badge (*present* on the table at
-   Stop, or *lost*).
+   Stop, or *missing* — glossary-canonical: the camera observes absence; it
+   cannot claim *lost* vs *misplaced*).
 
 Acceptance = the report matches what physically happened in the run.
 
@@ -63,7 +64,7 @@ seam is **frozen** in [`model/docs/tracker-interface.md`](../../model/docs/track
 | D5 | **Single resolution 1920×1080** end-to-end | nothing is saved to disk here; no 4K machinery |
 | D6 | One background **capture-infer thread**, frames in order, atomic `Latest` snapshot, `CAP_PROP_BUFFERSIZE=1`, stale-detection | the one lesson imported from data-collection |
 | D7 | Report **in-memory only**; next Start discards it | demo shows the report right after Stop |
-| D8 | Identity = `tracker_id`, verbatim. Labels are `"Instrument {tracker_id}"` | single class; re-id quality is model-side (**flagged to Constantijn**: ids must survive out-of-frame absence or the report shows one *lost* + one phantom *new*) |
+| D8 | Identity = `tracker_id`, verbatim. Labels are `"Instrument {tracker_id}"` | single class; re-id is model-side. **Resolved 2026-07-08:** ids survive absence via **track linking** behind the seam (tracker-interface §tracker_id across absence) — linked tracks re-emit the original id within ≤ 1 s of return; `Session` adds a 1 s **entry debounce** (T02) so provisional pre-link ids leave no trace. Linker owner: Constantijn (TBC) |
 | D9 | **Off/on debounce** in `Session` (defaults 1.5 s off, 1.0 s on) so detector flicker ≠ pickups | correctness of the report |
 | D10 | Fake = **`ScenarioTracker`** (scripted pickups/returns/losses) + `FakeCaptureSource`, living in `app/backend/` — `model/` is not touched | fake at the deepest seam; frontend always talks to the one real API. `FakeInstrumentTracker` in `model/` only drifts — it can't demo Usage |
 | D11 | `Session` is **pure** (fed `(t, present_ids)`; no clock, no threads inside) | the whole report correctness becomes unit-testable |

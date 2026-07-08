@@ -109,6 +109,10 @@ def test_ac02_no_valid_first_frame_raises_naming_index(
 
     message = str(exc_info.value)
     assert "3" in message  # the camera index is named so the operator can act
+    # The opened handle must be released on the failure path — the loop thread
+    # never started, and main() calls start() before its try/finally, so nothing
+    # else would release a dead-camera capture.
+    assert cap.released is True
 
 
 # ---------------------------------------------------------------------------
@@ -346,7 +350,7 @@ def test_ac08_abnormal_exception_in_loop_body_marks_dead(fake_frame, FakeCapture
 
         confidence_threshold = 0.5
 
-        def predict(self, frame):
+        def predict(self, frame, confidence_threshold=None):
             raise ValueError("boom - simulated detector crash")
 
     loop = CaptureLoop(
@@ -496,6 +500,34 @@ def test_reopen_on_sustained_failure_recovers(fake_frame, FakeDetector, FakeCapt
 
     assert len(made) >= 2  # the camera was reopened, not just re-read
     assert cap_a.released is True  # the wedged handle was released on reopen
+
+
+def test_ring_snapshot_at_retrieves_exact_frame_then_evicts(
+    fake_frame, FakeDetector, FakeCapture
+):
+    # The ring lets /flag capture the exact frozen frame by generation; it's a
+    # shallow window, so an old-enough generation ages out and reads as None
+    # (so the endpoint rejects rather than saving a different frame).
+    frame = fake_frame(1920, 1080)
+    cap = FakeCapture(frames=[frame])  # repeats -> the loop keeps ticking
+    detector = FakeDetector()
+
+    with running_loop(
+        detector,
+        camera_index=0,
+        render_fn=_identity_render,
+        cap_factory=lambda idx: cap,
+        ring_size=8,
+    ) as loop:
+        _wait_until(lambda: loop.generation >= 1)
+        gen, snap = loop.snapshot_with_generation()
+        assert snap is not None
+        # The exact frame for `gen` is retrievable while it's still in the window.
+        assert loop.snapshot_at(gen) is snap
+
+        # Once the loop advances well past the ring depth, `gen` is evicted.
+        _wait_until(lambda: loop.generation > gen + 8)
+        assert loop.snapshot_at(gen) is None
 
 
 def test_reopen_targets_the_switched_index_after_set_camera(

@@ -1,26 +1,26 @@
-/* ORC data-collection dashboard — T06.
+/* ORB data-collection dashboard — T06.
    Zero external assets (AC7): system font stack, no CDN fonts/JS/images.
-   Everything below is one cohesive dark "capture console" theme. */
+   Everything below is one cohesive black "capture console" theme. */
 
 :root {
-  --bg: #0b0e13;
-  --bg-2: #0e131b;
-  --panel: #161c26;
-  --panel-2: #1d2531;
-  --panel-3: #232c3a;
-  --text: #e8eef5;
-  --muted: #8a97a7;
-  --faint: #5b6675;
-  --line: #29323f;
-  --line-2: #333e4d;
-  --accent: #4b8bff;
-  --accent-strong: #2f6bff;
+  --bg: #000000;
+  --bg-2: #08080a;
+  --panel: #101012;
+  --panel-2: #161618;
+  --panel-3: #1f1f22;
+  --text: #f2f2f4;
+  --muted: #8b8b92;
+  --faint: #5a5a61;
+  --line: #232326;
+  --line-2: #303034;
+  --accent: #e8e8ec;         /* monochrome accent — near-white */
+  --accent-strong: #c4c4ca;
   --ok: #2fd07a;
   --warn: #f5b13d;
   --bad: #ff5a5f;
   --radius: 14px;
   --radius-sm: 8px;
-  --shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.7);
+  --shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.85);
   --font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
@@ -30,8 +30,8 @@ html, body {
   margin: 0;
   min-height: 100%;
   background:
-    radial-gradient(1200px 600px at 78% -8%, rgba(75, 139, 255, 0.10), transparent 60%),
-    radial-gradient(900px 500px at 0% 110%, rgba(47, 208, 122, 0.06), transparent 55%),
+    radial-gradient(1200px 600px at 78% -8%, rgba(255, 255, 255, 0.04), transparent 60%),
+    radial-gradient(900px 500px at 0% 110%, rgba(255, 255, 255, 0.02), transparent 55%),
     var(--bg);
   color: var(--text);
   font-family: var(--font);
@@ -61,8 +61,9 @@ html, body {
   width: 2.1rem;
   height: 2.1rem;
   border-radius: 10px;
-  background: linear-gradient(145deg, var(--accent), var(--accent-strong));
-  box-shadow: 0 4px 14px -4px rgba(47, 107, 255, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  background: linear-gradient(145deg, #17171a, #0a0a0c);
+  border: 1px solid var(--line-2);
+  box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   color: #fff;
 }
 .brand-mark svg { width: 1.25rem; height: 1.25rem; display: block; }
@@ -153,7 +154,7 @@ main {
   position: absolute; inset: 0;
   border-radius: var(--radius);
   pointer-events: none;
-  box-shadow: inset 0 0 0 1px rgba(75, 139, 255, 0.18), inset 0 0 60px rgba(0, 0, 0, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 0 60px rgba(0, 0, 0, 0.6);
 }
 #stream {
   position: absolute; inset: 0;
@@ -203,6 +204,38 @@ main {
 }
 .ns-title { margin: 0.6rem 0 0.2rem; font-size: 1.05rem; font-weight: 700; }
 .ns-sub { margin: 0; font-size: 0.85rem; color: var(--muted); }
+
+/* Frozen state — while a capture is held for confirmation, ring the frame green
+   so it reads as "this exact still was saved", distinct from the live blue ring. */
+.stage-frame.frozen::after {
+  box-shadow: inset 0 0 0 2px rgba(47, 208, 122, 0.7), inset 0 0 60px rgba(0, 0, 0, 0.55);
+}
+
+/* Capture confirmation chip — "✓ saved · Discard", bottom-centre over the still */
+.saved-chip {
+  position: absolute; z-index: 6;
+  left: 50%; bottom: 0.9rem; transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 0.55rem;
+  padding: 0.4rem 0.5rem 0.4rem 0.8rem;
+  border-radius: 999px;
+  font-size: 0.8rem; font-weight: 600; color: var(--text);
+  background: rgba(10, 14, 20, 0.82);
+  border: 1px solid rgba(47, 208, 122, 0.45);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow);
+}
+.saved-chip[hidden] { display: none; }
+.saved-tick { color: var(--ok); font-weight: 800; }
+.discard-btn {
+  cursor: pointer;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.75rem; font-weight: 700;
+  color: var(--text);
+  background: var(--panel-3);
+  border: 1px solid var(--line-2);
+}
+.discard-btn:hover { border-color: var(--bad); color: #ffd9da; background: rgba(255, 90, 95, 0.12); }
 
 /* Capture flash overlay — a quick white pop on every flag */
 .capture-flash {
@@ -330,7 +363,7 @@ main {
 #confidence:focus-visible {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(75, 139, 255, 0.22);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.14);
 }
 
 /* Buttons */
@@ -339,13 +372,13 @@ button {
   cursor: pointer;
   padding: 0.62rem 1rem;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--accent);
-  background: linear-gradient(180deg, var(--accent), var(--accent-strong));
-  color: #fff;
+  border: 1px solid var(--line-2);
+  background: linear-gradient(180deg, #1c1c20, #141417);
+  color: var(--text);
   font-weight: 700;
-  transition: filter 0.15s ease, transform 0.08s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.08s ease;
 }
-button:hover { filter: brightness(1.08); }
+button:hover { border-color: #444448; background: linear-gradient(180deg, #232327, #191919); }
 button:active { transform: translateY(1px); }
 button.block { width: 100%; }
 button.secondary {
@@ -353,7 +386,7 @@ button.secondary {
   color: var(--text);
   border-color: var(--line-2);
 }
-button.secondary:hover { border-color: var(--accent); filter: none; background: var(--panel-3); }
+button.secondary:hover { border-color: #444448; background: var(--panel-3); }
 button:disabled { opacity: 0.55; cursor: not-allowed; filter: none; transform: none; }
 
 /* ---- Banners, toast, validate results -------------------------------------- */

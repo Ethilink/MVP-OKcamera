@@ -59,14 +59,21 @@ capture-infer thread (loop):        # ONE resolution — capture, detect, save a
         latest = (frame, dets, threshold, encode_jpeg(overlay), len(dets))
         heartbeat = <monotonic now>        # /status uses this to report capture health
 
-GET  /stream        -> MJPEG of latest overlay jpeg
+GET  /stream        -> MJPEG of latest overlay jpeg (legacy; UI uses /frame)
+GET  /frame?after=N -> newest overlay jpeg + `X-Frame-Generation` header; 204 if
+                       gen==N (client already has it). The UI paints this so it
+                       knows the generation of the frame on screen (freeze-capture).
 POST /confidence    -> detector.confidence_threshold = value        (live, Pydantic)
 POST /settings      -> {camera_index?, output_path, dataset_name}   set capture target
                        -> REJECT if <output_path>/<dataset_name> already exists (collision)
-POST /flag          -> serialize NEWEST latest (frame, dets, threshold) into active dataset
-                       -> 409 if no valid target configured
+POST /flag          -> {generation?}: serialize the frame at that generation (the
+                       EXACT frame the operator froze on) into the active dataset;
+                       falls back to newest latest if omitted. 409 if no valid
+                       target, or if that generation aged out of the ring buffer.
+POST /discard       -> undo the most recent flag (drop its image + annotations +
+                       jpeg); 409 if no dataset or nothing to discard
 POST /validate      -> validate(<active dataset>) in-process -> advisory (errors, warnings)
-GET  /status        -> {count, confidence, dataset_name, output_path, n_flagged, capture_health}
+GET  /status        -> {count, confidence, dataset_name, output_path, n_flagged, capture_health, camera_index}
 ```
 
 There is **no `/recording/start` / `/recording/stop`.** The tool is stateless: the
@@ -95,13 +102,18 @@ never per stream frame.
   interleave `image_id`/`ann_id` assignment and the `annotations.json` rewrite —
   duplicate ids and a torn file. Flags are ~1/s at most, so holding it for the
   whole flag body is free.
-- **`/flag` saves the NEWEST `latest`, not the exact frame the operator saw.** The
-  MJPEG stream lags 100–300 ms, so the saved frame can be a few frames newer than
-  what triggered the SPACE. Accepted for v1 (a ring buffer keyed to the displayed
-  frame was considered and dropped — a plain `<img>` stream can't tell the client
-  which frame is painted, so keying it would need an SSE/frame-id side-channel not
-  worth the complexity here). Bad frames come in bursts, so newest-frame is close
-  enough. **Known caveat — documented, not a bug.**
+- **`/flag` saves the EXACT frame the operator froze on (freeze-capture).** Earlier
+  v1 saved the *newest* `latest`, which lagged the displayed frame by 100–300 ms —
+  fine for most captures but wrong when detections **flicker** frame-to-frame, since
+  the saved boxes could differ from the ones that triggered the SPACE. Now the UI
+  drives the display by polling `/frame` (not a plain MJPEG `<img>`), so it knows
+  the **generation** of the frame on screen; SPACE freezes that frame and posts
+  `/flag {generation}`, and the capture loop serves it from a shallow **ring buffer**
+  (`ring_size`, ~16 frames — each holds a full 1080p frame, so the window is
+  deliberately a few seconds, not minutes). If the requested generation has aged
+  out, `/flag` returns 409 rather than silently saving a different frame. A capture
+  is held on screen ~1.5 s as confirmation with a **Discard** button (`/discard`)
+  that undoes it — one keypress per capture, cheap to correct a mis-grab.
 - **Provenance uses the threshold that PRODUCED the dets**, captured into `latest`
   at predict time — not the live slider value at flag time. The slider can move
   between the predict and the SPACE; recording the live value would mislabel the

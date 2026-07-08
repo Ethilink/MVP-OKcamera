@@ -24,7 +24,7 @@ import asyncio
 import threading
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -51,6 +51,13 @@ class SettingsIn(BaseModel):
     camera_index: int | None = None
     output_path: str
     dataset_name: str
+
+
+class FlagIn(BaseModel):
+    """`/flag` body. ``generation`` pins the exact displayed frame to capture; when
+    omitted (older clients / no-body POST) ``/flag`` falls back to the newest frame."""
+
+    generation: int | None = None
 
 
 async def mjpeg_stream(capture):
@@ -121,6 +128,25 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
             media_type=f"multipart/x-mixed-replace; boundary={_STREAM_BOUNDARY}",
         )
 
+    @app.get("/frame")
+    def frame(after: int = -1) -> Response:
+        # Client-driven display (vs the MJPEG /stream): the browser polls this,
+        # reads X-Frame-Generation, and paints that frame — so it knows the exact
+        # frame id to pass back to /flag when the operator freezes. `after` lets
+        # the client skip re-downloading an unchanged frame (204), so polling at
+        # display rate costs one tiny request, not a full JPEG, per unchanged tick.
+        capture = app.state.capture
+        gen, snap = capture.snapshot_with_generation() if capture is not None else (0, None)
+        if snap is None:
+            raise HTTPException(status_code=503, detail="no frame captured yet")
+        if gen == after:
+            return Response(status_code=204)
+        return Response(
+            content=snap.overlay_jpeg,
+            media_type="image/jpeg",
+            headers={"X-Frame-Generation": str(gen), "Cache-Control": "no-store"},
+        )
+
     @app.post("/confidence")
     def confidence(body: ConfidenceIn) -> dict:
         # Live — the capture loop snapshots this value at predict time, so the
@@ -149,12 +175,19 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
         return {"ok": True}
 
     @app.post("/flag")
-    def flag() -> dict:
+    def flag(body: FlagIn | None = None) -> dict:
         # Plain def: cv2.imwrite + RLE encode are blocking and must stay off the
-        # event loop. Grab the snapshot ref first (its own lock), then serialize
-        # the dataset mutation on dataset_lock.
+        # event loop. Resolve the snapshot ref first (its own lock), then
+        # serialize the dataset mutation on dataset_lock.
         capture = app.state.capture
-        snap = capture.snapshot() if capture is not None else None
+        requested_generation = body.generation if body is not None else None
+        if capture is None:
+            snap = None
+        elif requested_generation is not None:
+            # Capture the EXACT frame the operator froze on, not the newest.
+            snap = capture.snapshot_at(requested_generation)
+        else:
+            snap = capture.snapshot()
 
         with app.state.dataset_lock:
             writer = app.state.writer
@@ -165,6 +198,12 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
                     "name in Settings before flagging.",
                 )
             if snap is None:
+                if requested_generation is not None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="The frame you flagged is no longer available — it "
+                        "aged out of the buffer. Try again.",
+                    )
                 raise HTTPException(
                     status_code=409,
                     detail="No frame captured yet — the camera stream has not "
@@ -180,6 +219,25 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
             "n_annotations": result.n_annotations,
             "n_flagged": n_flagged,
         }
+
+    @app.post("/discard")
+    def discard() -> dict:
+        # Undo the most recent flag (the capture-preview "Discard"). Plain def:
+        # unlink + annotations rewrite are blocking disk I/O. Same dataset_lock as
+        # /flag so an undo can never interleave with a concurrent flag's id math.
+        with app.state.dataset_lock:
+            writer = app.state.writer
+            if writer is None:
+                raise HTTPException(
+                    status_code=409, detail="No dataset configured — nothing to discard."
+                )
+            try:
+                removed_id = writer.discard_last()
+            except IndexError as exc:
+                raise HTTPException(
+                    status_code=409, detail="Nothing to discard yet."
+                ) from exc
+            return {"discarded_image_id": removed_id, "n_flagged": writer.n_flagged}
 
     @app.post("/validate")
     def validate() -> dict:
@@ -206,6 +264,7 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
             "output_path": str(writer.output_path) if writer is not None else None,
             "n_flagged": writer.n_flagged if writer is not None else 0,
             "capture_health": capture.health if capture is not None else "dead",
+            "camera_index": capture.camera_index if capture is not None else None,
         }
 
     return app

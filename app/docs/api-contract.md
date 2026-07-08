@@ -128,10 +128,10 @@ until the next Start) — frontend parses one `Report` type for both.
     {
       "tracker_id": 3,
       "label": "Instrument 3",
-      "completeness": "present",     // "present" | "lost"
+      "completeness": "present",     // "present" | "missing"
       "usage": [                      // off-table windows, chronological
         { "off_s": 61.0, "on_s": 84.5 },
-        { "off_s": 190.2, "on_s": null }   // null = never came back → "lost"
+        { "off_s": 190.2, "on_s": null }   // null = never came back → "missing"
       ]
     }
   ]
@@ -139,7 +139,7 @@ until the next Start) — frontend parses one `Report` type for both.
 ```
 
 Invariants: every instrument ever tracked in the session appears exactly once;
-`completeness == "lost"` ⟺ the last usage window has `on_s: null`; windows
+`completeness == "missing"` ⟺ the last usage window has `on_s: null`; windows
 don't overlap and are sorted; an instrument never picked up has `usage: []`.
 
 ---
@@ -151,17 +151,23 @@ don't overlap and are sorted; an instrument never picked up has `usage: []`.
   present for `> ON_DEBOUNCE` (~1.0 s). Otherwise detector flicker becomes fake
   pickups. Config values, not API.
 - **Identity = `tracker_id`.** The report trusts the tracker's ids completely.
-- **Completeness = debounced state at Stop.** `"lost"` ⟺ the instrument is in a
-  *confirmed* off-table window at Stop (absence already past `OFF_DEBOUNCE`);
-  otherwise `"present"`. A sub-debounce detector blink at the Stop instant does
-  NOT mark an on-table instrument lost and creates no phantom window. (Keeps the
-  `lost ⟺ last usage window on_s == null` invariant above.)
-- ⚠️ **Known model-side risk:** PRD acceptance criterion 3 requires an
-  instrument returning to the table to be recognised as *the same* instrument.
-  A plain ByteTrack will assign a NEW id after a long absence. That
-  re-identification problem lives behind `InstrumentTracker` (Constantijn's
-  side), but this contract inherits it: if ids don't survive absence, the
-  report shows one "lost" + one "new" instrument. Flag early.
+- **Completeness = debounced state at Stop.** `"missing"` ⟺ the instrument is
+  in a *confirmed* off-table window at Stop (absence already past
+  `OFF_DEBOUNCE`); otherwise `"present"`. A sub-debounce detector blink at the
+  Stop instant does NOT mark an on-table instrument missing and creates no
+  phantom window. (Keeps the `missing ⟺ last usage window on_s == null`
+  invariant above.) The value is `"missing"`, not `"lost"` — glossary-canonical
+  (2026-07-08): the camera observes the *symptom* (not on the table); whether
+  the instrument is misplaced or genuinely lost is unknowable from here.
+- **Re-identification (PRD acceptance criterion 3) — mechanism agreed
+  2026-07-08:** an instrument returning after absence gets a fresh ByteTrack id
+  which is then **linked** to its original track, entirely behind
+  `InstrumentTracker`; once linked, `update()` re-emits the original id (≤ 1 s
+  after return). The backend suppresses provisional pre-link ids with a 1 s
+  **entry debounce** (T02), so linking never leaks into this API. Residual
+  risk: a link that takes > 1 s produces a phantom never-returned instrument
+  on the report. See `model/docs/tracker-interface.md` §tracker_id across
+  absence.
 
 ---
 
@@ -179,7 +185,7 @@ is NOT the app's fake; see D10.)
 To make the fake useful for THIS app, extend it with a **scripted scenario**
 (the frozen `DEFAULT_SCENARIO` in T01: instrument 1 leaves at t=20 s and returns
 at t=35 s; instrument 3 leaves at t=50 s and never returns) so the live panel,
-timeline, and "lost" badge can be developed against realistic data.
+timeline, and "missing" badge can be developed against realistic data.
 `FakeInstrumentTracker` today only drifts and flickers — it never simulates a
 pickup.
 

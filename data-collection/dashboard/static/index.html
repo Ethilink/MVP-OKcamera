@@ -3,22 +3,21 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ORC data-collection dashboard</title>
+    <title>ORB data-collection dashboard</title>
     <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
     <header class="topbar">
       <div class="brand">
         <span class="brand-mark" aria-hidden="true">
-          <!-- inline aperture glyph (no external assets, AC7) -->
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="9"></circle>
-            <path d="M12 3v6l5.2 3M21 12h-6l-3 5.2M3 12h6M9 21l3-5.2"></path>
+          <!-- inline bird's-eye glyph: a bird seen from above, wings swept out
+               (no external assets, AC7) -->
+          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
+            <path d="M12 3l1.5 5L21 11l-8 1-1 9-1-9-8-1 7.5-3L12 3z"></path>
           </svg>
         </span>
         <div class="brand-text">
-          <h1>ORC capture</h1>
+          <h1>ORB</h1>
           <span class="brand-sub">data collection</span>
         </div>
       </div>
@@ -39,8 +38,11 @@
 
     <main>
       <section class="stage">
-        <div class="stage-frame">
-          <img id="stream" src="/stream" alt="live detector overlay" />
+        <div class="stage-frame" id="stage-frame">
+          <!-- Client-driven: app.js polls /frame and swaps this img's blob src,
+               tracking each frame's generation so SPACE captures the EXACT frame
+               shown, not the newest. (No MJPEG src — /stream still exists.) -->
+          <img id="stream" alt="live detector overlay" />
 
           <div class="hud hud-tl">
             <span class="hud-pill live-badge" id="live-badge" data-health="unknown">
@@ -57,6 +59,14 @@
               <p class="ns-title">No signal</p>
               <p class="ns-sub">waiting for the camera to recover…</p>
             </div>
+          </div>
+
+          <!-- Capture confirmation: shown while the frame is frozen after a flag,
+               so the operator sees exactly what was saved and can undo it. -->
+          <div class="saved-chip" id="saved-chip" role="status" aria-live="polite" hidden>
+            <span class="saved-tick" aria-hidden="true">✓</span>
+            <span class="saved-text" id="saved-text">Saved</span>
+            <button type="button" class="discard-btn" id="discard">Discard</button>
           </div>
 
           <div class="capture-flash" id="capture-flash" aria-hidden="true"></div>

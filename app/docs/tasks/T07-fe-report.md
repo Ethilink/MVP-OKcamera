@@ -44,7 +44,7 @@ export function axisTicks(duration_s: number): { pct: number; label: string }[]
 
 // src/screens/ReportScreen.tsx — props: { onNewRecording: () => void }
 //   fetches api.report() on mount, renders:
-//   ReportSummary (duration mm:ss, instrument count, N lost, model_version)
+//   ReportSummary (duration mm:ss, instrument count, N missing, model_version)
 //   one row per instrument: label · UsageTimeline · CompletenessBadge
 //   "New recording" button -> calls onNewRecording() (App then routes to the
 //   live setup view; the gated Start there is the real POST /recording/start).
@@ -58,8 +58,10 @@ export function axisTicks(duration_s: number): { pct: number; label: string }[]
   (never returned) = bar to the end with a visually distinct treatment +
   "never returned" in its tooltip/label. Shared mm:ss axis; empty usage reads
   "never picked up".
-- **CompletenessBadge**: `present` → green "PRESENT"; `lost` → destructive
-  "LOST". A lost instrument's whole row is visually flagged.
+- **CompletenessBadge**: `present` → green "PRESENT"; `missing` → destructive
+  "MISSING". A missing instrument's whole row is visually flagged. ("Missing",
+  not "lost" — vault-glossary distinction; the camera can't know lost vs
+  misplaced, and Wouter lives that distinction.)
 - Handles `api.report()` 409/failure with a non-crashing error state ("no
   finished recording") — the screen can mount early.
 
@@ -73,7 +75,7 @@ export function axisTicks(duration_s: number): { pct: number; label: string }[]
   labels ("1:20"); assert the step choice for a few durations incl. an awkward
   one (e.g. 13 s, 100 s, 336 s) — every duration must yield a valid result.
 - **AC3** (RTL, `demoReport` fixture) every instrument renders exactly one
-  row: label, timeline, badge; lost instrument shows LOST + flagged row +
+  row: label, timeline, badge; missing instrument shows MISSING + flagged row +
   open-ended bar; present-with-window shows a closed bar; never-picked-up
   shows "never picked up".
 - **AC4** (RTL) summary shows duration mm:ss, counts, model_version;

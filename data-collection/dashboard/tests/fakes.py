@@ -102,9 +102,11 @@ class FakeDetector:
 
     - ``confidence_threshold`` is a plain mutable attribute (the real detector
       exposes it the same way; the capture loop snapshots it at predict time).
-    - ``predict(frame)`` pops the next programmed ``sv.Detections`` off a queue
-      (falls back to the empty set when drained) and records the frame it saw
-      and the threshold value in force at that call.
+    - ``predict(frame, confidence_threshold=None)`` pops the next programmed
+      ``sv.Detections`` off a queue (falls back to the empty set when drained) and
+      records the frame it saw and the threshold that call actually used — the
+      explicit ``confidence_threshold`` when the caller pins it (as the capture
+      loop does), else the live attribute. Mirrors the real ``Detector.predict``.
     """
 
     def __init__(self, predictions=None, confidence_threshold: float = 0.5) -> None:
@@ -119,10 +121,12 @@ class FakeDetector:
         with self._lock:
             self._queue.append(dets)
 
-    def predict(self, frame: np.ndarray) -> sv.Detections:
+    def predict(self, frame: np.ndarray, confidence_threshold: float | None = None) -> sv.Detections:
         with self._lock:
             self.seen_frames.append(frame)
-            self.seen_thresholds.append(self.confidence_threshold)
+            self.seen_thresholds.append(
+                self.confidence_threshold if confidence_threshold is None else confidence_threshold
+            )
             if self._queue:
                 return self._queue.pop(0)
         return sv.Detections.empty()

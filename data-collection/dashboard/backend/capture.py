@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import deque
 from typing import NamedTuple
 
 import cv2
@@ -42,6 +43,7 @@ class CaptureLoop:
         stale_after_s: float = 2.0,
         start_read_attempts: int = 15,
         reopen_after_s: float = 3.0,
+        ring_size: int = 16,
     ):
         self._detector = detector
         self._render_fn = render_fn
@@ -50,6 +52,12 @@ class CaptureLoop:
         self._stale_after_s = stale_after_s
         self._start_read_attempts = start_read_attempts
         self._reopen_after_s = reopen_after_s
+        # Ring of recent (generation, Latest) so /flag can save the EXACT frame
+        # the operator froze on, not just the newest. Each Latest holds a full
+        # 1080p BGR frame (~6 MB), so this is a deliberately shallow window — a
+        # freeze-capture flags within ~1 s of display, and the detector runs well
+        # under 30 fps, so ~16 frames is seconds of history at a bounded ~100 MB.
+        self._ring: deque = deque(maxlen=ring_size)
 
         self._cap = None
         self._thread = None
@@ -91,6 +99,14 @@ class CaptureLoop:
                 break
             time.sleep(0.1)
         else:
+            # Release the handle we opened before bailing — the loop thread never
+            # started, and main() calls start() before entering its try/finally,
+            # so nothing else will release this dead-camera capture otherwise.
+            try:
+                self._cap.release()
+            except Exception:
+                pass
+            self._cap = None
             raise RuntimeError(
                 f"camera at index {self._camera_index} returned no valid frame "
                 f"after {self._start_read_attempts} attempts: ok={ok}, shape={actual}"
@@ -152,8 +168,11 @@ class CaptureLoop:
             return
 
         self._last_read_ok = time.monotonic()
+        # Snapshot the threshold and pin it into predict() so the value recorded
+        # as provenance is exactly the one that filtered `dets` — a /confidence
+        # change racing between the read and predict()'s own read can't split them.
         threshold = self._detector.confidence_threshold
-        dets = self._detector.predict(frame)
+        dets = self._detector.predict(frame, confidence_threshold=threshold)
         overlay = self._render_fn(frame.copy(), dets)
         ok_encode, buf = cv2.imencode(".jpg", overlay)
         overlay_jpeg = buf.tobytes() if ok_encode else b""
@@ -163,6 +182,7 @@ class CaptureLoop:
             self._latest = latest
             self._heartbeat = time.monotonic()
             self._generation += 1
+            self._ring.append((self._generation, latest))
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -182,6 +202,31 @@ class CaptureLoop:
         with self._lock:
             return self._latest
 
+    def snapshot_with_generation(self) -> tuple[int, Latest | None]:
+        """Newest ``Latest`` and its generation, read together under one lock.
+
+        ``/frame`` returns both so the browser knows the generation of the frame
+        it is painting — the id it later hands to ``/flag`` to capture that exact
+        frame. Reading them atomically (vs two separate locked properties) also
+        means the pair can never be mismatched.
+        """
+        with self._lock:
+            return self._generation, self._latest
+
+    def snapshot_at(self, generation: int) -> Latest | None:
+        """The ``Latest`` for ``generation``, or ``None`` if it aged out of the ring.
+
+        Lets ``/flag`` save the frame the operator actually froze on. Returns
+        ``None`` once the frame has been evicted (the window is only a few
+        seconds), so the caller can reject the flag rather than silently save a
+        different frame.
+        """
+        with self._lock:
+            for gen, latest in reversed(self._ring):
+                if gen == generation:
+                    return latest
+        return None
+
     @property
     def health(self) -> str:
         with self._lock:
@@ -197,3 +242,15 @@ class CaptureLoop:
     def generation(self) -> int:
         with self._lock:
             return self._generation
+
+    @property
+    def camera_index(self) -> int:
+        """The index the loop is currently capturing from.
+
+        Reflects the *active* device: ``set_camera(n)`` only takes effect once the
+        loop thread reopens on the next tick, so this tracks what is really being
+        streamed, not a pending request. Surfaced via ``/status`` so the UI can
+        show the live camera instead of a misleading placeholder.
+        """
+        with self._lock:
+            return self._camera_index

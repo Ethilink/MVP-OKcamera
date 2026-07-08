@@ -1,4 +1,4 @@
-// ORC data-collection dashboard — T06 frontend logic.
+// ORB data-collection dashboard — T06 frontend logic.
 // Vanilla JS, no build step, no external assets. Talks to the frozen T05
 // endpoint contract (see T05-api.md). One rule everywhere: a server error is
 // shown with its `detail`, never swallowed.
@@ -22,6 +22,11 @@ const els = {
   count: $("count"),
   nFlagged: $("n-flagged"),
   datasetChip: $("dataset-chip"),
+  cameraIndex: $("camera_index"),
+  stageFrame: $("stage-frame"),
+  savedChip: $("saved-chip"),
+  savedText: $("saved-text"),
+  discard: $("discard"),
   // Decorative/live extras — guarded everywhere so the page still works if a
   // future markup change drops one of them.
   hudCount: $("hud-count"),
@@ -32,6 +37,38 @@ const els = {
 
 let currentHealth = "unknown";
 let toastTimer = null;
+
+// --- live frame loop (client-driven display, AC-freeze) ---------------------
+// We poll /frame instead of using an <img src="/stream"> MJPEG feed, because the
+// browser must know the *generation* of the frame it is painting to capture that
+// exact frame on SPACE. `after=<gen>` makes an unchanged frame a cheap 204.
+
+const FRAME_POLL_MS = 66; // ~15 fps display cadence
+let currentGen = -1; // generation currently painted (the id SPACE captures)
+let currentBlobUrl = null; // object URL backing the <img>, revoked on swap
+let frozen = false; // true while a just-captured frame is held for confirmation
+let freezeTimer = null; // auto-resume timer for the confirmation hold
+let frameTimer = null;
+
+async function frameLoop() {
+  if (!frozen) {
+    try {
+      const res = await fetch(`/frame?after=${currentGen}`);
+      if (res.status === 200) {
+        const gen = Number(res.headers.get("X-Frame-Generation"));
+        const url = URL.createObjectURL(await res.blob());
+        els.stream.src = url;
+        if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+        currentBlobUrl = url;
+        currentGen = gen;
+      }
+      // 204 (unchanged) / 503 (no frame yet): leave the current frame in place.
+    } catch (_) {
+      /* transient fetch error — the next tick retries */
+    }
+  }
+  frameTimer = setTimeout(frameLoop, FRAME_POLL_MS);
+}
 
 // --- error / toast plumbing -------------------------------------------------
 
@@ -114,30 +151,80 @@ els.confidence.addEventListener("input", () => {
 
 // --- flag (SPACE or button, AC1/AC2/AC3) ------------------------------------
 
+function fireCaptureAnimation() {
+  els.flag.classList.remove("flash");
+  void els.flag.offsetWidth; // restart the CSS animation
+  els.flag.classList.add("flash");
+  if (els.captureFlash) {
+    els.captureFlash.classList.remove("fire");
+    void els.captureFlash.offsetWidth; // restart the flash animation
+    els.captureFlash.classList.add("fire");
+  }
+}
+
+// Show the frozen still + "saved · discard" confirmation, then auto-resume live.
+function enterFrozen(text) {
+  frozen = true; // the frame loop stops swapping, so the exact frame stays put
+  if (els.stageFrame) els.stageFrame.classList.add("frozen");
+  if (els.savedChip && els.savedText) {
+    els.savedText.textContent = text;
+    els.savedChip.hidden = false;
+  }
+}
+
+function resumeLive() {
+  clearTimeout(freezeTimer);
+  frozen = false;
+  if (els.stageFrame) els.stageFrame.classList.remove("frozen");
+  if (els.savedChip) els.savedChip.hidden = true;
+}
+
 async function flag() {
   if (currentHealth !== "ok") return; // never flag a frozen/dead stream
+  if (frozen) return; // already showing a capture — ignore until it resumes
+  if (currentGen < 0) return; // nothing painted yet
+  const capturedGen = currentGen; // the EXACT frame on screen right now
+  enterFrozen("Saving…");
   try {
-    const body = await readJson(await fetch("/flag", { method: "POST" }));
+    const body = await readJson(
+      await fetch("/flag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ generation: capturedGen }),
+      })
+    );
     if (typeof body.n_flagged === "number") {
       els.nFlagged.textContent = body.n_flagged; // confirm without waiting for poll
     }
-    els.flag.classList.remove("flash");
-    void els.flag.offsetWidth; // restart the CSS animation
-    els.flag.classList.add("flash");
-    if (els.captureFlash) {
-      els.captureFlash.classList.remove("fire");
-      void els.captureFlash.offsetWidth; // restart the flash animation
-      els.captureFlash.classList.add("fire");
-    }
+    fireCaptureAnimation();
     const anns = body.n_annotations;
-    showToast(anns != null ? `Flagged · ${anns} instruments` : "Flagged");
+    enterFrozen(anns != null ? `Saved · ${anns} instruments` : "Saved");
     clearError();
+    freezeTimer = setTimeout(resumeLive, 1500); // hold the still, then resume
   } catch (e) {
     showError(`Flag: ${e.message}`);
+    resumeLive(); // don't strand the feed frozen on an error
   }
 }
 
 els.flag.addEventListener("click", flag);
+
+// Discard the just-saved capture (undo). Available while the confirmation is up.
+if (els.discard) {
+  els.discard.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    clearTimeout(freezeTimer);
+    try {
+      const body = await readJson(await fetch("/discard", { method: "POST" }));
+      if (typeof body.n_flagged === "number") els.nFlagged.textContent = body.n_flagged;
+      showToast("Discarded last capture");
+      clearError();
+    } catch (err) {
+      showError(`Discard: ${err.message}`);
+    }
+    resumeLive();
+  });
+}
 
 // Ignore auto-repeat (AC1) and typing in a form field (AC2).
 function typingInField(target) {
@@ -247,6 +334,16 @@ async function poll() {
       els.confidence.value = s.confidence;
       renderConfidence(s.confidence);
     }
+    // Show the camera the loop is actually streaming from (set at startup via
+    // --camera-index, or after a /settings swap). Don't clobber the field while
+    // the operator is editing it to enter a new index.
+    if (
+      els.cameraIndex &&
+      typeof s.camera_index === "number" &&
+      document.activeElement !== els.cameraIndex
+    ) {
+      els.cameraIndex.value = s.camera_index;
+    }
     applyHealth(s.capture_health || "unknown");
   } catch (_) {
     applyHealth("dead"); // status unreachable → treat as dead, block flagging
@@ -256,3 +353,4 @@ async function poll() {
 renderConfidence(els.confidence.value);
 poll();
 setInterval(poll, 1000);
+frameLoop();

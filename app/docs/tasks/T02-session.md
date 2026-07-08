@@ -45,7 +45,7 @@ class UsageWindow:
 class InstrumentReport:
     tracker_id: int
     label: str
-    completeness: str        # "present" | "lost"
+    completeness: str        # "present" | "missing"
     usage: tuple[UsageWindow, ...]
 
 @dataclass(frozen=True)
@@ -96,8 +96,13 @@ class InvalidPhase(RuntimeError): ...
   iff `stop`'s `t ≥` the flip time — no intervening `observe` required. (One
   consequence: `report()` is a pure function of the observation history + the
   `stop` time; repeated accessor calls can't perturb it.)
-- Instrument universe = every id seen while RECORDING. First sighting registers
-  it (on_table, pickup_count 0). Accepted gap: an instrument that satisfied the
+- Instrument universe = every id **confirmed** while RECORDING: an id joins the
+  universe only once it has been continuously present for `> on_debounce_s`
+  (**entry debounce**, same constant), registering as (on_table, pickup_count
+  0). A shorter-lived id — a spurious detection, or a provisional pre-link id
+  from the tracker's track linking (`model/docs/tracker-interface.md`
+  §tracker_id across absence) — never enters the universe and leaves no trace
+  in live status or the report. Accepted gap: an instrument that satisfied the
   Start gate but is already gone by the first RECORDING observe never enters the
   universe — demo choreography (one pickup at a time, starting from a full
   table) makes this a non-issue; documented, not engineered around.
@@ -110,13 +115,13 @@ class InvalidPhase(RuntimeError): ...
   (D9 debounce / api-contract §Completeness; Bram 2026-07-07). An instrument in
   a **confirmed** off-table window at
   Stop (absence already passed `off_debounce_s`, window still open) →
-  `completeness="lost"`, window stays open (`on_s=None`). Every instrument whose
+  `completeness="missing"`, window stays open (`on_s=None`). Every instrument whose
   debounced state is on-table → `"present"` — this INCLUDES an instrument absent
   only for a sub-`off_debounce_s` blip at Stop (a detector flicker on a tool
   that's physically on the table): it is NOT yet confirmed off, so it stays
   present and leaves NO phantom window. `pickup_count == len(usage)`. **Mirror
   case (intended, not a bug):** an instrument that RETURNED less than
-  `on_debounce_s` before Stop is still debounced-off → reported `"lost"` though
+  `on_debounce_s` before Stop is still debounced-off → reported `"missing"` though
   physically back. Same debounce, opposite direction; demo choreography avoids
   Stopping mid-return, so this is documented, not engineered around.
 - **Monotonic `t` guard (all time-taking methods).** `observe`, `start`, and
@@ -144,15 +149,17 @@ class InvalidPhase(RuntimeError): ...
   and pickup_count 0; presence blip of 0.5 s during a real absence (< on_debounce
   1.0) does NOT close the window.
 - **AC6** Never-returns: id last seen at t=50, absent for all t>50 through
-  stop(80) → `"lost"`, last window `(50, None)`; report invariants hold (sorted,
-  non-overlapping windows, `lost ⟺ last on_s is None`).
+  stop(80) → `"missing"`, last window `(50, None)`; report invariants hold (sorted,
+  non-overlapping windows, `missing ⟺ last on_s is None`).
 - **AC6b** Blink-at-stop: an instrument present throughout, whose id is absent
   only for the final <`off_debounce_s` before `stop(t)` (e.g. gone t∈(79.7,80],
   debounce 1.5) → `completeness="present"`, `usage==()`, NO open window — the
   sub-debounce blip leaves no trace even though it touches Stop.
-- **AC7** Id appearing mid-recording joins the universe and can itself be
-  picked up and reported (the phantom-new-id case of DESIGN D8 must at least
-  not corrupt others' windows).
+- **AC7** Id appearing mid-recording and continuously present `> on_debounce_s`
+  joins the universe and can itself be picked up and reported; an id whose
+  entire presence run is `≤ on_debounce_s` before vanishing (spurious detection
+  / provisional pre-link id) appears in neither live status nor the report, and
+  does not corrupt others' windows.
 - **AC8** `start` after FINISHED discards the old report (`report()` raises
   until the next `stop`), and debounce/pickup state is fully reset.
 - **AC9** Non-monotonic `observe` raises `ValueError`; `start`/`stop` with
