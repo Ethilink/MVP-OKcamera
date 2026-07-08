@@ -10,6 +10,7 @@ with a fresh job rebuilds everything from scratch (see RECORDING.md
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,7 +22,7 @@ from backend.video_writer import VideoEntryWriter
 
 @dataclass
 class PostPassStatus:
-    state: str            # "pending" | "running" | "done" | "failed"
+    state: str            # "pending" | "running" | "done" | "failed" | "cancelled"
     done: int             # frames processed so far
     total: int            # authoritative frame_count (== frames_written)
     error: str | None
@@ -58,11 +59,28 @@ class PostPassJob:
         self._state = "pending"
         self._done = 0
         self._error: str | None = None
+        self._cancelled = threading.Event()
+
+    def cancel(self) -> None:
+        """Request cooperative cancellation (TR5 /record/discard during
+        ``processing``). ``run()`` checks the flag before every read/predict
+        and again before every disk write, so after the caller joins the
+        worker thread a cancelled job is guaranteed to perform no further
+        ``detector.predict`` calls and to write no further files — that is
+        what lets discard safely ``rmtree`` the entry folder without a stray
+        keyframe JPEG reappearing behind it. Idempotent and thread-safe.
+        """
+        self._cancelled.set()
 
     def run(self) -> None:
-        self._state = "running"
         self._done = 0
         self._error = None
+        if self._cancelled.is_set():
+            # Cancelled before the worker was even scheduled: touch nothing
+            # (no cap, no writer, no selected_frames.json).
+            self._state = "cancelled"
+            return
+        self._state = "running"
         cap = None
         try:
             mp4_path = self._entry_dir / "video" / f"{self._entry_name}.mp4"
@@ -90,11 +108,27 @@ class PostPassJob:
             writer.write_selected_frames()
 
             for frame_number in range(self._frame_count):
+                # Cooperative cancel: bail BEFORE the next read/predict/write
+                # so a discarded take's worker stops calling the shared
+                # detector (§Detector sharing) and creates no further files.
+                if self._cancelled.is_set():
+                    self._state = "cancelled"
+                    return
                 _, frame = cap.read()
                 dets = self._detector.predict(frame, confidence_threshold=self._mining_threshold)
+                # Re-check after the (slow, CPU-bound) predict: a cancel that
+                # landed mid-predict must never reach the disk write — the
+                # write is what re-creates a stray folder after discard's
+                # rmtree if the join ever times out.
+                if self._cancelled.is_set():
+                    self._state = "cancelled"
+                    return
                 writer.add_frame(frame_number, frame, dets)
                 self._done = frame_number + 1
 
+            if self._cancelled.is_set():
+                self._state = "cancelled"
+                return
             writer.finalize()
             self._state = "done"
         except Exception as exc:

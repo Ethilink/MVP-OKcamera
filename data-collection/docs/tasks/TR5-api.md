@@ -155,7 +155,7 @@ post-pass video (inject a fake `PostPassJob` / fake video reader).
   discard when it takes ownership away; an orphaned worker never resumes).
 
   > **Follow-up bug surfaced during TR6 R4 manual pass (2026-07-08, claude) —
-  > NOT yet fixed.** The resume-once invariant above holds, but the orphaned
+  > FIXED 2026-07-08 (see fix note below).** The resume-once invariant above held, but the orphaned
   > worker is never *cancelled*: `PostPassJob.run()` (TR4) has no cooperative-
   > cancel check in its `for frame_number in range(...)` loop, and
   > `/record/discard` during `processing` only clears `rec.job`, resumes
@@ -171,6 +171,22 @@ post-pass video (inject a fake `PostPassJob` / fake video reader).
   > fix: add a `cancel`/`cancelled` flag to `PostPassJob`, check it at the top of
   > each loop iteration (bail before predict/imwrite), and have `/record/discard`
   > set it before the rmtree. Owner decision needed (TR5 discard + TR4 job).
+  >
+  > **Fix (2026-07-08, claude):** `PostPassJob` gained a `threading.Event`-backed
+  > `cancel()`, checked at the top of every per-frame iteration AND again between
+  > predict and the disk write (state → `"cancelled"`, never `finalize()`);
+  > `/record/discard` from `processing` now cancels the job, releases
+  > `recording_lock`, `join()`s the worker thread (bounded 10 s — the worker's
+  > wrapper reacquires the lock after `run()`, so joining under the lock would
+  > deadlock), then reacquires the lock to reset/resume/rmtree — so no stray
+  > file can be written after the rmtree. The resume-once invariant is preserved:
+  > cancel + `rec.job = None` happen atomically under the lock, so a cancelled
+  > worker always fails its ownership guard and never resumes; discard resumes
+  > exactly once (a concurrent second discard 409s on an in-progress guard).
+  > Job fakes without `cancel()` keep the legacy single-critical-section path.
+  > Regression-gated by `tests/test_discard_cancel.py` (worker provably dead +
+  > stray folder stays gone + resume count == 1). Full suite: 158 passed
+  > (155 + 3 new), stable across 4 consecutive full runs.
 
   review independently corroborated the lock area (noted GET-side `rec.state`
   reads outside the lock — harmless, read-only) but **stalled before a verdict**;

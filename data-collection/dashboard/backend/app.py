@@ -93,6 +93,11 @@ class RecordingController:
         self.frame_count = 0
         self.error: str | None = None
         self.job = None
+        # The threading.Thread running the current job's post-pass. Kept so
+        # /record/discard can cancel the job and JOIN the worker before it
+        # deletes the entry folder (otherwise an in-flight keyframe write
+        # could re-create a stray folder after the rmtree).
+        self.worker: threading.Thread | None = None
 
 
 async def mjpeg_stream(capture):
@@ -352,8 +357,13 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
         # A /record/discard that raced us cleared rec.job (and resumed inference
         # itself), so an orphaned/superseded worker must NOT touch state and must
         # NOT resume — otherwise it would un-pause the detector mid-way through a
-        # later take's post-pass (§Detector sharing). Net: resume happens exactly
-        # once per processing episode — here on normal completion, or in discard.
+        # later take's post-pass (§Detector sharing). Discard also CANCELS the
+        # job (cooperative — run() bails at its next per-frame check) and joins
+        # this thread before deleting the folder; a cancelled job is always
+        # orphaned (cancel + rec.job-clear happen atomically under the lock), so
+        # it can never pass the ownership guard below. Net: resume happens
+        # exactly once per processing episode — here on normal completion, or in
+        # discard.
         rec = app.state.recording
         job.run()
         with app.state.recording_lock:
@@ -365,6 +375,7 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
                 else:
                     rec.state = "idle"
                     rec.error = None
+                rec.worker = None
                 app.state.capture.resume_inference()
 
     @app.post("/record/start")
@@ -419,6 +430,7 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
             rec.frame_count = 0
             rec.error = None
             rec.job = None
+            rec.worker = None
         return {"ok": True, "entry_name": name, "operator_threshold": operator_threshold}
 
     @app.post("/keyframe")
@@ -460,7 +472,9 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
             rec.job = job
             rec.state = "processing"
             rec.error = None
-            threading.Thread(target=_run_postpass, args=(job,), daemon=True).start()
+            worker = threading.Thread(target=_run_postpass, args=(job,), daemon=True)
+            rec.worker = worker
+            worker.start()
         # Return immediately — the job finishes on the worker thread.
         return {"ok": True, "frames_written": frames_written}
 
@@ -468,19 +482,14 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
     def record_discard() -> dict:
         rec = app.state.recording
         capture = app.state.capture
-        with app.state.recording_lock:
-            state = rec.state
-            if state == "idle":
-                raise HTTPException(status_code=409, detail="nothing to discard")
-            # From recording this is an abort: stop+release the encoder. Inference
-            # was NOT paused while recording, so nothing to resume here.
-            if state == "recording":
-                capture.stop_recording()
+
+        def _finish_discard(prior_state: str) -> None:
+            # Caller MUST hold recording_lock. Resets the machine to idle,
+            # resumes inference iff the discarded episode was a processing one,
+            # and deletes the entry folder in the SAME critical section so a
+            # /record/start racing in behind us can't mint the same folder only
+            # to have this delete it.
             entry_dir = rec.entry_dir
-            # Clear job identity FIRST so an orphaned worker (state was
-            # "processing") fails its ownership guard and neither transitions
-            # state nor resumes — resume then happens exactly once, right here.
-            rec.job = None
             rec.state = "idle"
             rec.entry_name = None
             rec.entry_dir = None
@@ -489,14 +498,73 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
             rec.frame_count = 0
             rec.error = None
             # Discarding a still-running post-pass: inference is paused and the
-            # worker won't resume it (guard fails) — resume it here. From
-            # "failed" the worker already resumed on completion, so don't again.
-            if state == "processing":
+            # worker won't resume it (ownership guard fails — rec.job was
+            # cleared before we got here) — resume it here, exactly once. From
+            # "failed" the worker already resumed on completion; from
+            # "recording" inference was never paused.
+            if prior_state == "processing":
                 capture.resume_inference()
-            # rmtree under the lock so a start racing in behind us can't mint the
-            # same folder only to have this delete it.
             if entry_dir is not None:
                 shutil.rmtree(entry_dir, ignore_errors=True)
+
+        with app.state.recording_lock:
+            state = rec.state
+            if state == "idle":
+                raise HTTPException(status_code=409, detail="nothing to discard")
+            if state == "processing" and rec.job is None:
+                # A concurrent discard already took ownership (cleared rec.job)
+                # and is joining the worker outside the lock below; it will
+                # finish the reset+rmtree itself. Letting a second discard
+                # proceed would resume inference twice.
+                raise HTTPException(status_code=409, detail="discard already in progress")
+            # From recording this is an abort: stop+release the encoder. Inference
+            # was NOT paused while recording, so nothing to resume here.
+            if state == "recording":
+                capture.stop_recording()
+            # Clear job identity FIRST so an orphaned worker (state was
+            # "processing") fails its ownership guard and neither transitions
+            # state nor resumes — resume then happens exactly once, in
+            # _finish_discard.
+            job = rec.job
+            worker = rec.worker
+            rec.job = None
+            rec.worker = None
+            cancel = None
+            if state == "processing" and job is not None:
+                # Cooperatively cancel the still-running post-pass so it stops
+                # calling the shared detector and writing keyframe JPEGs.
+                # getattr: injected job fakes without cancel() keep the legacy
+                # single-critical-section path (nothing to join — such a job
+                # can't be stopped anyway).
+                cancel = getattr(job, "cancel", None)
+                if cancel is not None:
+                    cancel()
+            if cancel is None or worker is None:
+                # No cancellable live worker: finish everything under this one
+                # lock hold (recording/failed episodes, or a job double without
+                # cancel support).
+                _finish_discard(state)
+                return {"ok": True}
+        # A cancelled live worker: JOIN it before deleting the folder, so an
+        # in-flight cv2.imwrite can't re-create a stray partial folder after
+        # the rmtree. Lock ordering: the join happens with recording_lock
+        # RELEASED. PostPassJob.run() itself takes no lock, but the worker's
+        # wrapper (_run_postpass) acquires recording_lock immediately after
+        # run() returns — joining while holding the lock would deadlock the
+        # worker against us until the timeout, every time. With the lock
+        # released the worker bails at its next cancel check, fails the
+        # ownership guard (rec.job was cleared above, atomically with the
+        # cancel), and exits. Meanwhile the machine still reads
+        # state == "processing" with rec.job None: /record/start, /record/stop,
+        # /record/retry and /keyframe all 409, and a second /record/discard
+        # 409s on the in-progress guard above — nobody can mutate the machine
+        # or mint the same entry folder before _finish_discard runs below.
+        # The timeout is a bounded safety net (a healthy worker joins within
+        # ~one detector predict); if it ever expires we still proceed — run()'s
+        # post-predict cancel re-check keeps the stray-write window closed.
+        worker.join(timeout=10.0)
+        with app.state.recording_lock:
+            _finish_discard(state)
         return {"ok": True}
 
     @app.post("/record/retry")
@@ -524,7 +592,9 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
             rec.state = "processing"
             rec.error = None
             capture.pause_inference()
-            threading.Thread(target=_run_postpass, args=(job,), daemon=True).start()
+            worker = threading.Thread(target=_run_postpass, args=(job,), daemon=True)
+            rec.worker = worker
+            worker.start()
         return {"ok": True}
 
     @app.get("/record/status")
