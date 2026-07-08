@@ -1,4 +1,4 @@
-// ORB data-collection dashboard — T06 frontend logic.
+// ORC data-collection dashboard — T06 frontend logic.
 // Vanilla JS, no build step, no external assets. Talks to the frozen T05
 // endpoint contract (see T05-api.md). One rule everywhere: a server error is
 // shown with its `detail`, never swallowed.
