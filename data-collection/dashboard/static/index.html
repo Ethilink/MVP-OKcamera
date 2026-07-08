@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ORC data-collection dashboard</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <!-- inline aperture glyph (no external assets, AC7) -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"></circle>
+            <path d="M12 3v6l5.2 3M21 12h-6l-3 5.2M3 12h6M9 21l3-5.2"></path>
+          </svg>
+        </span>
+        <div class="brand-text">
+          <h1>ORC capture</h1>
+          <span class="brand-sub">data collection</span>
+        </div>
+      </div>
+
+      <div class="status" id="status">
+        <span class="chip health" id="health" data-health="unknown">
+          <span class="dot"></span><span id="health-text">connecting…</span>
+        </span>
+        <span class="chip stat"><b id="count">–</b> instruments</span>
+        <span class="chip stat"><b id="n-flagged">0</b> flagged</span>
+        <span class="chip dataset" id="dataset-chip">no dataset</span>
+      </div>
+    </header>
+
+    <!-- Error / toast region: role=alert so it is announced, never swallowed. -->
+    <div id="error" class="banner error" role="alert" hidden></div>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <main>
+      <section class="stage">
+        <div class="stage-frame">
+          <img id="stream" src="/stream" alt="live detector overlay" />
+
+          <div class="hud hud-tl">
+            <span class="hud-pill live-badge" id="live-badge" data-health="unknown">
+              <span class="dot"></span>LIVE
+            </span>
+          </div>
+          <div class="hud hud-tr">
+            <span class="hud-pill"><b id="hud-count">0</b>&nbsp;instruments</span>
+          </div>
+
+          <div class="no-signal" id="no-signal" hidden>
+            <div>
+              <div class="ns-icon" aria-hidden="true">⚠</div>
+              <p class="ns-title">No signal</p>
+              <p class="ns-sub">waiting for the camera to recover…</p>
+            </div>
+          </div>
+
+          <div class="capture-flash" id="capture-flash" aria-hidden="true"></div>
+        </div>
+
+        <button id="flag" class="flag-btn" type="button">
+          FLAG <kbd>space</kbd>
+        </button>
+      </section>
+
+      <aside class="panel">
+        <div class="card">
+          <div class="conf-row">
+            <label class="conf-label" for="confidence">Confidence</label>
+            <output id="confidence-value" for="confidence">–</output>
+          </div>
+          <input
+            id="confidence"
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value="0.5"
+          />
+        </div>
+
+        <form id="settings" class="card settings">
+          <h2 class="card-head">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            Settings
+          </h2>
+          <label>Camera index
+            <input id="camera_index" name="camera_index" type="number" min="0" step="1" placeholder="0" />
+          </label>
+          <label>Output path
+            <input id="output_path" name="output_path" type="text" placeholder="/data/captures" />
+          </label>
+          <label>Dataset name
+            <input id="dataset_name" name="dataset_name" type="text" placeholder="or-2026-07-07" />
+          </label>
+          <button type="submit" class="block">Apply settings</button>
+        </form>
+
+        <div class="card">
+          <button id="validate" type="button" class="secondary block">Validate dataset</button>
+          <div id="validate-results" class="validate-results" hidden></div>
+        </div>
+      </aside>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

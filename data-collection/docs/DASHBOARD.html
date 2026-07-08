@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Data-collection dashboard — technical spec</title>
+<style>
+  :root {
+    --paper: #faf6ee;
+    --ink: #2b2620;
+    --muted: #7a7267;
+    --accent: #e8a13a;
+    --accent-soft: #f6e4c4;
+    --secondary: #3a7ca5;
+    --secondary-soft: #d9e7f0;
+    --tip: #3f9142;
+    --note: #3a7ca5;
+    --warning: #d98a00;
+    --danger: #c8452f;
+    --todo: #7b5ea7;
+    --card: #fffdf8;
+    --border: #e7ddc9;
+    --code-bg: #f3ecdd;
+    --shadow: rgba(80, 60, 20, 0.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #1c1a17;
+      --ink: #ece6da;
+      --muted: #a59d8f;
+      --accent: #e0a253;
+      --accent-soft: #3a2f1c;
+      --secondary: #6aa8cc;
+      --secondary-soft: #1f2e38;
+      --tip: #5aa95d;
+      --note: #6aa8cc;
+      --warning: #e0a044;
+      --danger: #e0705c;
+      --todo: #a488c9;
+      --card: #24211d;
+      --border: #35302a;
+      --code-bg: #26231f;
+      --shadow: rgba(0, 0, 0, 0.4);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.7;
+    font-size: 17px;
+    overflow-x: hidden;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 270px minmax(0, 1fr);
+    max-width: 1200px;
+    margin: 0 auto;
+    gap: 0;
+  }
+  aside {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 1.6rem 1rem 2rem 1.4rem;
+    border-right: 1px solid var(--border);
+  }
+  aside h2 {
+    font-size: 0.78rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 0.8rem 0.2rem;
+  }
+  aside nav a {
+    display: block;
+    padding: 0.28rem 0.5rem;
+    margin: 0.05rem 0;
+    color: var(--ink);
+    text-decoration: none;
+    font-size: 0.86rem;
+    border-radius: 6px;
+    border-left: 3px solid transparent;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  aside nav a:hover { background: var(--accent-soft); }
+  aside nav a.active {
+    background: var(--accent-soft);
+    border-left-color: var(--accent);
+    font-weight: 600;
+  }
+  aside nav a.sub { padding-left: 1.3rem; font-size: 0.8rem; color: var(--muted); }
+  main {
+    padding: 0 2.2rem 6rem;
+    min-width: 0;
+  }
+  header.doc {
+    padding: 2.4rem 0 1.4rem;
+    border-bottom: 3px dashed var(--accent);
+    margin-bottom: 1.8rem;
+  }
+  header.doc h1 {
+    font-size: 2.1rem;
+    margin: 0 0 0.4rem;
+    line-height: 1.2;
+  }
+  header.doc .cheese { font-size: 2rem; }
+  header.doc .gen {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin: 0;
+  }
+  .reading { max-width: 74ch; }
+  h2.sec {
+    font-size: 1.5rem;
+    margin: 2.6rem 0 0.9rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border);
+  }
+  h3.sub {
+    font-size: 1.15rem;
+    margin: 1.8rem 0 0.6rem;
+    color: var(--secondary);
+  }
+  p { margin: 0.7rem 0; }
+  ul, ol { padding-left: 1.3rem; }
+  li { margin: 0.35rem 0; }
+  a { color: var(--secondary); }
+  kbd {
+    font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    background: var(--ink);
+    color: var(--paper);
+    padding: 0.08em 0.45em;
+    border-radius: 5px;
+    font-size: 0.8em;
+    font-weight: 600;
+  }
+  code {
+    font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    background: var(--code-bg);
+    padding: 0.1em 0.38em;
+    border-radius: 5px;
+    font-size: 0.86em;
+    word-break: break-word;
+  }
+  pre.code {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    font-size: 0.82rem;
+    line-height: 1.55;
+    font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+  pre.code code { background: none; padding: 0; }
+  pre.code .cm { color: var(--muted); font-style: italic; }
+  .term {
+    font-weight: 600;
+    color: var(--secondary);
+    background: var(--secondary-soft);
+    padding: 0.02em 0.3em;
+    border-radius: 4px;
+  }
+  .term.acc { color: var(--accent); background: var(--accent-soft); }
+  .callout {
+    border-radius: 12px;
+    padding: 0.9rem 1.1rem;
+    margin: 1.2rem 0;
+    border-left: 6px solid var(--note);
+    background: var(--card);
+    box-shadow: 0 2px 8px var(--shadow);
+  }
+  .callout .head {
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.15rem;
+  }
+  .callout .ico { font-size: 1.15rem; }
+  .callout p { margin: 0.3rem 0 0; }
+  .callout.tip { border-left-color: var(--tip); }
+  .callout.tip .head { color: var(--tip); }
+  .callout.note { border-left-color: var(--note); }
+  .callout.note .head { color: var(--note); }
+  .callout.warning { border-left-color: var(--warning); }
+  .callout.warning .head { color: var(--warning); }
+  .callout.danger { border-left-color: var(--danger); }
+  .callout.danger .head { color: var(--danger); }
+  .callout.todo {
+    border: 2px dashed var(--todo);
+    border-left-width: 6px;
+  }
+  .callout.todo .head { color: var(--todo); }
+  figure {
+    margin: 1.6rem 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1rem;
+    box-shadow: 0 3px 12px var(--shadow);
+    overflow-x: auto;
+    max-width: 100%;
+  }
+  figure.wide { max-width: none; }
+  figcaption {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-top: 0.7rem;
+    text-align: center;
+    font-style: italic;
+  }
+  .mermaid { text-align: center; }
+  .tablewrap {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin: 1.3rem 0;
+    box-shadow: 0 2px 8px var(--shadow);
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+  th, td { padding: 0.6rem 0.8rem; text-align: left; }
+  thead th {
+    position: sticky;
+    top: 0;
+    background: var(--accent);
+    color: #2b2620;
+    font-weight: 700;
+  }
+  tbody tr:nth-child(even) { background: rgba(232,161,58,0.07); }
+  tbody td { border-top: 1px solid var(--border); vertical-align: top; }
+  td code { white-space: nowrap; }
+  .mnote {
+    font-size: 0.8rem;
+    color: var(--muted);
+    border-left: 3px solid var(--border);
+    padding-left: 0.7rem;
+    margin: 0.9rem 0;
+  }
+  strong { color: var(--ink); }
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; }
+    aside {
+      position: static;
+      height: auto;
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+    }
+    aside nav { display: flex; flex-wrap: wrap; gap: 0.2rem; }
+    aside nav a { font-size: 0.78rem; }
+    aside nav a.sub { display: none; }
+    main { padding: 0 1.1rem 4rem; }
+    .reading { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside>
+    <h2>Inhoudstafel</h2>
+    <nav id="toc">
+      <a href="#top">Overview</a>
+      <a href="#scope">Scope (locked)</a>
+      <a href="#stack">Stack (settled)</a>
+      <a href="#runtime">Runtime</a>
+      <a href="#threading" class="sub">Threading rules</a>
+      <a href="#mapping">sv.Detections → COCO-VID</a>
+      <a href="#layout">Dataset layout &amp; config</a>
+      <a href="#guardrails">Failure-mode guardrails</a>
+      <a href="#model">Model / config</a>
+      <a href="#open">Open items</a>
+    </nav>
+  </aside>
+
+  <main>
+    <header class="doc" id="top">
+      <h1><span class="cheese">🧀</span> Data-collection dashboard <span style="color:var(--muted);font-weight:400;">— technical spec</span></h1>
+      <p class="gen">Generated 2026-07-07 · single-file illustrated view · source: <code>DASHBOARD.md</code></p>
+    </header>
+
+    <div class="reading">
+
+    <p>The capture tool: stream <span class="term acc">Camo</span> → run the
+      <span class="term">detector</span> live → operator <span class="term">snapshots</span>
+      bad frames → save each as a still into a <span class="term acc">COCO-VID dataset</span>
+      (<code>review_status "pending"</code>) for correction in the <strong>separate</strong>
+      annotation dashboard. This tool <strong>never edits anything; it captures stills.</strong>
+      It consumes the model only via the <code>Detector</code>
+      (<code>model/src/orc_model/components/detector/detector.py</code>; design in
+      <a href="../../model/docs/plan-first-detections.md"><code>plan-first-detections.md</code></a>)
+      and emits datasets per <a href="IMPORT_FORMAT.md"><code>IMPORT_FORMAT.md</code></a>.</p>
+
+    <div class="callout danger">
+      <div class="head"><span class="ico">🚨</span> It is not a video recorder.</div>
+      <p><kbd>SPACE</kbd> saves <strong>one still frame</strong> (the current detector output)
+        into the active dataset folder. There is no start/stop recording, no clip, no
+        <code>track_id</code> — just "snap this frame, it looks wrong."</p>
+    </div>
+
+    <div class="callout note">
+      <div class="head"><span class="ico">📌</span> Detector-only, for this first version.</div>
+      <p>It runs the RF-DETR <code>Detector</code> directly — boxes + masks per frame,
+        <strong>no tracking, no <code>track_id</code></strong>. A tracker is being built
+        elsewhere in the repo but is <strong>not wired in here yet</strong>; when it lands it
+        slots behind the same <code>sv.Detections</code> shape (adding <code>tracker_id</code>)
+        without touching this tool.</p>
+    </div>
+
+    <figure class="wide">
+      <pre class="mermaid">
+flowchart LR
+    CAM([Camo phone<br/>1080p stream]):::hw
+    CAP[capture-infer thread<br/>cap.read then predict]:::proc
+    OV[render overlay<br/>boxes + masks]:::proc
+    ST[/GET /stream<br/>MJPEG img/]:::api
+    OP{{operator sees<br/>a bad frame}}:::human
+    FL[/POST /flag<br/>save newest still/]:::api
+    DS[(COCO-VID dataset<br/>review_status pending)]:::data
+    ANN[[separate annotation<br/>dashboard — NOT here]]:::ext
+
+    CAM --> CAP --> OV --> ST --> OP
+    OP -- SPACE --> FL --> DS
+    DS -. manual drop .-> ANN
+
+    classDef hw fill:#f6e4c4,stroke:#e8a13a,color:#2b2620;
+    classDef proc fill:#d9e7f0,stroke:#3a7ca5,color:#2b2620;
+    classDef api fill:#fffdf8,stroke:#3a7ca5,color:#2b2620;
+    classDef human fill:#f6e4c4,stroke:#d98a00,color:#2b2620;
+    classDef data fill:#e6f0e2,stroke:#3f9142,color:#2b2620;
+    classDef ext fill:#efe6f5,stroke:#7b5ea7,color:#2b2620,stroke-dasharray:5 4;
+      </pre>
+      <figcaption>End-to-end capture flow — this tool covers Camo → flag → dataset; correction happens in a separate app.</figcaption>
+    </figure>
+
+    <h2 class="sec" id="scope">Scope (locked)</h2>
+    <ul>
+      <li><strong>Watch:</strong> live stream with overlay — box + <span class="term">mask</span>
+        per instrument (as the detector outputs them), colour by instance index, a live
+        <strong>count</strong>, and a <strong>confidence slider</strong>.</li>
+      <li><strong>Snapshot:</strong> <kbd>space</kbd> (or a button) saves the current frame +
+        the detector's annotations for that frame into the active dataset.</li>
+      <li><strong>Settings:</strong> camera index, output path, <span class="term">dataset name</span>,
+        confidence. Nothing else.
+        <span class="mnote">(<code>dataset name</code> joined Settings when the tool went
+        stateless — see <em>Dataset layout &amp; config</em>; it is not a separate "start
+        recording" step.)</span></li>
+      <li><strong>Not here:</strong> any correction/editing — that's the separate annotation
+        dashboard.</li>
+    </ul>
+
+    <h2 class="sec" id="stack">Stack (settled)</h2>
+    <ul>
+      <li><strong>Backend:</strong> Python <span class="term acc">FastAPI</span> —
+        <code>StreamingResponse</code> for MJPEG, Pydantic on <code>/confidence</code>.
+        Depends on <code>orc_model</code> (uv path dep on <code>../model</code>).</li>
+      <li><strong>Camera + inference:</strong> OpenCV <code>VideoCapture(camera_index)</code>;
+        one background <span class="term">capture-infer thread</span> — <code>detector.predict()</code>
+        called once per frame, in order.
+        <span class="mnote">(The detector is stateless, but a single ordered thread keeps the
+        stream simple and is what the future tracker will require anyway.)</span></li>
+      <li><strong>Stream:</strong> <span class="term">MJPEG</span>
+        (<code>multipart/x-mixed-replace</code>) — an <code>&lt;img&gt;</code> tag, no WebRTC.
+        100–300 ms latency is fine for "SPACE when it looks wrong".</li>
+      <li><strong>Frontend:</strong> plain HTML + vanilla JS served by FastAPI (slider, buttons,
+        <code>keydown</code> space → <code>/flag</code>). No build step, one process.</li>
+      <li><strong>Lives in:</strong> <code>data-collection/dashboard/</code>
+        (<code>backend/</code> + <code>static/</code>).</li>
+    </ul>
+
+    <figure class="wide">
+      <pre class="mermaid">
+flowchart TB
+    subgraph browser["Browser — static/ (plain HTML + vanilla JS)"]
+        IMG["img MJPEG"]:::ui
+        SL["confidence slider"]:::ui
+        KD["keydown SPACE"]:::ui
+        POLL["status poll"]:::ui
+    end
+    subgraph be["backend/ — FastAPI (one process)"]
+        THREAD["capture-infer thread<br/>OpenCV VideoCapture"]:::proc
+        LATEST["latest 5-tuple<br/>(under lock)"]:::state
+        EP["endpoints<br/>/stream /flag /settings<br/>/confidence /validate /status"]:::api
+    end
+    DET["orc_model.Detector<br/>RF-DETR ONNX<br/>(uv path dep ../model)"]:::ext
+    DISK[("dataset on disk<br/>images/ + annotations/")]:::data
+
+    THREAD --> DET --> THREAD
+    THREAD --> LATEST --> EP
+    SL --> EP
+    KD --> EP
+    POLL --> EP
+    EP --> IMG
+    EP --> DISK
+
+    classDef ui fill:#f6e4c4,stroke:#e8a13a,color:#2b2620;
+    classDef proc fill:#d9e7f0,stroke:#3a7ca5,color:#2b2620;
+    classDef state fill:#fffdf8,stroke:#d98a00,color:#2b2620;
+    classDef api fill:#fffdf8,stroke:#3a7ca5,color:#2b2620;
+    classDef ext fill:#e6f0e2,stroke:#3f9142,color:#2b2620;
+    classDef data fill:#efe6f5,stroke:#7b5ea7,color:#2b2620;
+      </pre>
+      <figcaption>Component architecture — one FastAPI process serves the frontend, owns the capture thread, and consumes the model only through <code>Detector</code>.</figcaption>
+    </figure>
+
+    <h2 class="sec" id="runtime">Runtime</h2>
+
+    <p>The whole tool is one background loop plus a handful of endpoints. Everything runs at
+      <span class="term acc">one resolution — 1080p</span>: capture, detect, and save.</p>
+
+    <pre class="code"><code>capture-infer thread (loop):        <span class="cm"># ONE resolution — capture, detect, save all at 1080p</span>
+    ok, frame = cap.read()                 <span class="cm"># 1080p BGR; the SAVED image</span>
+    if not ok:                             <span class="cm"># camera gone / Camo not streaming</span>
+        mark capture unhealthy; short sleep; continue   <span class="cm"># never tight-spin, never crash</span>
+    threshold = detector.confidence_threshold           <span class="cm"># snapshot the value USED</span>
+    dets = detector.predict(frame)         <span class="cm"># sv.Detections, boxes+masks, NO tracker_id</span>
+    overlay = render(frame.copy(), dets)   <span class="cm"># draw on a COPY — never the frame /flag saves</span>
+    with lock:
+        latest = (frame, dets, threshold, encode_jpeg(overlay), len(dets))
+        heartbeat = &lt;monotonic now&gt;        <span class="cm"># /status uses this to report capture health</span></code></pre>
+
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>Endpoint</th><th>Does</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>GET /stream</code></td><td>MJPEG of latest overlay jpeg</td></tr>
+          <tr><td><code>POST /confidence</code></td><td><code>detector.confidence_threshold = value</code> (live, Pydantic)</td></tr>
+          <tr><td><code>POST /settings</code></td><td><code>{camera_index?, output_path, dataset_name}</code> — set capture target. <strong>REJECT if <code>&lt;output_path&gt;/&lt;dataset_name&gt;</code> already exists</strong> (collision)</td></tr>
+          <tr><td><code>POST /flag</code></td><td>serialize NEWEST <code>latest</code> (frame, dets, threshold) into active dataset. <strong>409</strong> if no valid target configured</td></tr>
+          <tr><td><code>POST /validate</code></td><td><code>validate(&lt;active dataset&gt;)</code> in-process → advisory (errors, warnings)</td></tr>
+          <tr><td><code>GET /status</code></td><td><code>{count, confidence, dataset_name, output_path, n_flagged, capture_health}</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <figure class="wide">
+      <pre class="mermaid">
+flowchart TD
+    START([loop iteration]):::proc
+    READ["cap.read()"]:::proc
+    OK{frame ok?}:::dec
+    UNHEALTHY["mark unhealthy<br/>short sleep · continue"]:::warn
+    THRESH["snapshot threshold used"]:::proc
+    PRED["detector.predict(frame)<br/>boxes + masks"]:::proc
+    RENDER["render on frame.copy()"]:::proc
+    PUB["under lock:<br/>rebind latest 5-tuple<br/>+ heartbeat"]:::state
+
+    START --> READ --> OK
+    OK -- no --> UNHEALTHY --> START
+    OK -- yes --> THRESH --> PRED --> RENDER --> PUB --> START
+
+    classDef proc fill:#d9e7f0,stroke:#3a7ca5,color:#2b2620;
+    classDef dec fill:#f6e4c4,stroke:#e8a13a,color:#2b2620;
+    classDef warn fill:#fbe9c8,stroke:#d98a00,color:#2b2620;
+    classDef state fill:#e6f0e2,stroke:#3f9142,color:#2b2620;
+      </pre>
+      <figcaption>The capture-infer loop — never tight-spins, never crashes; publishes an atomically-rebound <code>latest</code> tuple per healthy frame.</figcaption>
+    </figure>
+
+    <div class="callout note">
+      <div class="head"><span class="ico">📌</span> Stateless — no recording session.</div>
+      <p>There is <strong>no <code>/recording/start</code> / <code>/recording/stop</code></strong>.
+        The target folder lives in Settings, every SPACE appends a still, and <code>/validate</code>
+        runs the advisory on demand (typically once you think a dataset is done).</p>
+    </div>
+
+    <p>The live overlay draws boxes <strong>and</strong> masks — the detector already hands us
+      full-frame masks, and showing them lets the operator judge <span class="term">mask quality</span>,
+      not just the box (a box can look right while the mask is garbage).</p>
+
+    <div class="callout warning">
+      <div class="head"><span class="ico">⚠️</span> RLE encoding is flag-time only.</div>
+      <p>The expensive part is <strong>RLE-encoding</strong> masks (<code>mask_utils.encode</code>) —
+        that stays <strong>flag-time only</strong>, never per stream frame.</p>
+    </div>
+
+    <h3 class="sub" id="threading">Threading rules (the ones that bite)</h3>
+
+    <div class="callout danger">
+      <div class="head"><span class="ico">🚨</span> /flag is a plain <code>def</code>, not <code>async def</code>.</div>
+      <p>Its <code>cv2.imwrite</code> + RLE encode are blocking; on the async loop they would
+        freeze <code>/stream</code> on every SPACE press — the exact worst moment. Plain
+        <code>def</code> runs it on the threadpool, off the loop.</p>
+    </div>
+
+    <div class="callout warning">
+      <div class="head"><span class="ico">⚠️</span> <code>latest</code> is rebound atomically, never mutated in place.</div>
+      <p><code>/flag</code> grabs the tuple reference under the lock, then does its blocking work
+        on that stable snapshot while the capture thread moves on. <code>cap.read()</code> returns
+        a fresh array each call, so the frame <code>/flag</code> holds won't change under it —
+        <em>as long as</em> <code>render()</code> draws on <code>frame.copy()</code>, not the raw frame.</p>
+    </div>
+
+    <div class="callout danger">
+      <div class="head"><span class="ico">🚨</span> /flag bodies serialize on their own <code>dataset_lock</code>.</div>
+      <p>(Also held by the dataset-mutating part of <code>/settings</code>, separate from the
+        <code>latest</code> lock.) Rapid SPACE presses land on different threadpool threads;
+        unserialized they interleave <code>image_id</code>/<code>ann_id</code> assignment and the
+        <code>annotations.json</code> rewrite — <strong>duplicate ids and a torn file</strong>.
+        Flags are ~1/s at most, so holding it for the whole flag body is free.</p>
+    </div>
+
+    <div class="callout warning">
+      <div class="head"><span class="ico">⚠️</span> /flag saves the NEWEST <code>latest</code>, not the exact frame the operator saw.</div>
+      <p>The MJPEG stream lags 100–300 ms, so the saved frame can be a few frames newer than what
+        triggered the SPACE. Accepted for v1 (a ring buffer keyed to the displayed frame was
+        considered and dropped — a plain <code>&lt;img&gt;</code> stream can't tell the client which
+        frame is painted). Bad frames come in bursts, so newest-frame is close enough.
+        <strong>Known caveat — documented, not a bug.</strong></p>
+    </div>
+
+    <div class="callout note">
+      <div class="head"><span class="ico">📌</span> Provenance uses the threshold that PRODUCED the dets.</div>
+      <p>Captured into <code>latest</code> at predict time — not the live slider value at flag time.
+        The slider can move between the predict and the SPACE; recording the live value would
+        mislabel the annotation.</p>
+    </div>
+
+    <div class="callout note">
+      <div class="head"><span class="ico">📌</span> One resolution — capture, detect, and save all at 1080p.</div>
+      <p>Camo streams <strong>1080p (1920×1080)</strong>. The RF-DETR <code>preprocess</code> resizes
+        any input to <strong>768×768</strong> internally (<code>_rfdetr_postprocess.py:19-27</code>)
+        and masks are born at <strong>192×192</strong>, so a higher capture resolution would buy
+        <strong>zero</strong> detection accuracy anyway. So there is no capture/detect split and no
+        scale factor: <code>cap.read()</code> gives the <code>frame</code>, and <code>predict()</code>,
+        the overlay, the stream, and the saved image all share that one frame.</p>
+    </div>
+
+    <div class="callout todo">
+      <div class="head"><span class="ico">🚧</span> Historical note — the abandoned two-resolution pipeline.</div>
+      <p>An earlier draft assumed Camo streamed <strong>4K</strong> and ran a two-resolution
+        pipeline — capture 4K, downscale to 1080p to detect, scale detections back up to 4K at flag
+        time. Camo streaming 1080p collapsed that to a <strong>single resolution on 2026-07-07</strong>;
+        the saved stills are 1080p, an accepted tradeoff since detection quality is identical either way.
+        <em>(Kept only as a labeled historical note — no <code>frame_full</code>/<code>frame_work</code>/scale-factor
+        logic exists in the live pipeline.)</em></p>
+    </div>
+
+    <div class="callout tip">
+      <div class="head"><span class="ico">🧀</span> Request the resolution, but stay agnostic.</div>
+      <p>OpenCV <code>VideoCapture</code> silently defaults to some resolution unless asked, so
+        <code>cap.set(CAP_PROP_FRAME_WIDTH, 1920)</code> / <code>CAP_PROP_FRAME_HEIGHT, 1080)</code>
+        at open. The pipeline does <strong>not</strong> assert an exact resolution — it saves and
+        annotates whatever frame the camera hands back — so it keeps working if Camo negotiates a
+        different size. The only hard failure <code>start()</code> guards is a camera that returns
+        <strong>no valid frame at all</strong>.</p>
+    </div>
+
+    <div class="callout warning">
+      <div class="head"><span class="ico">⚠️</span> Near-live frames.</div>
+      <p><code>predict()</code> is slower than 30 fps, so <code>cap.read()</code> outruns inference and
+        OpenCV's internal buffer would serve <strong>stale</strong> frames. Set
+        <code>cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)</code> (or grab-drain to the latest) so the stream
+        and snapshots stay near-live. The capture-infer loop runs at detector throughput, not 30 fps —
+        expected and fine.</p>
+    </div>
+
+    <div class="callout warning">
+      <div class="head"><span class="ico">⚠️</span> /stream sends each overlay once.</div>
+      <p>The MJPEG generator waits for a <em>new</em> <code>latest</code> (generation counter + short
+        async sleep, or a Condition) — a naive <code>while True: yield jpeg</code> busy-spins the event
+        loop and floods the socket with duplicate frames.</p>
+    </div>
+
+    <h2 class="sec" id="mapping">sv.Detections → COCO-VID mapping <span style="color:var(--muted);font-weight:400;font-size:1rem;">(the crux — our side, not the model's)</span></h2>
+
+    <p>Per flag, with <code>frame, dets, threshold, _, _ = latest</code>
+      <span class="mnote">(all five slots — a 3-name unpack of the 5-tuple raises <code>ValueError</code>)</span>.
+      <strong><code>dets</code> and <code>frame</code> share one resolution</strong> — the detector ran on
+      the same frame we save — so boxes and masks are written in the <strong>frame's own pixel
+      coordinates, unscaled</strong>. There is no work/full split and no scale factor to get wrong.</p>
+
+    <h3 class="sub">Image record</h3>
+    <p>Write raw <code>frame</code> (BGR, no overlay) with <code>cv2.imwrite</code> to
+      <code>images/frame_{n:05d}.jpg</code> (<code>n</code> = per-dataset flag counter; we control the
+      JPEG → no EXIF trap), then:</p>
+    <pre class="code"><code>W, H = int(frame.shape[1]), int(frame.shape[0])   <span class="cm"># frame dims</span>
+
+{ "id": image_id, "file_name": f"frame_{n:05d}.jpg",
+  "width": W, "height": H, "review_status": "pending" }</code></pre>
+
+    <h3 class="sub">Annotations</h3>
+    <p>One per detection <code>i</code>. Note the explicit <code>float(...)</code> casts:
+      <code>dets.xyxy</code> is <code>np.float32</code> and the raw <code>json</code> module
+      <strong>cannot serialize numpy scalars</strong> — an uncast <code>bbox</code> raises
+      <code>TypeError</code> on the first flag.</p>
+    <pre class="code"><code>x1, y1, x2, y2 = dets.xyxy[i]
+<span class="cm"># Clip to the frame — detector emits off-frame boxes (no clamp in decode_predictions),</span>
+<span class="cm"># and the import validator only checks w&gt;0/h&gt;0, not bounds.</span>
+x1 = min(max(float(x1), 0.0), W); x2 = min(max(float(x2), 0.0), W)
+y1 = min(max(float(y1), 0.0), H); y2 = min(max(float(y2), 0.0), H)
+bw, bh = x2 - x1, y2 - y1
+if bw &lt;= 0 or bh &lt;= 0:
+    continue                                         <span class="cm"># drop degenerate box (clip first, then drop)</span>
+
+bbox = [x1, y1, bw, bh]                              <span class="cm"># xywh, abs px in frame coords</span>
+
+<span class="cm"># Encode the bool mask as-is (already at frame resolution). 192x192 origin is the</span>
+<span class="cm"># precision ceiling; a seed the reviewer corrects anyway.</span>
+rle = mask_utils.encode(np.asfortranarray(dets.mask[i].astype(np.uint8)))
+rle["counts"] = rle["counts"].decode("utf-8")
+mask_area = int(mask_utils.area(rle))
+
+ann = {
+  "id": ann_id,                                      <span class="cm"># running counter, 1..N across ALL frames</span>
+  "image_id": image_id,                              <span class="cm"># == this frame's image record id (== n)</span>
+  "category_id": 1,                                  <span class="cm"># class_id 0 -&gt; category 1</span>
+  <span class="cm"># no track_id — detector doesn't track; the editor assigns one on edit</span>
+  "bbox": bbox,                                      <span class="cm"># xywh, abs px (all Python floats)</span>
+  "iscrowd": 0,
+  <span class="cm"># provenance -&gt; preserved in the format's extras bucket:</span>
+  "confidence": float(dets.confidence[i]),
+  "model_version": model_version,                    <span class="cm"># deliberate startup tag, e.g. "rfdetr-2026-07-07"</span>
+  "confidence_threshold": threshold,                 <span class="cm"># snapshot at predict time, not live slider</span>
+}
+
+<span class="cm"># Box and mask are thresholded INDEPENDENTLY in the detector, so a valid box can</span>
+<span class="cm"># carry an all-zero mask (area 0). Write it box-only in that case.</span>
+if mask_area &gt; 0:
+    ann["segmentation"] = {"size": rle["size"], "counts": rle["counts"]}   <span class="cm"># size == [H, W]</span>
+    ann["area"] = mask_area
+else:
+    ann["area"] = int(bw * bh)                       <span class="cm"># box-only fallback; omit segmentation</span></code></pre>
+
+    <figure class="wide">
+      <pre class="mermaid">
+flowchart TD
+    F([flag fires]):::proc
+    UNP["unpack 5-tuple<br/>frame, dets, threshold, _, _"]:::proc
+    IMG["write raw frame to images/frame_n.jpg<br/>+ image record (pending)"]:::data
+    LOOP{for each<br/>detection i}:::dec
+    CLIP["clip xyxy to frame · cast float"]:::proc
+    DEG{bw &gt; 0<br/>and bh &gt; 0?}:::dec
+    DROP["continue — drop<br/>degenerate box"]:::warn
+    MASK{mask_area &gt; 0?}:::dec
+    WITHSEG["ann + segmentation<br/>area = mask_area"]:::data
+    BOXONLY["box-only fallback<br/>area = bw*bh<br/>(SAM3-fill path)"]:::warn
+    WRITE["append ann then rewrite<br/>annotations.json atomically"]:::data
+
+    F --> UNP --> IMG --> LOOP
+    LOOP --> CLIP --> DEG
+    DEG -- no --> DROP
+    DEG -- yes --> MASK
+    MASK -- yes --> WITHSEG --> WRITE
+    MASK -- no --> BOXONLY --> WRITE
+    WRITE --> LOOP
+
+    classDef proc fill:#d9e7f0,stroke:#3a7ca5,color:#2b2620;
+    classDef dec fill:#f6e4c4,stroke:#e8a13a,color:#2b2620;
+    classDef warn fill:#fbe9c8,stroke:#d98a00,color:#2b2620;
+    classDef data fill:#e6f0e2,stroke:#3f9142,color:#2b2620;
+      </pre>
+      <figcaption>Per-flag serialization — clip → drop-degenerate → mask-or-box-only, then atomic rewrite. Box and mask are thresholded independently, so the box-only branch is a real path, not an error.</figcaption>
+    </figure>
+
+    <ul>
+      <li><strong>Categories:</strong>
+        <code>[{"id": 1, "name": "surgical_instrument", "supercategory": ""}]</code> — single class,
+        hardcoded (the detector is single-class; <code>class_id 0 → category 1</code>).</li>
+      <li><strong><code>info</code> block</strong> (dataset-level provenance, round-trip):
+        <code>{"description": &lt;dataset_name&gt;, "date_created": &lt;iso8601 at folder creation&gt;}</code>.</li>
+      <li><strong>Empty frame</strong> (detector found nothing) → image record with <strong>zero
+        annotations</strong>. This is a first-class capture (the false negative), not an error.</li>
+      <li><strong><code>annotations.json</code> rewritten on every flag</strong> (cheap for hundreds of
+        frames) so a crash never loses the pile. Rewrite <strong>atomically</strong> — write
+        <code>annotations.json.tmp</code>, then <code>os.replace</code> — so a crash mid-write can't
+        torch the previous good file either.</li>
+    </ul>
+
+    <div class="callout danger">
+      <div class="head"><span class="ico">🚨</span> Two independent ID counters — do not reset them together.</div>
+      <p><code>image_id</code> increments <strong>once per flagged frame</strong> and equals the
+        filename <code>n</code>. <code>ann_id</code> is a <strong>separate running counter</strong> that
+        accumulates across <strong>all</strong> frames and never resets per-frame. Resetting it per
+        frame yields duplicate <code>annotations[].id</code>, which <strong>corrupts editing</strong>
+        (<code>IMPORT_FORMAT.md</code> §5). Implementation: hold <code>images[]</code> and
+        <code>annotations[]</code> in memory, append per flag, assign
+        <code>image_id = len(images)+1</code> and <code>ann_id = len(annotations)+1</code>
+        <em>before</em> appending. The live <code>count</code> (<code>len(dets)</code>) is UI-only and
+        never written.</p>
+    </div>
+
+    <figure>
+      <pre class="mermaid">
+erDiagram
+    IMAGE ||--o{ ANNOTATION : "image_id (1:N, may be 0)"
+    CATEGORY ||--o{ ANNOTATION : "category_id (always 1)"
+    IMAGE {
+        int id "== n, per-frame counter"
+        string file_name "frame_00001.jpg"
+        int width
+        int height
+        string review_status "pending"
+    }
+    ANNOTATION {
+        int id "running, across ALL frames"
+        int image_id
+        int category_id "1"
+        floats bbox "xywh abs px"
+        obj segmentation "RLE, omitted if mask empty"
+        int area "mask_area OR bw times bh"
+        float confidence "provenance"
+        string model_version "rfdetr-2026-07-07"
+        float confidence_threshold "predict-time"
+    }
+    CATEGORY {
+        int id "1"
+        string name "surgical_instrument"
+        string supercategory "empty"
+    }
+      </pre>
+      <figcaption>COCO-VID entities this tool writes. Note the <code>id</code> semantics differ: image id resets per dataset (== n), annotation id never resets per-frame — conflating them corrupts editing.</figcaption>
+    </figure>
+
+    <h2 class="sec" id="layout">Dataset layout &amp; config</h2>
+    <p>Stateless — the target folder lives in <span class="term">Settings</span>, not a recording
+      session. One dataset = one folder. (No tracker → no <code>reset()</code>, no
+      <code>track_id</code> namespace.)</p>
+
+    <figure>
+      <pre class="mermaid">
+flowchart TD
+    ROOT["&lt;output_path&gt;/&lt;dataset_name&gt;/"]:::root
+    IMGS["images/"]:::dir
+    F1["frame_00001.jpg"]:::file
+    F2["frame_00002.jpg ..."]:::file
+    ANNDIR["annotations/"]:::dir
+    AJSON["annotations.json"]:::file
+
+    ROOT --> IMGS --> F1
+    IMGS --> F2
+    ROOT --> ANNDIR --> AJSON
+
+    classDef root fill:#f6e4c4,stroke:#e8a13a,color:#2b2620;
+    classDef dir fill:#d9e7f0,stroke:#3a7ca5,color:#2b2620;
+    classDef file fill:#fffdf8,stroke:#7a7267,color:#2b2620;
+      </pre>
+      <figcaption>On-disk dataset layout — created lazily on the first flag.</figcaption>
+    </figure>
+
+    <ul>
+      <li><code>output_path</code> + <code>dataset_name</code> are set via <code>/settings</code>.
+        <code>dataset_name</code> is a single path component, no leading <code>.</code> (validator
+        enforces both).</li>
+      <li>The folder + <code>images/</code> are created lazily on the <strong>first</strong> flag;
+        in-memory counters (<code>image_id</code>, <code>ann_id</code>, <code>n</code>,
+        <code>n_flagged</code>) reset when <code>dataset_name</code> changes.</li>
+    </ul>
+
+    <div class="callout danger">
+      <div class="head"><span class="ico">🚨</span> Collision → reject. Datasets are single-session.</div>
+      <p>If <code>&lt;output_path&gt;/&lt;dataset_name&gt;</code> already exists, <code>/settings</code>
+        rejects and the operator picks a new name. We <strong>never append into an existing folder</strong>:
+        that would need ID counters to resume from the on-disk max, and a wrong resume produces duplicate
+        ids that corrupt editing. <strong>A dataset is therefore single-session — there is no
+        resume-after-restart in v1</strong> (documented limitation, not an oversight).</p>
+    </div>
+
+    <div class="callout note">
+      <div class="head"><span class="ico">📌</span> /validate is advisory, not a gate.</div>
+      <p>It <code>import</code>s <code>validate()</code> from
+        <a href="scripts/validate_import.py"><code>scripts/validate_import.py</code></a> and calls
+        <code>validate(&lt;dataset&gt;)</code> <strong>in-process</strong> — returns typed
+        <code>(errors, warnings)</code>, no subprocess/stdout scraping. The folder always exists; validate
+        just tells you if it's import-ready. Green = drop the folder into the annotation dashboard's
+        <code>data/processed/</code> (manual — this tool doesn't write into the other app's tree).</p>
+    </div>
+
+    <h2 class="sec" id="guardrails">Failure-mode guardrails <span style="color:var(--muted);font-weight:400;font-size:1rem;">(required — no undefined behavior)</span></h2>
+
+    <div class="callout warning">
+      <div class="head"><span class="ico">⚠️</span> /flag with no valid target → 409.</div>
+      <p>(<code>output_path</code>/<code>dataset_name</code> unset or invalid.) Not a silent no-op or crash,
+        so a mis-timed SPACE is visible.</p>
+    </div>
+
+    <div class="callout warning">
+      <div class="head"><span class="ico">⚠️</span> /status exposes <code>capture_health</code>.</div>
+      <p>If <code>cap.read()</code> fails or the capture thread dies, the stream freezes on the last frame;
+        without a health signal the operator would flag a dead stream and capture nothing.
+        <code>capture_health</code> is derived from the <code>heartbeat</code> timestamp (e.g.
+        <code>stale</code> if no successful read in ~2 s).</p>
+    </div>
+
+    <div class="callout note">
+      <div class="head"><span class="ico">📌</span> Collision reject is the config-side guard.</div>
+      <p>There is no "already recording" state to guard, since the tool is stateless.</p>
+    </div>
+
+    <h2 class="sec" id="model">Model / config</h2>
+    <ul>
+      <li><strong>Weights are local:</strong>
+        <code>model/weights/checkpoint_best_regular.onnx</code> (RF-DETR instance-seg ONNX export;
+        gitignored via <code>model/weights/*</code>). The dashboard takes the <strong>ONNX path</strong>
+        + a <strong>version tag</strong> at <strong>startup</strong>, not in the UI.</li>
+      <li><strong><code>model_version</code> (decided):</strong> a deliberate, date-stamped tag —
+        <code>rfdetr-2026-07-07</code> for the current export — passed at startup next to the ONNX path.
+        Not the filename stem: every future export is also named <code>checkpoint_best_regular</code>, so
+        the stem can't tell two models apart.</li>
+    </ul>
+
+    <div class="callout tip">
+      <div class="head"><span class="ico">🧀</span> Contract verified against the real export.</div>
+      <p>Build directly on <code>Detector(weights_path)</code>. The export's I/O matches
+        <code>decode_predictions</code> exactly: input <code>[1,3,768,768]</code>, outputs
+        <code>dets [1,300,4]</code> / <code>labels [1,300,2]</code> / <code>masks [1,300,192,192]</code>.
+        <code>predict()</code> returns <code>sv.Detections</code> (xyxy <code>float32</code>, bool
+        full-frame masks, confidence <code>float32</code>, class_id <code>0</code>) with no dashboard-side
+        changes. <em>(Loaded + ran end-to-end on 2026-07-07.)</em></p>
+    </div>
+
+    <h2 class="sec" id="open">Open items</h2>
+
+    <div class="callout tip">
+      <div class="head"><span class="ico">🧀</span> Camo device index — confirmed at index 3.</div>
+      <p>On Bram's Mac (2026-07-07), <code>scripts/find_camera.py</code> found <strong>three</strong> 1080p
+        feeds at indices 0, 2, 3 (index 1 is a 720p FaceTime cam). Bram confirmed <strong>index 3 is
+        Camo</strong> (2026-07-07). Indices can still shift between plug/unplug sessions, so re-run
+        <code>find_camera.py</code> if the feed looks wrong — but <strong>index 3 is the working default</strong>
+        with the phone attached.</p>
+    </div>
+
+    <div class="callout tip">
+      <div class="head"><span class="ico">🧀</span> Static assets — fixed 2026-07-07.</div>
+      <p><code>create_app</code> had no <code>/static</code> mount, so <code>style.css</code> +
+        <code>app.js</code> 404'd and the live app rendered as raw unstyled HTML with a dead script.
+        Flagged in the T06 log, never wired; <strong>mounted now with a regression test</strong>
+        (<code>test_static_assets_are_served</code>). The UI is styled + interactive, verified live in
+        Chrome on the built-in webcam.</p>
+    </div>
+
+    <div class="callout todo">
+      <div class="head"><span class="ico">🚧</span> Real-instrument capture — still pending.</div>
+      <p>The end-to-end flow (stream, apply settings, FLAG, validate, dataset-on-disk) is proven, but
+        <strong>only against dark / empty frames</strong>. Detection quality on actual surgical
+        instruments (<strong>T07 AC8</strong>) needs Bram to point Camo at instruments in decent light —
+        an "aim the camera" step, not a code gap.</p>
+    </div>
+
+    <figure class="wide">
+      <pre class="mermaid">
+flowchart LR
+    subgraph done["Proven / fixed"]
+        C1["Camo index 3<br/>confirmed"]:::ok
+        C2["static assets<br/>mounted + tested"]:::ok
+        C3["e2e flow: stream to<br/>flag to validate to disk"]:::ok
+        C4["model contract<br/>ran end-to-end"]:::ok
+    end
+    subgraph open["Still open"]
+        O1["detection quality on<br/>REAL instruments — aim<br/>Camo, good light (T07 AC8)"]:::todo
+    end
+    subgraph elsewhere["Elsewhere / v2"]
+        E1["tracker + track_id<br/>built in repo,<br/>not wired here"]:::note
+        E2["resume-after-restart<br/>(single-session only)"]:::note
+    end
+
+    classDef ok fill:#e6f0e2,stroke:#3f9142,color:#2b2620;
+    classDef todo fill:#efe6f5,stroke:#7b5ea7,color:#2b2620,stroke-dasharray:5 4;
+    classDef note fill:#d9e7f0,stroke:#3a7ca5,color:#2b2620;
+      </pre>
+      <figcaption>Status board — what's proven, the one real open item (real-instrument capture), and things deliberately deferred out of this tool.</figcaption>
+    </figure>
+
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      background: dark ? '#24211d' : '#fffdf8',
+      primaryColor: dark ? '#3a2f1c' : '#f6e4c4',
+      primaryBorderColor: '#e8a13a',
+      primaryTextColor: dark ? '#ece6da' : '#2b2620',
+      lineColor: dark ? '#a59d8f' : '#7a7267',
+      secondaryColor: dark ? '#1f2e38' : '#d9e7f0',
+      tertiaryColor: dark ? '#26231f' : '#f3ecdd',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      fontSize: '15px'
+    }
+  });
+
+  const links = Array.from(document.querySelectorAll('#toc a'));
+  const map = new Map();
+  links.forEach(a => {
+    const id = a.getAttribute('href').slice(1);
+    const el = document.getElementById(id);
+    if (el) map.set(el, a);
+  });
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const a = map.get(e.target);
+        if (a) a.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-10% 0px -80% 0px', threshold: 0 });
+  map.forEach((_a, el) => obs.observe(el));
+</script>
+</body>
+</html>

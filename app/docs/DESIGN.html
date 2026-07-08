@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DESIGN — ORC demo app (app/)</title>
+<style>
+  :root {
+    --paper: #faf6ee;
+    --ink: #2b2620;
+    --muted: #7a7267;
+    --accent: #e8a13a;
+    --accent-soft: #f6e3c2;
+    --blue: #3a7ca5;
+    --blue-soft: #dcebf3;
+    --tip: #3f9142;    --tip-bg: #e9f4e9;
+    --note: #3a7ca5;   --note-bg: #e6f0f6;
+    --warn: #d98a00;   --warn-bg: #fbf0da;
+    --danger: #c8452f; --danger-bg: #f9e6e1;
+    --todo: #7b5ea7;   --todo-bg: #efe9f6;
+    --card: #ffffff;
+    --code-bg: #f1ebdd;
+    --border: #e3dbc9;
+    --zebra: #f5efe2;
+    --shadow: 0 2px 8px rgba(80, 62, 30, 0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #1c1a17;
+      --ink: #ece6da;
+      --muted: #a39a8c;
+      --accent: #d99b40;
+      --accent-soft: #3a3223;
+      --blue: #5f9dc2;
+      --blue-soft: #22313c;
+      --tip: #6db870;    --tip-bg: #22301f;
+      --note: #5f9dc2;   --note-bg: #1e2c36;
+      --warn: #e0a33e;   --warn-bg: #362b18;
+      --danger: #e0715c; --danger-bg: #3a2320;
+      --todo: #a68cc9;   --todo-bg: #2c2536;
+      --card: #26231f;
+      --code-bg: #2a2721;
+      --border: #3b372f;
+      --zebra: #242119;
+      --shadow: 0 2px 8px rgba(0,0,0,0.35);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    font-size: 17px;
+    line-height: 1.65;
+    overflow-x: hidden;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 250px minmax(0, 1fr);
+    gap: 2rem;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 1.2rem 4rem;
+  }
+  /* ---------- sidebar ---------- */
+  nav.toc {
+    position: sticky;
+    top: 1rem;
+    align-self: start;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1rem 1.1rem;
+    box-shadow: var(--shadow);
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    font-size: 0.85rem;
+    margin-top: 1.5rem;
+  }
+  nav.toc h2 {
+    margin: 0 0 .6rem;
+    font-size: .78rem;
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    color: var(--muted);
+  }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin: .15rem 0; }
+  nav.toc a {
+    display: block;
+    color: var(--ink);
+    text-decoration: none;
+    padding: .3rem .55rem;
+    border-radius: 8px;
+    border-left: 3px solid transparent;
+  }
+  nav.toc a:hover { background: var(--accent-soft); }
+  nav.toc a.active {
+    background: var(--accent-soft);
+    border-left-color: var(--accent);
+    font-weight: 600;
+  }
+  nav.toc li.sub a { padding-left: 1.3rem; font-size: .8rem; color: var(--muted); }
+  /* ---------- main column ---------- */
+  main { min-width: 0; }
+  article { max-width: 74ch; }
+  header.masthead {
+    margin: 2rem 0 1.5rem;
+    padding: 1.6rem 1.8rem;
+    background: linear-gradient(135deg, var(--accent-soft), var(--card));
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+  }
+  header.masthead h1 {
+    margin: 0 0 .3rem;
+    font-size: 1.9rem;
+    line-height: 1.2;
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    letter-spacing: -0.01em;
+  }
+  header.masthead h1 code { font-size: 1.4rem; }
+  header.masthead .subtitle { color: var(--muted); margin: .2rem 0 .8rem; font-style: italic; }
+  .badges { display: flex; flex-wrap: wrap; gap: .5rem; font-family: "Avenir Next", system-ui, sans-serif; font-size: .78rem; }
+  .badge {
+    padding: .22rem .7rem;
+    border-radius: 999px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .badge b { color: var(--ink); }
+  .badge.demo { border-color: var(--danger); color: var(--danger); font-weight: 600; }
+  h2 {
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    font-size: 1.45rem;
+    margin: 2.6rem 0 .8rem;
+    padding-bottom: .3rem;
+    border-bottom: 3px solid var(--accent);
+    scroll-margin-top: 1rem;
+  }
+  h3 {
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    font-size: 1.1rem;
+    margin: 1.8rem 0 .5rem;
+    color: var(--blue);
+    scroll-margin-top: 1rem;
+  }
+  p { margin: .7rem 0; }
+  /* decorated key terms */
+  .kt {
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    font-weight: 700;
+    font-size: 1.04em;
+    color: var(--blue);
+  }
+  .kt.cheese { color: var(--accent); }
+  .kt.rose { color: var(--danger); }
+  code {
+    font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    font-size: .84em;
+    background: var(--code-bg);
+    padding: .1em .35em;
+    border-radius: 5px;
+  }
+  pre.codeblock {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.2rem;
+    overflow-x: auto;
+    font-size: .82rem;
+    line-height: 1.55;
+  }
+  pre.codeblock code { background: none; padding: 0; }
+  a { color: var(--blue); }
+  /* ---------- callouts ---------- */
+  .callout {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: .8rem;
+    margin: 1.2rem 0;
+    padding: .9rem 1.1rem;
+    border-radius: 12px;
+    border: 1.5px solid;
+    box-shadow: var(--shadow);
+    font-size: .95rem;
+  }
+  .callout .icon { font-size: 1.4rem; line-height: 1.3; }
+  .callout .title {
+    font-family: "Avenir Next", system-ui, sans-serif;
+    font-weight: 700;
+    font-size: .8rem;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    margin-bottom: .15rem;
+  }
+  .callout p { margin: .25rem 0 0; }
+  .callout.tip    { background: var(--tip-bg);    border-color: var(--tip); }
+  .callout.tip .title { color: var(--tip); }
+  .callout.note   { background: var(--note-bg);   border-color: var(--note); }
+  .callout.note .title { color: var(--note); }
+  .callout.warn   { background: var(--warn-bg);   border-color: var(--warn); }
+  .callout.warn .title { color: var(--warn); }
+  .callout.danger { background: var(--danger-bg); border-color: var(--danger); }
+  .callout.danger .title { color: var(--danger); }
+  .callout.todo   { background: var(--todo-bg);   border-color: var(--todo); border-style: dashed; }
+  .callout.todo .title { color: var(--todo); }
+  /* ---------- figures & diagrams ---------- */
+  figure.diagram {
+    margin: 1.4rem 0;
+    padding: 1rem 1rem .6rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    overflow-x: auto;
+    max-width: 100%;
+  }
+  figure.diagram.wide { width: min(100%, 900px); }
+  pre.mermaid {
+    background: none;
+    margin: 0;
+    display: flex;
+    justify-content: center;
+  }
+  pre.mermaid svg { max-width: 100%; height: auto; }
+  figcaption {
+    font-family: "Avenir Next", system-ui, sans-serif;
+    font-size: .78rem;
+    color: var(--muted);
+    text-align: center;
+    padding: .6rem .4rem .2rem;
+    border-top: 1px dashed var(--border);
+    margin-top: .8rem;
+  }
+  /* ---------- tables ---------- */
+  .table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    margin: 1.2rem 0;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 640px;
+    font-size: .88rem;
+    background: var(--card);
+  }
+  thead th {
+    position: sticky;
+    top: 0;
+    background: var(--accent);
+    color: #2b2620;
+    font-family: "Avenir Next", system-ui, sans-serif;
+    text-align: left;
+    padding: .6rem .8rem;
+    font-size: .78rem;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    z-index: 1;
+  }
+  tbody td { padding: .6rem .8rem; vertical-align: top; border-top: 1px solid var(--border); }
+  tbody tr:nth-child(even) { background: var(--zebra); }
+  td.dnum {
+    font-family: "Avenir Next", system-ui, sans-serif;
+    font-weight: 800;
+    color: var(--blue);
+    white-space: nowrap;
+  }
+  td .pill {
+    display: inline-block;
+    font-family: "Avenir Next", system-ui, sans-serif;
+    font-size: .68rem;
+    font-weight: 700;
+    padding: .05rem .5rem;
+    border-radius: 999px;
+    margin-left: .3rem;
+    vertical-align: middle;
+  }
+  .pill.flag { background: var(--danger-bg); color: var(--danger); border: 1px dashed var(--danger); }
+  .pill.call { background: var(--blue-soft); color: var(--blue); }
+  ul.rules { padding-left: 1.3rem; }
+  ul.rules li { margin: .5rem 0; }
+  ol.screens { padding-left: 1.3rem; }
+  ol.screens li { margin: .6rem 0; }
+  .runmode {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: .3rem .9rem;
+    margin: 1rem 0;
+    font-size: .9rem;
+  }
+  .runmode code { white-space: nowrap; }
+  /* ---------- responsive ---------- */
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; gap: 0; }
+    nav.toc {
+      position: static;
+      max-height: none;
+      margin-top: 1rem;
+    }
+    body { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc" aria-label="Table of contents">
+  <h2>Inhoudstafel</h2>
+  <ol>
+    <li><a href="#top">Overview</a></li>
+    <li><a href="#demo">What the demo does</a></li>
+    <li class="sub"><a href="#operator-flow">Operator flow</a></li>
+    <li class="sub"><a href="#instrument-states">Instrument states</a></li>
+    <li><a href="#architecture">Architecture</a></li>
+    <li class="sub"><a href="#runtime-seq">Runtime sequence</a></li>
+    <li><a href="#decisions">Decisions D1–D14</a></li>
+    <li><a href="#threading">Threading rules</a></li>
+    <li><a href="#layout">Repository layout</a></li>
+    <li class="sub"><a href="#runmodes">Run modes</a></li>
+  </ol>
+</nav>
+
+<main>
+<article>
+
+<header class="masthead" id="top">
+  <h1>DESIGN — ORC demo app <code>app/</code></h1>
+  <p class="subtitle">Live demo recording with per-instrument Usage &amp; Completeness reporting</p>
+  <div class="badges">
+    <span class="badge demo">Demo: UZ Leuven — 2026-07-20</span>
+    <span class="badge">Decisions: <b>Bram</b></span>
+    <span class="badge">Model seam: <b>Constantijn</b></span>
+    <span class="badge">Rendered 2026-07-07 from <code>app/docs/DESIGN.md</code></span>
+  </div>
+</header>
+
+<div class="callout danger">
+  <div class="icon">🚨</div>
+  <div>
+    <div class="title">This is NOT the data-collection dashboard</div>
+    <p>Different product entirely: the dashboard captures training frames; <em>this</em> app runs a live
+    demo recording and reports per-instrument <span class="kt cheese">Usage</span> and
+    <span class="kt cheese">Completeness</span>. <strong>Nothing in <code>data-collection/</code> is a
+    spec for this app.</strong></p>
+  </div>
+</div>
+
+<div class="callout note">
+  <div class="icon">📌</div>
+  <div>
+    <div class="title">Why the PRD is restated here</div>
+    <p>Coder agents cannot reach the PRD (it lives in an Obsidian vault), so the facts they need are
+    restated in this document. Decision authority: <strong>Bram</strong>. Model half (detector + tracker
+    behind <code>InstrumentTracker</code>): <strong>Constantijn</strong>.</p>
+  </div>
+</div>
+
+<h2 id="demo">What the demo does (from the PRD)</h2>
+
+<p>A camera on a tripod frames a <span class="kt">sterile table</span> with 5–6 surgical instruments.
+One operator screen, three phases:</p>
+
+<ol class="screens">
+  <li><span class="kt cheese">Setup</span> — live feed with detection overlay. The operator
+      <em>eyeballs</em> that every instrument is detected, then presses <strong>Start</strong>
+      (enabled once the detected count has been stable ≥ 2 s at any value ≥ 1 — the gate is
+      human judgment, not a configured count).</li>
+  <li><span class="kt cheese">Recording</span> — live feed + a live per-instrument panel
+      (on table / off table, off-since, pickup count). Any instrument may be picked up, carried
+      out of frame, and returned — any order, repeatedly, <strong>one off the table at a time</strong>.</li>
+  <li><span class="kt cheese">Report</span> (after <strong>Stop</strong>) — per instrument: a
+      <span class="kt">Usage</span> timeline (its off-table windows) and a
+      <span class="kt">Completeness</span> badge (<em>present</em> on the table at Stop, or <em>lost</em>).</li>
+</ol>
+
+<div class="callout tip">
+  <div class="icon">🧀</div>
+  <div>
+    <div class="title">Acceptance criterion</div>
+    <p>The report matches what physically happened in the run. That's the whole bar.</p>
+  </div>
+</div>
+
+<h3 id="operator-flow">Operator flow</h3>
+
+<figure class="diagram">
+<pre class="mermaid">
+stateDiagram-v2
+    direction LR
+    [*] --> Setup
+    Setup --> Recording : Start<br/>(count stable ≥2s, ≥1,<br/>operator judgment)
+    Recording --> Report : Stop
+    Report --> Recording : next Start<br/>(discards report — D7)
+    note right of Report
+        In-memory only.
+        Usage timeline +
+        present / lost badge
+    end note
+</pre>
+<figcaption>The three operator phases. Note the D7 loop: pressing Start from the Report screen discards the previous report — nothing is persisted.</figcaption>
+</figure>
+
+<div class="callout warn">
+  <div class="icon">⚠️</div>
+  <div>
+    <div class="title">Demo choreography constraint</div>
+    <p>Only <strong>one instrument off the table at a time</strong>. The spec states this as run
+    choreography — it does not say what <code>Session</code> does if two go missing at once.</p>
+  </div>
+</div>
+
+<h3 id="instrument-states">Instrument states (per instrument, during Recording)</h3>
+
+<figure class="diagram">
+<pre class="mermaid">
+stateDiagram-v2
+    direction LR
+    OnTable : On table
+    OffTable : Off table<br/>(usage window open)
+    OnTable --> OffTable : absent ≥ 1.5 s<br/>(off-debounce, D9)<br/>pickup count +1
+    OffTable --> OnTable : present ≥ 1.0 s<br/>(on-debounce, D9)<br/>usage window closes
+    OnTable --> Present✅ : Stop
+    OffTable --> Lost🚨 : Stop
+</pre>
+<figcaption>Derived from D9 + the Report spec: debounced off/on transitions form the Usage windows; the state at Stop decides the Completeness badge (present vs lost).</figcaption>
+</figure>
+
+<h2 id="architecture">Architecture</h2>
+
+<figure class="diagram wide">
+<pre class="mermaid">
+flowchart LR
+    CAM(("📷 camera<br/>1920×1080"))
+    subgraph BE["app/backend"]
+        CL["CaptureLoop<br/>1 thread — owns<br/>tracker.update()"]
+        TRK["InstrumentTracker<br/><i>frozen seam:</i><br/>tracker-interface.md"]:::frozen
+        SES["Session<br/>state machine · debounce<br/>usage windows ·<br/>completeness · report"]
+        LAT["Latest snapshot<br/>overlay JPEG (atomic)"]
+        API["FastAPI<br/><i>frozen seam:</i><br/>api-contract.md"]:::frozen
+    end
+    subgraph FE["app/frontend"]
+        SPA["Vite + React + TS<br/>+ shadcn/ui"]
+    end
+    CAM --> CL
+    CL <--> TRK
+    CL -- "on_frame(t, present_ids)" --> SES
+    CL -- "snapshot()" --> LAT
+    SES --> API
+    LAT --> API
+    API -- "GET /status<br/>poll @ 2 Hz" --> SPA
+    API -- "MJPEG /stream<br/>multipart via &lt;img&gt;" --> SPA
+    classDef frozen fill:#dcebf3,stroke:#3a7ca5,stroke-width:2px,stroke-dasharray:4 3
+</pre>
+<figcaption>The full pipeline, from the §Architecture ASCII diagram. Blue-dashed nodes are the two <strong>frozen seams</strong>: the HTTP contract and the model interface.</figcaption>
+</figure>
+
+<div class="callout note">
+  <div class="icon">📌</div>
+  <div>
+    <div class="title">Two frozen seams</div>
+    <p>The HTTP seam is frozen in <a href="api-contract.md"><code>api-contract.md</code></a>. The model
+    seam is frozen in <a href="../../model/docs/tracker-interface.md"><code>model/docs/tracker-interface.md</code></a>:
+    <code>InstrumentTracker</code> — <code>update(bgr_frame) -&gt; sv.Detections</code> with stable
+    <code>tracker_id</code>, <code>confidence</code> attr, <code>reset()</code>, <code>class_names</code>,
+    <code>model_version</code>.</p>
+  </div>
+</div>
+
+<h3 id="runtime-seq">Runtime sequence</h3>
+
+<figure class="diagram wide">
+<pre class="mermaid">
+sequenceDiagram
+    participant Cam as Camera
+    participant CL as CaptureLoop (thread)
+    participant Trk as InstrumentTracker
+    participant Ses as Session (pure)
+    participant API as FastAPI handlers
+    participant FE as Frontend (React)
+    loop every frame, in order
+        Cam->>CL: BGR frame (BUFFERSIZE=1)
+        CL->>Trk: update(bgr_frame)
+        Trk-->>CL: sv.Detections (tracker_id, confidence)
+        CL->>Ses: on_frame(t, present_ids)
+        CL->>CL: publish atomic Latest (overlay JPEG)
+    end
+    loop ~2 Hz
+        FE->>API: GET /status
+        API->>Ses: read under lock
+        API-->>FE: state + per-instrument panel
+    end
+    FE->>API: <img src="/stream"> (MJPEG, async loop)
+    API-->>FE: multipart/x-mixed-replace JPEGs
+</pre>
+<figcaption>One thread owns camera + tracker and feeds the pure Session; HTTP handlers only read, under a lock. The MJPEG stream is served from the async loop, which blocking handlers must never touch.</figcaption>
+</figure>
+
+<h2 id="decisions">Decisions (settled — do not relitigate)</h2>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>#</th><th>Decision</th><th>Rationale</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="dnum">D1</td>
+      <td>Backend: <strong>FastAPI</strong>, Python, <code>uv</code> project under <code>app/backend/</code></td>
+      <td>matches team stack</td>
+    </tr>
+    <tr>
+      <td class="dnum">D2</td>
+      <td>Frontend: <strong>Vite + React + TS + Tailwind + shadcn/ui</strong> under <code>app/frontend/</code></td>
+      <td>SPA on a laptop; no SSR need</td>
+    </tr>
+    <tr>
+      <td class="dnum">D3</td>
+      <td>Live video: <strong>MJPEG</strong> <code>multipart/x-mixed-replace</code>, rendered via <code>&lt;img&gt;</code></td>
+      <td>trivial, proven, no WebRTC</td>
+    </tr>
+    <tr>
+      <td class="dnum">D4</td>
+      <td>Live data: frontend <strong>polls <code>GET /status</code> at ~2 Hz</strong></td>
+      <td>at demo scale, push adds only failure modes</td>
+    </tr>
+    <tr>
+      <td class="dnum">D5</td>
+      <td><strong>Single resolution 1920×1080</strong> end-to-end</td>
+      <td>nothing is saved to disk here; no 4K machinery</td>
+    </tr>
+    <tr>
+      <td class="dnum">D6</td>
+      <td>One background <strong>capture-infer thread</strong>, frames in order, atomic <code>Latest</code> snapshot, <code>CAP_PROP_BUFFERSIZE=1</code>, stale-detection</td>
+      <td>the one lesson imported from data-collection</td>
+    </tr>
+    <tr>
+      <td class="dnum">D7</td>
+      <td>Report <strong>in-memory only</strong>; next Start discards it</td>
+      <td>demo shows the report right after Stop</td>
+    </tr>
+    <tr>
+      <td class="dnum">D8</td>
+      <td>Identity = <code>tracker_id</code>, verbatim. Labels are <code>"Instrument {tracker_id}"</code> <span class="pill flag">flagged to Constantijn</span></td>
+      <td>single class; re-id quality is model-side — ids must survive out-of-frame absence or the report shows one <em>lost</em> + one phantom <em>new</em></td>
+    </tr>
+    <tr>
+      <td class="dnum">D9</td>
+      <td><strong>Off/on debounce</strong> in <code>Session</code> (defaults 1.5 s off, 1.0 s on) so detector flicker ≠ pickups</td>
+      <td>correctness of the report</td>
+    </tr>
+    <tr>
+      <td class="dnum">D10</td>
+      <td>Fake = <strong><code>ScenarioTracker</code></strong> (scripted pickups/returns/losses) + <code>FakeCaptureSource</code>, living in <code>app/backend/</code> — <code>model/</code> is not touched</td>
+      <td>fake at the deepest seam; frontend always talks to the one real API. <code>FakeInstrumentTracker</code> in <code>model/</code> only drifts — it can't demo Usage</td>
+    </tr>
+    <tr>
+      <td class="dnum">D11</td>
+      <td><code>Session</code> is <strong>pure</strong> (fed <code>(t, present_ids)</code>; no clock, no threads inside)</td>
+      <td>the whole report correctness becomes unit-testable</td>
+    </tr>
+    <tr>
+      <td class="dnum">D12</td>
+      <td>Frontend testing: <strong>full component tests</strong> (Vitest + React Testing Library + MSW) plus pure-logic units <span class="pill call">Bram, 2026-07-07</span></td>
+      <td>Bram's call</td>
+    </tr>
+    <tr>
+      <td class="dnum">D13</td>
+      <td>Process: <strong>blind-TDD</strong> (<code>/blind-tdd</code>) for backend tasks; frontend tasks single-agent TDD + <strong>Claude-in-Chrome</strong> visual verification against the fake backend <span class="pill call">Bram, 2026-07-07</span></td>
+      <td>Bram's call</td>
+    </tr>
+    <tr>
+      <td class="dnum">D14</td>
+      <td>TS API types hand-written from <code>api-contract.md</code> at scaffold; swapped for <code>openapi-typescript</code> generation at integration</td>
+      <td>breaks the chicken-and-egg with the not-yet-built backend</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout todo">
+  <div class="icon">🚧</div>
+  <div>
+    <div class="title">Open dependency — D8, flagged to Constantijn</div>
+    <p><code>tracker_id</code> is the <em>only</em> identity. If ids don't survive an instrument leaving
+    the frame and coming back, the report is wrong in the most visible way possible: one instrument shows
+    as <em>lost</em> and a phantom <em>new</em> one appears. This is model-side and unresolved in this doc.</p>
+  </div>
+</div>
+
+<h2 id="threading">Threading rules</h2>
+
+<ul class="rules">
+  <li>Exactly <strong>one thread</strong> touches the camera and the tracker: the
+      <span class="kt">CaptureLoop</span>.</li>
+  <li><code>Session.observe()</code> is called from that thread (via <code>on_frame</code>); HTTP handlers
+      read <code>Session</code>/<code>Latest</code> <strong>under a lock</strong>. Keep <code>Session</code>
+      methods O(instruments).</li>
+  <li>Endpoints that do blocking work stay plain <code>def</code> (FastAPI threadpool).</li>
+</ul>
+
+<div class="callout danger">
+  <div class="icon">🚨</div>
+  <div>
+    <div class="title">Never block the async loop</div>
+    <p>The async event loop serves <code>/stream</code>. A blocking handler declared <code>async</code>
+    would freeze the live video. Blocking endpoints must stay plain <code>def</code> so FastAPI runs them
+    in its threadpool.</p>
+  </div>
+</div>
+
+<h2 id="layout">Repository layout the tasks build</h2>
+
+<figure class="diagram">
+<pre class="mermaid">
+flowchart TD
+    APP["app/"]
+    APP --> BE["backend/"]
+    APP --> FE["frontend/"]
+    APP --> DOCS["docs/"]
+    BE --> BE1["pyproject.toml (uv)"]
+    BE --> BE2["backend/{capture, session,<br/>fakes, render, main}.py"]
+    BE --> BE3["tests/"]
+    FE --> FE1["src/{api, screens, components}"]
+    FE --> FE2["tests colocated"]
+    FE --> FE3["MSW in src/test/"]
+    DOCS --> D1["DESIGN.md (this)"]
+    DOCS --> D2["api-contract.md (frozen)"]
+    DOCS --> D3["tasks/ (the board)"]
+    DOCS --> D4["RUNBOOK.md (T08)"]:::planned
+    classDef planned fill:#efe9f6,stroke:#7b5ea7,stroke-width:2px,stroke-dasharray:5 3
+</pre>
+<figcaption>Target tree. <code>RUNBOOK.md</code> (dashed purple) is planned output of task T08 — it does not exist yet.</figcaption>
+</figure>
+
+<h3 id="runmodes">Run modes</h3>
+
+<div class="runmode">
+  <code>uv run orc-demo --fake</code>
+  <span><span class="kt">ScenarioTracker</span> + synthetic frames — what frontend dev and Chrome
+  verification use.</span>
+  <code>uv run orc-demo --camera 1 --weights &lt;path&gt;</code>
+  <span>Real tracker from Constantijn's <code>load_tracker</code> factory <em>when it lands</em>.</span>
+</div>
+
+<div class="callout todo">
+  <div class="icon">🚧</div>
+  <div>
+    <div class="title">Not landed yet</div>
+    <p>The real-camera run mode depends on Constantijn's <code>load_tracker</code> factory, which is
+    explicitly "when it lands". Until then only <code>--fake</code> is runnable end-to-end.</p>
+  </div>
+</div>
+
+<footer style="margin-top:3rem; color:var(--muted); font-size:.8rem; font-family:'Avenir Next',system-ui,sans-serif; border-top:1px dashed var(--border); padding-top:1rem;">
+  Illustrated rendering of <code>app/docs/DESIGN.md</code> · generated 2026-07-07 ·
+  source is authoritative — this page adds diagrams, it does not change decisions.
+</footer>
+
+</article>
+</main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.16.0/dist/mermaid.min.js" integrity="sha384-T/0lMUdJpd2S1ZHtRiofG3htU3xPCrFVeAQ1UUE2TJwlEJSV5NUwn30kP28n238E" crossorigin="anonymous"></script>
+<script>
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: dark ? {
+      background: '#26231f',
+      primaryColor: '#3a3223',
+      primaryTextColor: '#ece6da',
+      primaryBorderColor: '#d99b40',
+      secondaryColor: '#22313c',
+      tertiaryColor: '#2a2721',
+      lineColor: '#a39a8c',
+      textColor: '#ece6da',
+      fontFamily: 'Avenir Next, Segoe UI, system-ui, sans-serif',
+      fontSize: '14px',
+      noteBkgColor: '#362b18',
+      noteTextColor: '#ece6da',
+      noteBorderColor: '#e0a33e',
+      actorBkg: '#3a3223',
+      actorBorder: '#d99b40',
+      actorTextColor: '#ece6da',
+      signalColor: '#a39a8c',
+      signalTextColor: '#ece6da',
+      labelBoxBkgColor: '#22313c',
+      labelBoxBorderColor: '#5f9dc2',
+      labelTextColor: '#ece6da',
+      loopTextColor: '#ece6da',
+      clusterBkg: '#242119',
+      clusterBorder: '#3b372f',
+      edgeLabelBackground: '#26231f'
+    } : {
+      background: '#ffffff',
+      primaryColor: '#f6e3c2',
+      primaryTextColor: '#2b2620',
+      primaryBorderColor: '#e8a13a',
+      secondaryColor: '#dcebf3',
+      tertiaryColor: '#f1ebdd',
+      lineColor: '#7a7267',
+      textColor: '#2b2620',
+      fontFamily: 'Avenir Next, Segoe UI, system-ui, sans-serif',
+      fontSize: '14px',
+      noteBkgColor: '#fbf0da',
+      noteTextColor: '#2b2620',
+      noteBorderColor: '#d98a00',
+      actorBkg: '#f6e3c2',
+      actorBorder: '#e8a13a',
+      actorTextColor: '#2b2620',
+      signalColor: '#7a7267',
+      signalTextColor: '#2b2620',
+      labelBoxBkgColor: '#dcebf3',
+      labelBoxBorderColor: '#3a7ca5',
+      labelTextColor: '#2b2620',
+      loopTextColor: '#2b2620',
+      clusterBkg: '#faf6ee',
+      clusterBorder: '#e3dbc9',
+      edgeLabelBackground: '#ffffff'
+    }
+  });
+
+  // scroll-spy for the TOC
+  const links = Array.from(document.querySelectorAll('nav.toc a'));
+  const targets = links
+    .map(a => document.querySelector(a.getAttribute('href')))
+    .filter(Boolean);
+  const byId = Object.fromEntries(links.map(a => [a.getAttribute('href').slice(1), a]));
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = byId[e.target.id];
+        if (link) link.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-10% 0px -70% 0px' });
+  targets.forEach(t => observer.observe(t));
+</script>
+</body>
+</html>
