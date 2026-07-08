@@ -178,8 +178,23 @@ Two thresholds, both recorded:
 - Spike task before relying on 60: time 300 `cap.read()`s at requested
   1080p60 and report the delivered rate.
 
-**Open items** (filled by TR7's spike — do not flip the default before this
-has a number): measured delivered fps at requested 1080p60 via Camo: _TBD_.
+**Open items** (filled by TR7's spike):
+
+- **Measured delivered fps at requested 1080p60 via Camo: 30 fps.** On Bram's
+  Mac (2026-07-08, `scripts/spike_fps.py --fps 60`, 300 blocking `cap.read()`s):
+  the stream negotiates **1920×1080**, `CAP_PROP_FPS` **claims 30**, and the
+  delivered rate is **exactly 30.0 fps** (300 reads / 10.005 s). A dashboard-style
+  open with **no** `CAP_PROP_FPS` request delivers the same 30 fps. **Conclusion:
+  Camo does not provide 1080p60 through OpenCV/AVFoundation — requesting 60 yields
+  30. Do NOT flip `capture_fps` to 60; it would not increase the delivered rate.**
+  The pipeline stays fps-agnostic (everything derives from the probed file), so
+  this is a measurement, not a blocker.
+- **Real bottleneck is the post-pass, not capture.** RF-DETR ONNX on this CPU at
+  1080p runs the post-pass at **~0.6 fps** (58 frames took ~102 s end-to-end;
+  ~15× slower than the spec's 10 fps ballpark). Post-pass wall-time ≈ **50× the
+  record duration** (30 captured fps ÷ 0.6 detect fps) — a 1-min clip ≈ ~50 min.
+  A CoreML/GPU execution provider for the detector is the lever if that time
+  matters; 60 fps would only double it.
 
 ## API & state
 

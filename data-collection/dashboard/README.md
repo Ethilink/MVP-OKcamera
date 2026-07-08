@@ -22,7 +22,46 @@ uv run python -m backend.main \
 ```
 
 Both `--weights` and `--model-version` are required (no silent default tag).
-Open http://127.0.0.1:8000/.
+Open http://127.0.0.1:8000/. Recording mode adds `--capture-fps` (default 30)
+and `--mining-threshold` (default 0.25) — see below before touching them.
+
+### Finding the camera index (Camo)
+
+Camo only registers while the Camo app is running, and its OpenCV index is **not
+stable** — it shifts when the set of connected cameras changes (the dashboard
+was seen at index 3 with 4 devices present, then at index 0 with 3). Do not
+hard-code it. Probe and eyeball each run:
+
+```bash
+uv run python -m scripts.find_camera        # prints index -> shape + a preview JPEG per index
+```
+
+Multiple devices report 1080p (Camo *and* iPhone Continuity), so pick the index
+whose preview shows the phone's view of the instruments, then pass it as
+`--camera-index`.
+
+### Recording mode
+
+```bash
+uv run python -m backend.main \
+    --weights ../../model/weights/checkpoint_best_regular.onnx \
+    --model-version rfdetr-2026-07-07 \
+    --camera-index <n>            # from find_camera above
+```
+
+Record → name the entry → SPACE marks keyframes → Stop → a post-pass detects
+over every frame and writes a video-project entry under the Settings output
+path. **Timing on CPU:** capture is camera-limited to **30 fps** (Camo does not
+deliver 1080p60 — measured; see `docs/RECORDING.md` §FPS), and the post-pass
+runs at **~0.6 fps** (RF-DETR ONNX on CPU), so post-pass time ≈ **50× the record
+duration** (a 1-min clip ≈ ~50 min). Keep clips short, or wire a CoreML/GPU
+execution provider for the detector.
+
+### FPS spike
+
+```bash
+uv run python -m scripts.spike_fps --camera-index <n> --fps 60   # stop the dashboard first (frees the camera)
+```
 
 ## Test
 

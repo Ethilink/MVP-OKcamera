@@ -245,10 +245,13 @@ Keep T06's existing checks green.
      caught by any current AC (TR7 AC5 tests process-kill, not discard).
      Suggested fix: a `cancel` flag on `PostPassJob` checked each loop iteration;
      discard sets it before rmtree.
-  2. *(TR1/capture, informational)* Delivered read rate on Camo is **~80 fps and
-     bursts far higher** (a ~2 s UI recording produced 970 frames), i.e. the
-     reader is not rate-limited to `capture_fps`. The MP4 is CFR@30 so it plays
-     back slow-motion; frame-number mapping is still exact (spec §Encoder accepts
-     this). Combined with a **~0.6 fps** post-pass (RF-DETR ONNX on CPU at
-     1080p — ~15× slower than the spec's 10 fps ballpark), post-pass time is the
-     real bottleneck. Measured properly in TR7's spike/runbook.
+  2. *(informational — later corrected by TR7's spike)* During the UI pass the
+     `frames_written` counter looked like it was climbing at ~80 fps (a "~2 s"
+     recording showed ~970 frames). **TR7's clean spike + raw-read timing later
+     showed this was a wall-clock attribution artifact**: Camo delivers exactly
+     **30 fps** (blocking `cap.read()`, 300 reads / 10.00 s), and the recordings
+     were simply open far longer than the perceived click time (30 fps × ~30 s of
+     browser-tool interaction ≈ 900 frames). The reader IS camera-rate-limited;
+     the MP4 is CFR@30 at real time. The real bottleneck is the **~0.6 fps** CPU
+     post-pass (RF-DETR ONNX at 1080p — ~15× slower than the spec's 10 fps
+     ballpark → post-pass time ≈ 50× the record duration). See TR7 runbook.

@@ -1,6 +1,6 @@
 # TR7 — Recording integration + 1080p60 spike
 
-status: todo
+status: done (AC1–AC7, AC9 verified; AC8 verified except the CVAT-open step, left for Bram)
 depends-on: TR5, TR6
 blocks: — (last recording task)
 spec: [RECORDING.md](../RECORDING.md) §Acceptance criteria (1–8), §FPS — 30 vs 60 (spike), §Encoder
@@ -76,3 +76,64 @@ so they gate in CI. Hardware ACs (**AC7–AC9**) need Bram + Camo.
 
 - 2026-07-08 — Brief created (recording-mode decomposition of RECORDING.md, task
   cut T-R7).
+- 2026-07-08 (claude) — **TR7 implemented; status → done.**
+
+  **Correctness ACs 1–6 — `tests/test_recording_e2e.py` (new, CI-gated, green,
+  stable across repeated runs; full suite 155 passed).** Full pipeline over a
+  fake numbered camera: real `CaptureLoop` + `create_app` state machine +
+  `PostPassJob` + `VideoEntryWriter` + `coco`; only the camera (paced numbered
+  frames — the "paced fake" that bounds the reader), encoder (records frames +
+  writes a stub file so `video/` is non-empty), and post-pass video read
+  (lossless replay of the recorded frames) are faked. No camera/ffmpeg/weights.
+  - AC1 ✓ completed run = video project (annotations.json + non-empty video/).
+  - AC2 ✓ per SPACE: one `selected_frames` entry, one `images[]` record, one
+    JPEG; **displayed-frame identity / no off-by-one** proven losslessly
+    (`decode_frame_index(written[D]) == decode(on-screen frame)`, echoed via
+    `X-Frame-Number`), and `D < frames_written` (it's the lagging displayed
+    frame, not newest). JPEG-vs-video equality asserted within re-encode
+    tolerance (a q95 JPEG of a flat frame shifts a channel by ±1 — exact
+    byte-equality is impossible; the lossless identity proof carries the AC).
+  - AC3 ✓ sidecar has every frame `0..frame_count-1` (contiguous), pixel-space
+    coords, dims equal stream dims everywhere (`video`, `images[]`, frame_count).
+  - AC4 ✓ keyframe annotation ⊇ image-mode structure (same `coco.build_annotation`
+    keys) + `video_id` + `frame_number` (on image) + **unique** `track_id`.
+  - AC5 ✓ kill mid-run (cap raises after 3 reads) → valid partial (video +
+    selected_frames.json, no annotations.json) + `failed` state with error →
+    `/record/retry` → completes → the three JSONs are **byte-identical** to a
+    clean rebuild from the same frames/keyframes.
+  - AC6 ✓ `validate_import.validate()` advisory-clean (0 errors) on the entry.
+
+  **Hardware ACs 7–9 (Bram's Mac + Camo, real RF-DETR ONNX weights):**
+  - **AC7 ✓ 1080p60 spike** (`scripts/spike_fps.py`, new): requested 1080p60 →
+    negotiates 1920×1080, `CAP_PROP_FPS` claims 30, **delivers exactly 30.0 fps**
+    (300 reads / 10.005 s); a no-`CAP_PROP_FPS` open (dashboard-style) also
+    delivers 30. **Camo does not provide 1080p60 through OpenCV/AVFoundation —
+    do not flip `capture_fps` to 60.** Recorded in RECORDING.md §FPS Open items.
+    (Camo's OpenCV index is unstable — was 3, then 0 after an app restart;
+    `find_camera` + eyeball each run. README updated.)
+  - **AC8 ✓ real end-to-end** (done live during the TR6 R4 pass, index 3 → later
+    0): recorded a real clip, marked keyframes via SPACE, Stop, watched the
+    post-pass progress veil to completion; on-disk `mini-take` (58 frames, 2
+    keyframes) inspected — real avc1 MP4 + annotations.json (COCO-VID) + keyframe
+    JPEGs + selected_frames.json + full-frame sidecar, `validate()` clean.
+    **Live overlay FPS while recording ≈ idle** (0.33 vs 0.25 overlay fps —
+    detector-bound both ways; the hardware avc1 encoder adds no meaningful load,
+    spec AC6). Video-project **discovery rule holds** (annotations.json +
+    non-empty video/). *Remaining human step:* dropping the entry into the live
+    CVAT annotation dashboard's `data/processed/` and opening it there — the
+    contract is verified, but the CVAT stack must be up; left for Bram.
+  - **AC9 ✓ encoder reality check**: `ffprobe` on the real MP4 →
+    `codec_name=h264`, `codec_tag_string=avc1` (VideoToolbox hardware path, NOT
+    the ffmpeg fallback), 1920×1080, 30/1 fps, `nb_frames=58` (== writer
+    counter), duration 1.933 s (CFR@30). `release()` finalized a **present,
+    seekable moov atom** (after mdat — not web-faststart, but fully seekable for
+    local reopen) and the **post-pass reopened it cleanly**, decoding all 58
+    frames + extracting the keyframe JPEGs.
+
+  **In-scope note (no recording-module code changed):** the only code added is
+  `tests/test_recording_e2e.py` + `scripts/spike_fps.py`; docs updated
+  (RECORDING.md §FPS, README, BOARD). One backend concurrency bug found during
+  the TR6 pass — **`/record/discard` during processing does not cancel the
+  post-pass worker** (orphan keeps predicting + re-creates a stray folder after
+  rmtree) — is logged against TR5/TR4 for the owner to fix; it is NOT exercised
+  by these ACs (AC5 tests process-kill, not discard) and does not block TR7.
