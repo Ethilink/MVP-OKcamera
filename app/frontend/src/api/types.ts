@@ -1,61 +1,25 @@
-// Hand-written from api-contract.md (§/status, §/report). Field names mirror the
-// contract verbatim. D14: these get swapped for openapi-typescript generation at
-// integration (T08); until then this file IS the seam.
+// D14: the payload types are GENERATED from the backend's `openapi.json`, not
+// hand-written. Regenerate with `npm run gen:api` (the backend must be running
+// first — see RUNBOOK.md §"Generated types"). This file maps the generated
+// component-schema names (which mirror the FastAPI Pydantic model names) onto
+// the contract-facing names the frontend uses (api-contract.md §/status,
+// §/report). Contract drift between the backend and these names now becomes a
+// TypeScript compile error here rather than a silent runtime mismatch.
 
-export type Phase = "setup" | "recording" | "finished"
+import type { components } from "./schema"
 
-export type CaptureHealth = "ok" | "stalled"
+type Schemas = components["schemas"]
 
-export interface SetupStatus {
-  detected_count: number
-  stable_for_s: number
-}
+export type Status = Schemas["StatusResponse"]
+export type SetupStatus = Schemas["SetupStatus"]
+export type InstrumentStatus = Schemas["InstrumentStatusModel"]
+export type RecordingStatus = Schemas["RecordingStatus"]
+export type UsageWindow = Schemas["UsageWindowModel"]
+export type InstrumentReport = Schemas["InstrumentReportModel"]
+export type Report = Schemas["ReportResponse"]
+export type StartedResponse = Schemas["StartResponse"]
 
-export interface InstrumentStatus {
-  tracker_id: number
-  label: string
-  on_table: boolean
-  off_since_s: number | null // null when on_table
-  pickup_count: number
-}
-
-export interface RecordingStatus {
-  started_at: string // ISO-8601
-  elapsed_s: number
-  on_table_count: number
-  instruments: InstrumentStatus[]
-}
-
-export interface Status {
-  phase: Phase
-  capture_health: CaptureHealth
-  model_version: string
-  // present when phase == "setup" | "finished"; null while "recording"
-  setup: SetupStatus | null
-  // present only when phase == "recording"; null otherwise
-  recording: RecordingStatus | null
-}
-
-export interface UsageWindow {
-  off_s: number
-  on_s: number | null // null = never came back -> "missing"
-}
-
-export interface InstrumentReport {
-  tracker_id: number
-  label: string
-  completeness: "present" | "missing"
-  usage: UsageWindow[] // off-table windows, chronological, non-overlapping
-}
-
-export interface Report {
-  started_at: string // ISO-8601
-  stopped_at: string // ISO-8601
-  duration_s: number
-  model_version: string
-  instruments: InstrumentReport[]
-}
-
-export interface StartedResponse {
-  started_at: string
-}
+// `phase` and `capture_health` are inline string-literal enums on the generated
+// StatusResponse; expose them as the standalone unions the frontend references.
+export type Phase = Status["phase"]
+export type CaptureHealth = Status["capture_health"]

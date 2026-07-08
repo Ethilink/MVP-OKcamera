@@ -7,6 +7,7 @@
     "dev": "vite",
     "dev:msw": "VITE_MSW=true vite",
     "build": "tsc -b && vite build",
+    "gen:api": "openapi-typescript http://localhost:8000/openapi.json -o src/api/schema.d.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -b --noEmit",
@@ -38,10 +39,16 @@
     "@vitest/ui": "^4.1.10",
     "jsdom": "^29.1.1",
     "msw": "^2.15.0",
+    "openapi-typescript": "^7.13.0",
     "oxlint": "^1.71.0",
     "typescript": "~6.0.2",
     "vite": "^8.1.1",
     "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "openapi-typescript": {
+      "typescript": "$typescript"
+    }
   },
   "msw": {
     "workerDirectory": [
