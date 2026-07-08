@@ -1,6 +1,6 @@
 # T07 — Report screen + Usage timeline
 
-status: todo
+status: review (claude)
 depends-on: T05
 blocks: T08
 spec: [DESIGN.md](../DESIGN.md) §What the demo does 3, D12; [api-contract.md](../api-contract.md) §/report
@@ -91,4 +91,13 @@ export function axisTicks(duration_s: number): { pct: number; label: string }[]
 
 ## Log
 
-- (append dated one-liners here)
+- 2026-07-08 (claude) claimed + built. `lib/timeline.ts` (`usageSegments`,
+  `axisTicks` — frozen signatures) unit-tested incl. awkward durations (13/100/336
+  s); ReportScreen replaces the T06 placeholder, with ReportSummary /
+  UsageTimeline (solid closed bar vs hatched "never returned" open bar) /
+  CompletenessBadge (green PRESENT / destructive MISSING, missing row flagged).
+  409 + generic-failure error states. Unit + RTL ACs 1–5 green (39 tests total);
+  `tsc -b`, `npm run build`, lint clean. AC6 Chrome pass ✅ — drove a full run in
+  the browser; the report reads at presentation distance and bars match the
+  window numbers (2:01 run: instr 1 closed 0:05–0:12 PRESENT, instr 3 open/never-
+  returned MISSING, others never-picked-up). → status review; awaiting rule-5.

@@ -1,6 +1,6 @@
 # T06 — Setup + Recording screens
 
-status: in-progress (claude)
+status: review (claude)
 depends-on: T05
 blocks: T08
 spec: [DESIGN.md](../DESIGN.md) §What the demo does 1–2, D2–D4, D12, D13; [api-contract.md](../api-contract.md) §/status
@@ -125,3 +125,11 @@ Report visuals (T07). API/polling internals (T05 — consume, don't modify).
   (client-side inter-poll ticking, re-anchored per poll). RTL+MSW ACs 1–6 green
   (28 tests total incl. T05); `tsc -b`, `npm run build`, lint clean. AC7 (Chrome)
   + rule-5 review pending — done together with T07.
+- 2026-07-08 (claude) AC7 Chrome pass against the MSW dev backend (new interactive
+  `src/dev/devHandlers.ts` + `appWorker`; `npm run dev:msw` now mounts the real
+  App, `?probe` still reaches T05's StatusProbe). Drove setup → Start → recording
+  panel → Stop → report in-browser: gate + D16 fallback, OFF-TABLE ticking,
+  routing all correct; JS-verified no horizontal overflow. Visual pass caught the
+  full-width 16:9 feed burying Stop + the panel below the fold → recording layout
+  is now feed + panel side by side with Stop pinned top; setup feed capped
+  (`max-w-3xl`) so Start stays visible. → status review; awaiting rule-5 sign-off.

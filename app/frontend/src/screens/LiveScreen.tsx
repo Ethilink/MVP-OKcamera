@@ -76,8 +76,6 @@ export function LiveScreen({
         </p>
       )}
 
-      <VideoFeed />
-
       {isRecording && status.recording
         ? renderRecording()
         : renderSetup()}
@@ -86,8 +84,11 @@ export function LiveScreen({
 
   function renderRecording() {
     const rec = status!.recording!
+    // Stop + timer pinned at the top; feed and the live panel sit side by side
+    // below so both stay above the fold on a laptop (Stop must never be a scroll
+    // away). Stacks on narrow screens.
     return (
-      <>
+      <div className="flex flex-1 flex-col gap-4">
         <div className="flex items-center justify-between">
           <div className="flex items-baseline gap-4">
             <span className="text-2xl font-semibold tabular-nums">
@@ -103,11 +104,11 @@ export function LiveScreen({
             onStop={() => run(api.stopRecording)}
           />
         </div>
-        <InstrumentPanel
-          recording={rec}
-          secondsSincePoll={secondsSincePoll}
-        />
-      </>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+          <VideoFeed />
+          <InstrumentPanel recording={rec} secondsSincePoll={secondsSincePoll} />
+        </div>
+      </div>
     )
   }
 
@@ -133,7 +134,12 @@ export function LiveScreen({
     }
 
     return (
-      <div className="flex flex-col items-center gap-3 py-2">
+      <div className="flex flex-1 flex-col items-center gap-4">
+        {/* Cap the feed width so its 16:9 height stays modest and the gate +
+            Start (the whole point of setup) never fall below the fold. */}
+        <div className="w-full max-w-3xl">
+          <VideoFeed />
+        </div>
         <p className="text-sm text-muted-foreground">
           {setup
             ? `${setup.detected_count} instruments detected · stable for ${setup.stable_for_s.toFixed(1)}s`

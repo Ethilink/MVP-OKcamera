@@ -2,7 +2,12 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { expect, test, vi } from "vitest"
 import { BASE } from "@/api/client"
-import { finishedStatus, recordingAllOn, setupStable } from "@/test/fixtures"
+import {
+  demoReport,
+  finishedStatus,
+  recordingAllOn,
+  setupStable,
+} from "@/test/fixtures"
 import App from "./App"
 import { server } from "./test/server"
 
@@ -63,8 +68,9 @@ test("AC4 Stop routes to ReportScreen after the finished poll", async () => {
     http.post(`${BASE}/recording/stop`, () => {
       stopSpy()
       stopped = true
-      return HttpResponse.json({})
+      return HttpResponse.json(demoReport)
     }),
+    http.get(`${BASE}/report`, () => HttpResponse.json(demoReport)),
   )
 
   render(<App pollMs={POLL} />)
@@ -94,6 +100,7 @@ test("AC4b run-2 restart from finished, and AC4c Back to report", async () => {
       started = true
       return HttpResponse.json(STARTED)
     }),
+    http.get(`${BASE}/report`, () => HttpResponse.json(demoReport)),
   )
 
   render(<App pollMs={POLL} />)
