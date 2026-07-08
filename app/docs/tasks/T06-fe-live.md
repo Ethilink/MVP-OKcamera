@@ -37,6 +37,16 @@ Start button in the setup layout calls `api.startRecording()`; App clears
 picks setup vs recording layout from `phase` (`finished` routed here ⇒ setup
 layout).
 
+**Back to report (no dead-end).** Because "New recording" only sets a local flag
+and the backend still holds the report (D7: in memory until the next Start), the
+setup layout — *when it is showing because of the flag*, i.e. `phase=="finished"`
+∧ `newRecordingRequested` — MUST render a **"Back to report"** control that
+clears `newRecordingRequested` (→ App routes back to ReportScreen). It is absent
+in a genuine `phase=="setup"` (run 1, no report exists) and once `recording`
+starts. This makes an accidental "New recording" click recoverable without any
+persistence or contract change. (Recording *history* across sessions is an
+explicit non-goal for the MVP — DESIGN D7.)
+
 **T07 seam (keeps T06/T07 parallel-safe).** App.tsx renders T07's `ReportScreen`
 in the `finished`/no-flag case. T06 does NOT implement it — it creates a minimal
 **placeholder** `src/screens/ReportScreen.tsx` with the frozen signature
@@ -52,7 +62,13 @@ Report visuals (T07). API/polling internals (T05 — consume, don't modify).
 
 ## UI behaviour (normative)
 
-- **VideoFeed**: `<img src={api.streamUrl}>`, fixed 16:9 box, shadcn Card.
+- **VideoFeed**: `<img src={api.streamUrl}>`, fixed 16:9 box, shadcn Card. Per
+  **D16**, an `onError` handler replaces the `<img>` with a plain styled
+  "no stream (dev mode)" panel (no image asset). MSW can't intercept the MJPEG
+  `<img>` load, so under RTL/MSW and pre-backend `npm run dev` the panel is what
+  renders; real video appears only against `--fake`/real backend (AC7). RTL:
+  assert the fallback panel shows when the `<img>` errors — don't assert a live
+  frame.
 - **Setup**: feed + "N instruments detected, stable for Xs" + **Start**.
   Start enabled ⟺ `phase ∈ {setup, finished}` ∧ `capture_health=="ok"` ∧
   `detected_count ≥ 1` ∧ `stable_for_s ≥ 2` (gate lives HERE, per contract).
@@ -89,6 +105,11 @@ Report visuals (T07). API/polling internals (T05 — consume, don't modify).
   behaves exactly as in `setup` (disabled until `stable_for_s ≥ 2`); clicking
   Start POSTs `/recording/start` and, when the poll returns `phase:"recording"`,
   App shows the recording layout with `newRecordingRequested` cleared.
+- **AC4c** Back-to-report (uses `finishedStatus` fixture): with
+  `phase:"finished"` and `newRecordingRequested` set, the setup layout shows a
+  "Back to report" control; clicking it clears `newRecordingRequested` so App
+  routes to ReportScreen. The control is NOT rendered for a genuine
+  `phase:"setup"` payload (run 1, no report).
 - **AC5** Poll failure mid-recording → banner + last panel stays; recovery
   clears the banner.
 - **AC6** 409 on Start → toast/inline error, no crash, polling continues.
