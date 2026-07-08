@@ -18,7 +18,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 import supervision as sv
-from pycocotools import mask as mask_utils
+
+from backend import coco
 
 _CATEGORIES = [{"id": 1, "name": "surgical_instrument", "supercategory": ""}]
 
@@ -85,37 +86,21 @@ class DatasetWriter:
             # clipped: the detector emits boxes that can run off-frame (no clamp
             # in decode_predictions) and the import validator only checks w>0/h>0.
             for i in range(len(dets)):
-                x1, y1, x2, y2 = dets.xyxy[i]
-                x1 = min(max(float(x1), 0.0), W)
-                x2 = min(max(float(x2), 0.0), W)
-                y1 = min(max(float(y1), 0.0), H)
-                y2 = min(max(float(y2), 0.0), H)
-                bw, bh = x2 - x1, y2 - y1
-                if bw <= 0 or bh <= 0:
+                ann = coco.build_annotation(
+                    dets,
+                    i,
+                    W,
+                    H,
+                    ann_id=len(self.annotations) + 1,
+                    image_id=image_id,
+                    extra={
+                        "confidence": float(dets.confidence[i]),
+                        "model_version": self.model_version,
+                        "confidence_threshold": threshold,
+                    },
+                )
+                if ann is None:
                     continue
-
-                bbox = [x1, y1, bw, bh]
-
-                rle = mask_utils.encode(np.asfortranarray(dets.mask[i].astype(np.uint8)))
-                rle["counts"] = rle["counts"].decode("utf-8")
-                mask_area = int(mask_utils.area(rle))
-
-                ann_id = len(self.annotations) + 1
-                ann = {
-                    "id": ann_id,
-                    "image_id": image_id,
-                    "category_id": 1,
-                    "bbox": bbox,
-                    "iscrowd": 0,
-                    "confidence": float(dets.confidence[i]),
-                    "model_version": self.model_version,
-                    "confidence_threshold": threshold,
-                }
-                if mask_area > 0:
-                    ann["segmentation"] = {"size": rle["size"], "counts": rle["counts"]}
-                    ann["area"] = mask_area
-                else:
-                    ann["area"] = int(bw * bh)
 
                 self.annotations.append(ann)
 

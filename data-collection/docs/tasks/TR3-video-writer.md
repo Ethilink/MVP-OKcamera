@@ -1,6 +1,6 @@
 # TR3 — Shared COCO helper + `VideoEntryWriter`
 
-status: todo
+status: done
 depends-on: —
 blocks: TR4, TR5
 spec: [RECORDING.md](../RECORDING.md) §Post-pass (steps 1–2), §Post-pass specifics · [IMPORT_FORMAT_VIDEO.md](../IMPORT_FORMAT_VIDEO.md) §§2–5
@@ -166,3 +166,20 @@ No real video decode — feed `add_frame` synthetic frames + `make_fake_dets`
 
 - 2026-07-08 — Brief created (recording-mode decomposition of RECORDING.md, task
   cut T-R3).
+- 2026-07-08 — **Done** (blind-TDD). `backend/coco.py` (shared `build_annotation`
+  extracted verbatim from `DatasetWriter.flag`), `backend/dataset_writer.py`
+  (flag re-pointed at the helper), `backend/video_writer.py` (`VideoEntryWriter`),
+  + `tests/test_coco.py` + `tests/test_video_writer.py` (15 tests, AC1–AC13 each
+  covered). Blind cycle: assertion-level red vs Phase-0 stubs → test review CLEAN
+  (13/13 ACs mapped) + 3 tightenings applied (AC8 sidecar-carries-non-keyframe-
+  dets, AC5 image-record file_name, AC11 direct cross-check) → blind Sonnet coder
+  → **Opus review CLEAN, zero blockers**; Codex first-pass read all 3 modules,
+  surfaced no blocker, then its CLI bridge stalled before emitting a verdict
+  (known caveat) — consensus closed on Opus re-verify + the objective test gate.
+  15 green first pass, no fix loop. AC13 byte-identical rebuild guaranteed via a
+  fixed `_FIXED_TIMESTAMP` (no `datetime.now()`) + deterministic id/track_id
+  ordering. Full suite 112 green (97 + 15); T02's `test_dataset_writer.py`
+  regression gate green unchanged (image-mode output structurally identical).
+  Followup nit (non-blocking, deferred): `dataset_writer._CATEGORIES` still
+  duplicates `coco.CATEGORIES` — geometry path is shared (the AC1/AC3 requirement);
+  fold the constant too if we ever touch that file.
