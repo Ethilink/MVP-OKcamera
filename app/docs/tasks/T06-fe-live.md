@@ -1,6 +1,6 @@
 # T06 — Setup + Recording screens
 
-status: todo
+status: in-progress (claude)
 depends-on: T05
 blocks: T08
 spec: [DESIGN.md](../DESIGN.md) §What the demo does 1–2, D2–D4, D12, D13; [api-contract.md](../api-contract.md) §/status
@@ -119,4 +119,9 @@ Report visuals (T07). API/polling internals (T05 — consume, don't modify).
 
 ## Log
 
-- (append dated one-liners here)
+- 2026-07-08 (claude) claimed. Built LiveScreen + VideoFeed/StartStopControl/
+  InstrumentPanel/HealthBanner, App phase router, and the frozen ReportScreen
+  placeholder. Added `lib/format.ts` (mm:ss / `13s`) + `lib/useSecondsSince.ts`
+  (client-side inter-poll ticking, re-anchored per poll). RTL+MSW ACs 1–6 green
+  (28 tests total incl. T05); `tsc -b`, `npm run build`, lint clean. AC7 (Chrome)
+  + rule-5 review pending — done together with T07.

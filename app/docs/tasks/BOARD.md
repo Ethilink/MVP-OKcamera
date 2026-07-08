@@ -56,7 +56,7 @@ The task file header is the source of truth; the table below is a mirror.
 | T03 | [Capture-infer loop + overlay](T03-capture.md)   | T01                      | todo   | —     |
 | T04 | [FastAPI layer](T04-api.md)                      | T02, T03                 | todo   | —     |
 | T05 | [Frontend API client + polling](T05-fe-client.md)| T01 (contract only)      | todo   | —     |
-| T06 | [Setup + Recording screens](T06-fe-live.md)      | T05                      | todo   | —     |
+| T06 | [Setup + Recording screens](T06-fe-live.md)      | T05                      | in-progress | claude |
 | T07 | [Report screen + Usage timeline](T07-fe-report.md)| T05                     | todo   | —     |
 | T08 | [Integration + demo runbook](T08-integration.md) | T04, T06, T07            | todo   | —     |
 

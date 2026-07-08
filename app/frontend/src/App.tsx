@@ -1,15 +1,45 @@
-import { Button } from "@/components/ui/button"
+import { useEffect, useState } from "react"
+import { useStatus } from "@/api/useStatus"
+import { LiveScreen } from "@/screens/LiveScreen"
+import { ReportScreen } from "@/screens/ReportScreen"
 
-// Placeholder shell — T06 replaces this with the real phase router (LiveScreen /
-// ReportScreen). It exists so T01 has a smoke-tested page importing a shadcn
-// component, and so `npm run dev` renders something.
-function App() {
+/**
+ * Phase router (T06 §Routing — App owns it). Routes on `status.phase` plus one
+ * local flag `newRecordingRequested`:
+ *
+ * - recording                       → LiveScreen (recording layout)
+ * - setup                           → LiveScreen (setup layout)
+ * - finished ∧ ¬flag                → ReportScreen
+ * - finished ∧ flag                 → LiveScreen (setup layout, run-2 re-confirm)
+ *
+ * ReportScreen's "New recording" only SETS the flag (it never calls the API —
+ * T07); the gated Start in the setup layout is the real POST /recording/start.
+ * The flag clears whenever a poll shows `recording`, and "Back to report" clears
+ * it too, so an accidental "New recording" is recoverable while the backend
+ * still holds the report (D7). `pollMs` is a test seam; production uses 2 Hz.
+ */
+function App({ pollMs = 500 }: { pollMs?: number } = {}) {
+  const { status, error } = useStatus(pollMs)
+  const [newRecordingRequested, setNewRecordingRequested] = useState(false)
+  const phase = status?.phase
+
+  useEffect(() => {
+    if (phase === "recording") setNewRecordingRequested(false)
+  }, [phase])
+
+  if (phase === "finished" && !newRecordingRequested) {
+    return (
+      <ReportScreen onNewRecording={() => setNewRecordingRequested(true)} />
+    )
+  }
+
   return (
-    <main className="flex min-h-svh flex-col items-center justify-center gap-4">
-      <h1 className="text-2xl font-semibold">ORC demo</h1>
-      <p className="text-muted-foreground">Scaffold ready.</p>
-      <Button>Start</Button>
-    </main>
+    <LiveScreen
+      status={status}
+      error={error}
+      showBackToReport={phase === "finished" && newRecordingRequested}
+      onBackToReport={() => setNewRecordingRequested(false)}
+    />
   )
 }
 
