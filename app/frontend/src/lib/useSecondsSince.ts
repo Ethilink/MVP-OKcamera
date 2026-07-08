@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 
 /**
  * Seconds elapsed since `anchor` (by identity) last changed — 0 right after a
@@ -9,15 +9,19 @@ import { useEffect, useRef, useState } from "react"
  * value is authoritative again (T06 "Ticking ownership").
  *
  * `running` gates the repaint loop: no timer churns while paused (setup/finished).
+ *
+ * Re-anchoring uses the React-blessed "adjust state during render" pattern (a
+ * setState guarded by an identity check, which re-renders immediately and
+ * discards the in-progress paint) rather than mutating a ref in render — so an
+ * abandoned concurrent render can never leave a committed anchor pointing at the
+ * wrong poll.
  */
 export function useSecondsSince(anchor: unknown, running = true): number {
-  const anchorRef = useRef(anchor)
-  const startRef = useRef(performance.now())
-  // Re-anchor during render when the identity changes (the "adjust state on prop
-  // change" pattern) so the returned delta is already 0 on the re-anchoring paint.
-  if (anchorRef.current !== anchor) {
-    anchorRef.current = anchor
-    startRef.current = performance.now()
+  const [start, setStart] = useState(() => performance.now())
+  const [seenAnchor, setSeenAnchor] = useState(anchor)
+  if (seenAnchor !== anchor) {
+    setSeenAnchor(anchor)
+    setStart(performance.now())
   }
 
   const [, forceRepaint] = useState(0)
@@ -27,5 +31,5 @@ export function useSecondsSince(anchor: unknown, running = true): number {
     return () => clearInterval(id)
   }, [running])
 
-  return Math.max(0, (performance.now() - startRef.current) / 1000)
+  return Math.max(0, (performance.now() - start) / 1000)
 }

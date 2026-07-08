@@ -50,11 +50,13 @@ export function usageSegments(
   })
 }
 
-// {1,2,5}×10ⁿ seconds, ascending — the "nice" tick steps. Ceiling is far beyond
-// any demo run, so a step that fits always exists.
+// {1,2,5}×10ⁿ seconds, ascending. The range spans sub-second to ~decades so a
+// fitting step always exists at BOTH ends: the {1,2,5} gaps are ≤2.5×, which is
+// inside the 3× window (dur/6, dur/2] where a step yields 3–6 ticks — so the
+// smallest step giving ≤6 ticks automatically gives ≥3 too (T07 frozen 3–6).
 function niceSteps(): number[] {
   const out: number[] = []
-  for (let exp = 0; exp <= 6; exp++) {
+  for (let exp = -3; exp <= 9; exp++) {
     for (const m of [1, 2, 5]) out.push(m * 10 ** exp)
   }
   return out

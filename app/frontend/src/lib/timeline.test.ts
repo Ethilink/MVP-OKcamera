@@ -58,3 +58,18 @@ test("AC2 100 s → step 20 (6 ticks), mm:ss labels incl 1:20", () => {
 test("AC2 336 s → step 100 (4 ticks)", () => {
   assertTicks(336, ["0:00", "1:40", "3:20", "5:00"])
 })
+
+// Regression: the frozen 3–6 bound must hold at BOTH extremes, not just the
+// realistic middle — short positive durations and absurdly large ones alike.
+test("AC2 stays within 3–6 ticks for extreme durations", () => {
+  for (const d of [0.5, 1, 1.9, 2, 7, 3600, 30_000_000]) {
+    const ticks = axisTicks(d)
+    expect(ticks.length).toBeGreaterThanOrEqual(3)
+    expect(ticks.length).toBeLessThanOrEqual(6)
+    expect(ticks[0].pct).toBe(0)
+    expect(ticks[ticks.length - 1].pct).toBeLessThanOrEqual(100)
+    for (let i = 1; i < ticks.length; i++) {
+      expect(ticks[i].pct).toBeGreaterThan(ticks[i - 1].pct)
+    }
+  }
+})
