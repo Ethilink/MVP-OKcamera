@@ -30,6 +30,9 @@ class Latest(NamedTuple):
     threshold: float
     overlay_jpeg: bytes
     count: int
+    frame_number: int | None = None  # MP4 write index this frame was detected on
+                                      # while recording; None when idle. Default keeps
+                                      # peripheral 5-arg constructions valid.
 
 
 class CaptureLoop:
@@ -63,6 +66,10 @@ class CaptureLoop:
         self._thread = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
+        # Serialises cap.read() across the idle inference loop and the recording
+        # reader thread so exactly one thread ever reads the camera at a time
+        # (and the idle loop never steals a frame the encoder should have got).
+        self._read_lock = threading.Lock()
 
         self._camera_index = camera_index
         self._pending_camera_index: int | None = None
@@ -71,6 +78,19 @@ class CaptureLoop:
         self._last_read_ok: float | None = None
         self._generation = 0
         self._dead = False
+
+        # Recording state. Idle until start_recording: the reader thread only
+        # exists while recording; the persistent loop thread flips between the
+        # idle tick (reads the camera itself) and the recording tick (consumes
+        # the reader's hand-off slot).
+        self._recording = False
+        self._encoder = None
+        self._reader_thread = None
+        self._frames_written = 0
+        self._slot: tuple[np.ndarray, int] | None = None  # newest (frame, frame_number)
+        self._frame_ready = threading.Event()
+        self._inference_paused = False
+        self._record_error: BaseException | None = None
 
     def _apply_capture_settings(self) -> None:
         width, height = self._target_size
@@ -136,7 +156,10 @@ class CaptureLoop:
     def _run(self) -> None:
         try:
             while not self._stop_event.is_set():
-                self._tick()
+                if self._recording:
+                    self._tick_recording()
+                else:
+                    self._tick()
         except BaseException:
             with self._lock:
                 self._dead = True
@@ -152,7 +175,13 @@ class CaptureLoop:
             # guard below doesn't immediately reopen a camera still warming up.
             self._last_read_ok = time.monotonic()
 
-        ok, frame = self._cap.read()
+        # While recording the reader thread owns cap.read(); the guard (checked
+        # under the same lock the reader reads under) hands the camera over
+        # cleanly — no double-read, no frame stolen from the encoder stream.
+        with self._read_lock:
+            if self._recording:
+                return
+            ok, frame = self._cap.read()
         if not ok:
             # A handle that keeps failing past the reopen window is wedged (real
             # unplug, or AVFoundation invalidated it) — reopen the device to
@@ -172,6 +201,15 @@ class CaptureLoop:
         # as provenance is exactly the one that filtered `dets` — a /confidence
         # change racing between the read and predict()'s own read can't split them.
         threshold = self._detector.confidence_threshold
+        # Paused (the post-pass owns the detector between takes): keep the camera
+        # alive and health fresh, but don't run predict or publish — the stream
+        # keeps serving the last overlay. Read the paused flag under the lock as
+        # the last thing before predict so a pause that has already returned is
+        # observed and no new predict starts.
+        with self._lock:
+            if self._inference_paused:
+                self._heartbeat = time.monotonic()
+                return
         dets = self._detector.predict(frame, confidence_threshold=threshold)
         overlay = self._render_fn(frame.copy(), dets)
         ok_encode, buf = cv2.imencode(".jpg", overlay)
@@ -186,6 +224,10 @@ class CaptureLoop:
 
     def stop(self) -> None:
         self._stop_event.set()
+        self._recording = False
+        self._frame_ready.set()  # wake a parked recording tick so it can exit
+        if self._reader_thread is not None:
+            self._reader_thread.join(timeout=2.0)
         if self._thread is not None:
             self._thread.join(timeout=2.0)
         # Only release once the loop thread has actually stopped — releasing a
@@ -242,6 +284,149 @@ class CaptureLoop:
     def generation(self) -> int:
         with self._lock:
             return self._generation
+
+    # --- Recording / inference-pause interface (TR1) --------------------------
+
+    def _reader_run(self) -> None:
+        """Own the camera while recording: read every frame, write it to the
+        encoder in capture order stamping frame_number = its 0-based write index
+        (writer index == MP4 index), and hand the newest (frame, frame_number)
+        to the inference tick via the slot.
+        """
+        while self._recording and not self._stop_event.is_set():
+            with self._read_lock:
+                if not self._recording:
+                    break
+                ok, frame = self._cap.read()
+            if not ok:
+                time.sleep(0.05)
+                continue
+
+            frame_number = self._frames_written  # only this thread advances it
+            try:
+                self._encoder.write(frame)
+            except BaseException as exc:  # AC8: contain, surface, stop writing
+                with self._lock:
+                    self._record_error = exc
+                self._frame_ready.set()
+                return
+
+            now = time.monotonic()
+            self._last_read_ok = now
+            with self._lock:
+                self._frames_written = frame_number + 1
+                self._slot = (frame, frame_number)
+                self._heartbeat = now  # keep health "ok" independent of inference
+            self._frame_ready.set()
+
+    def _tick_recording(self) -> None:
+        # Inference runs on whatever the reader last handed over, skipping the
+        # in-between frames freely when the detector is slower than the reader.
+        if not self._frame_ready.wait(timeout=0.5):
+            return
+        self._frame_ready.clear()
+        with self._lock:
+            slot = self._slot
+        if slot is None:
+            return
+        frame, frame_number = slot
+        threshold = self._detector.confidence_threshold
+        # Read the paused flag under the lock as the last thing before predict so
+        # a pause that has already returned is observed and no new predict starts.
+        with self._lock:
+            if self._inference_paused:
+                return
+        dets = self._detector.predict(frame, confidence_threshold=threshold)
+        overlay = self._render_fn(frame.copy(), dets)
+        ok_encode, buf = cv2.imencode(".jpg", overlay)
+        overlay_jpeg = buf.tobytes() if ok_encode else b""
+
+        # Publish the frame_number stamped when THIS frame was written — never a
+        # newest-at-publish counter — so a slow inference reports the frame it
+        # actually detected on.
+        latest = Latest(frame, dets, threshold, overlay_jpeg, len(dets), frame_number)
+        with self._lock:
+            # Recording may have ended while predict() ran; publishing a
+            # recording-stamped Latest now would leave a non-None frame_number
+            # visible after stop_recording() returned (idle must read None).
+            # Drop this just-detected frame — the next idle tick publishes
+            # frame_number=None. Re-checked inside the publish lock so the flip
+            # can't slip between the check and the publish.
+            if not self._recording:
+                return
+            self._latest = latest
+            self._heartbeat = time.monotonic()
+            self._generation += 1
+            self._ring.append((self._generation, latest))
+
+    def start_recording(self, encoder) -> None:
+        with self._lock:
+            if self._recording:
+                raise RuntimeError("already recording")
+            self._encoder = encoder
+            self._frames_written = 0
+            self._slot = None
+            self._record_error = None
+            self._frame_ready.clear()
+            self._recording = True
+        self._reader_thread = threading.Thread(target=self._reader_run, daemon=True)
+        self._reader_thread.start()
+
+    def stop_recording(self) -> int:
+        with self._lock:
+            if not self._recording:
+                raise RuntimeError("not recording")
+            self._recording = False
+        # Wake a parked inference tick, then let the reader finish any in-flight
+        # write and exit BEFORE releasing the encoder (no write races release).
+        # Join WITHOUT a timeout cap: `encoder.release()` must provably run after
+        # the last `encoder.write`, so we block until the reader has actually
+        # stopped writing. The reader loop exits promptly once `_recording` is
+        # False (one more read+write at most), so this cannot hang in normal use.
+        self._frame_ready.set()
+        if self._reader_thread is not None:
+            self._reader_thread.join()
+        if self._encoder is not None:
+            self._encoder.release()
+        with self._lock:
+            count = self._frames_written
+            self._frames_written = 0
+            self._slot = None
+            self._encoder = None
+        self._reader_thread = None
+        return count
+
+    def pause_inference(self) -> None:
+        with self._lock:
+            self._inference_paused = True
+
+    def resume_inference(self) -> None:
+        with self._lock:
+            self._inference_paused = False
+
+    @property
+    def is_recording(self) -> bool:
+        with self._lock:
+            return self._recording
+
+    @property
+    def frames_written(self) -> int:
+        """Frames written to the encoder so far this recording; 0 when idle."""
+        with self._lock:
+            return self._frames_written
+
+    @property
+    def inference_paused(self) -> bool:
+        with self._lock:
+            return self._inference_paused
+
+    @property
+    def recording_error(self) -> BaseException | None:
+        """The exception raised by ``encoder.write`` if one occurred this
+        recording, else ``None`` (AC8 — encoder failure is surfaced, not silent).
+        """
+        with self._lock:
+            return self._record_error
 
     @property
     def camera_index(self) -> int:

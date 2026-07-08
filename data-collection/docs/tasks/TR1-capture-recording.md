@@ -1,6 +1,6 @@
 # TR1 — Reader/encoder split + `Latest.frame_number`
 
-status: todo
+status: done
 depends-on: —
 blocks: TR4 (test fakes), TR5, TR7
 spec: [RECORDING.md](../RECORDING.md) §Runtime — two threads while recording, §The frame-number contract, §Detector sharing
@@ -146,3 +146,39 @@ Fakes only — **no real camera, no real encoder**. Use `FakeCapture` (T01),
 
 - 2026-07-08 — Brief created (recording-mode decomposition of RECORDING.md, task
   cut T-R1).
+- 2026-07-08 — **DONE** (blind-TDD, orchestrator-driven). Shipped the reader/
+  encoder split in `backend/capture.py`: idle mode unchanged (single-thread
+  tick behind a `_read_lock` + recording guard); recording spawns a reader
+  thread that owns `cap.read()`, writes every frame to the injected encoder
+  stamping the 0-based write index (first written frame == 0), and hands the
+  newest `(frame, frame_number)` atomically (under one `_lock`) to the
+  inference tick, which publishes that exact number — never a newest-at-publish
+  counter. `stop_recording` sets the flag, wakes the tick, JOINS the reader
+  (unbounded — so `encoder.release()` provably runs after the last write, no
+  in-flight-write race), releases, and returns the exact count. AC8 mechanism:
+  an observable `recording_error` property (encoder.write exception is caught,
+  stored, reader exits; process never crashes, `stop_recording`'s `-> int`
+  contract preserved). The `/flag` one-line unpack in `backend/app.py` became
+  attribute access (`snap.frame`/`snap.dets`/`snap.threshold`). New shared
+  `tests/recording_fakes.py` (`FakeEncoder` + `make_numbered_frames` +
+  `decode_frame_index`) — TR4/TR5/TR7 import these.
+  Process: test-writer wrote `tests/test_capture_recording.py` (AC1–AC9,
+  assertion-red against the Phase-0 stub); test review confirmed the
+  frame-number invariant is pinned; a BLIND Opus coder implemented against the
+  SPEC (never saw tests). Dual review (Codex + Opus) SPLIT — Codex correctly
+  caught two real latent bugs Opus missed: (1) `stop_recording` released the
+  encoder on a 2 s join TIMEOUT (could race an in-flight write), (2) an
+  in-flight inference could publish a non-None `frame_number` AFTER stop
+  returned. Both fixed (unbounded join; re-check `_recording` inside the publish
+  lock), plus a defensive tightening of the pause check. Opus re-review: zero
+  blockers. (Codex's delta re-review didn't surface a verdict — CLI-bridge
+  flakiness — so consensus was closed on Opus's re-verify + the objective test
+  gate rather than a second Codex pass.) First test run surfaced 3 reds
+  (ac02/ac03/ac04) traced NOT to the code but to unrealistic fakes: `FakeCapture`
+  returns instantly and repeats on drain, so the reader busy-loops, GIL-starves
+  inference and overruns the queue. Proven code-correct with a paced fake
+  (inference published correct lagging frame_numbers). Escape-hatch: test-writer
+  paced the recording fakes (~1.5 ms/read, non-repeating) — NO AC assertion
+  weakened. Full suite green + stable: **87 passed** (×3), regression gates
+  (`test_capture.py` 15, `test_api.py` 20) untouched. AC1–AC9 all verified
+  against the diff.

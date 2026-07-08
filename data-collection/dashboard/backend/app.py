@@ -209,8 +209,9 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
                     detail="No frame captured yet — the camera stream has not "
                     "produced a frame to flag.",
                 )
-            # 5-tuple unpack (a 3-name unpack of the 5-tuple would raise).
-            frame, dets, threshold, _overlay_jpeg, _count = snap
+            # Attribute access (not a positional unpack): Latest gained a 6th
+            # field (frame_number, TR1) and a fixed-width unpack would raise.
+            frame, dets, threshold = snap.frame, snap.dets, snap.threshold
             result = writer.flag(frame, dets, threshold)
             n_flagged = writer.n_flagged
 

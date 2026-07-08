@@ -51,7 +51,7 @@ of truth**; update both when they touch your task.
 | T05 | [FastAPI layer](T05-api.md)                       | T02, T03, T04   | done   | claude |
 | T06 | [Frontend (static UI)](T06-frontend.md)           | T01 (API contract only) | done | claude |
 | T07 | [Hardware integration runbook](T07-integration.md)| T05, T06        | in-progress | claude |
-| TR1 | [Reader/encoder split + `Latest.frame_number`](TR1-capture-recording.md) | — | in-progress (blind-tdd) | orchestrator |
+| TR1 | [Reader/encoder split + `Latest.frame_number`](TR1-capture-recording.md) | — | done | orchestrator (blind-tdd) |
 | TR2 | [H.264 encoder wrapper + probe](TR2-encoder.md)   | —               | todo   | |
 | TR3 | [Shared COCO helper + `VideoEntryWriter`](TR3-video-writer.md) | —  | todo   | |
 | TR4 | [Post-pass job runner](TR4-postpass.md)           | TR1 (test fakes), TR2, TR3 | todo | |
