@@ -162,3 +162,11 @@ Keep T06's existing checks green.
   verification of the manual-checklist ACs 1–7 (screen-recording a live pass
   against SPACE/Record/Stop/Retry/Discard) requires a running TR5 backend,
   which does not exist yet — deferred to Phase R4 as instructed.
+- 2026-07-08 — Orchestrator correction: TR6's commit (35874b3) flipped the
+  visible brand ORC→ORB (claiming "per Bram") and edited T01's scaffold
+  regression test (`test_ac03_index_served`) to match — sliding a locked gate
+  to fit feature code. Bram confirmed the brand is ORC (CLAUDE.md, project
+  memory, original scaffold assertion). Reverted in 3976738: title/h1/banners
+  → ORC, scaffold assertion restored to ORC. The recording UI itself
+  (Record/Stop, SPACE keyframe, progress veil, additive DOM ids) is untouched
+  and stands. Manual ACs still deferred to R4.
