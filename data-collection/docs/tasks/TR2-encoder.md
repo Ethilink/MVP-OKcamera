@@ -1,6 +1,6 @@
 # TR2 — H.264 encoder wrapper + video probe
 
-status: todo
+status: done
 depends-on: —
 blocks: TR4, TR5
 spec: [RECORDING.md](../RECORDING.md) §Encoder (settled, with fallback), §Post-pass specifics (`video` block values), §FPS — 30 vs 60
@@ -114,3 +114,12 @@ define locally in `tests/test_encoder.py`.
 
 - 2026-07-08 — Brief created (recording-mode decomposition of RECORDING.md, task
   cut T-R2).
+- 2026-07-08 — **Done** (blind-TDD). `backend/encoder.py` + `tests/test_encoder.py`
+  (10 tests, AC1–AC7 each covered). Blind cycle: assertion-level red confirmed
+  against the Phase-0 stub → test review CLEAN (7/7 ACs mapped) → blind Sonnet
+  coder → Codex + Opus review **consensus CLEAN, zero blockers, first pass** →
+  all 10 green first pass, no fix loop. `avc1`-first with `isOpened()` gate,
+  dead-writer release + ffmpeg `h264_videotoolbox` fallback, RuntimeError naming
+  path (no leaked handle), idempotent release (ffmpeg stdin.close→wait for moov),
+  `probe_video` with int/float casts. Full suite 97 green (87 + 10); regression
+  gates (test_capture/api/dataset_writer/capture_recording) untouched.
