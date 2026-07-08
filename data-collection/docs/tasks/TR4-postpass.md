@@ -1,6 +1,6 @@
 # TR4 — Post-pass job runner
 
-status: todo
+status: done
 depends-on: TR1 (test fakes: `tests/recording_fakes.py`), TR2, TR3
 blocks: TR5
 spec: [RECORDING.md](../RECORDING.md) §Post-pass (background job, after stop), §Post-pass specifics
@@ -118,3 +118,16 @@ double.
 
 - 2026-07-08 — Brief created (recording-mode decomposition of RECORDING.md, task
   cut T-R4).
+- 2026-07-08 — **Done** via `/blind-tdd`. `backend/postpass.py` +
+  `tests/test_postpass.py` (8 tests, all 7 ACs). Blind boundary held: test-writer
+  (Sonnet) and coder (Sonnet) never saw each other's output; Codex + Opus reviewed
+  code vs spec (consensus, zero ❌) before tests ran. Phase-1.5 test review caught a
+  gate hole (AC2 confidences couldn't distinguish an operator↔mining threshold
+  swap) — fixed by seeding a detection in the (mining, operator) gap; also added
+  gates for the MP4 path handed to `cap_factory`/`probe_fn` and the sidecar `model`
+  block (`conf_threshold`=mining, `version`=model_version). One blind fix in Phase 4
+  (pass `str(mp4_path)` to `probe_fn` to match `cap_factory`). **frame_count
+  reconciliation**: probe value is read but the `video` block and the frame loop
+  both use the AUTHORITATIVE constructor `frame_count` unconditionally — "always
+  prefer the counter", no hard assert, so a re-encode-style probe mismatch never
+  crashes the job. Full suite: 120 passed (112 prior + 8 new).

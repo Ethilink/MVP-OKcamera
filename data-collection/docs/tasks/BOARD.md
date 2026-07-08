@@ -54,7 +54,7 @@ of truth**; update both when they touch your task.
 | TR1 | [Reader/encoder split + `Latest.frame_number`](TR1-capture-recording.md) | — | done | orchestrator (blind-tdd) |
 | TR2 | [H.264 encoder wrapper + probe](TR2-encoder.md)   | —               | done   | orchestrator (blind-tdd) |
 | TR3 | [Shared COCO helper + `VideoEntryWriter`](TR3-video-writer.md) | —  | done   | orchestrator (blind-tdd) |
-| TR4 | [Post-pass job runner](TR4-postpass.md)           | TR1 (test fakes), TR2, TR3 | todo | |
+| TR4 | [Post-pass job runner](TR4-postpass.md)           | TR1 (test fakes), TR2, TR3 | done | orchestrator (blind-tdd) |
 | TR5 | [Recording API + state machine](TR5-api.md)       | TR1, TR2, TR3, TR4 | todo | |
 | TR6 | [Recording frontend](TR6-frontend.md)             | TR5 (endpoint contract only) | review (code done; manual pass → R4) | tr6-frontend-v2 |
 | TR7 | [Recording integration + 60fps spike](TR7-integration.md) | TR5, TR6 | todo | |
