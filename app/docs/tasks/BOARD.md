@@ -51,14 +51,21 @@ The task file header is the source of truth; the table below is a mirror.
 
 | id  | task                                             | depends on               | status | owner |
 |-----|--------------------------------------------------|--------------------------|--------|-------|
-| T01 | [Scaffold backend + frontend](T01-scaffold.md)   | —                        | todo   | —     |
-| T02 | [Session state machine + report](T02-session.md) | T01                      | todo   | —     |
-| T03 | [Capture-infer loop + overlay](T03-capture.md)   | T01                      | todo   | —     |
-| T04 | [FastAPI layer](T04-api.md)                      | T02, T03                 | todo   | —     |
-| T05 | [Frontend API client + polling](T05-fe-client.md)| T01 (contract only)      | todo   | —     |
+| T01 | [Scaffold backend + frontend](T01-scaffold.md)   | —                        | done   | claude |
+| T02 | [Session state machine + report](T02-session.md) | T01                      | review | claude |
+| T03 | [Capture-infer loop + overlay](T03-capture.md)   | T01                      | review | claude |
+| T04 | [FastAPI layer](T04-api.md)                      | T02, T03                 | review | claude |
+| T05 | [Frontend API client + polling](T05-fe-client.md)| T01 (contract only)      | review | claude |
 | T06 | [Setup + Recording screens](T06-fe-live.md)      | T05                      | review | claude |
 | T07 | [Report screen + Usage timeline](T07-fe-report.md)| T05                     | review | claude |
-| T08 | [Integration + demo runbook](T08-integration.md) | T04, T06, T07            | todo   | —     |
+| T08 | [Integration + demo runbook](T08-integration.md) | T04, T06, T07            | review | claude |
+
+> Backend T01–T04 built via the `orc-backend-nightly` workflow (blind-TDD +
+> dual-Opus review + adversarial verify on T02/T03) and committed
+> (`2c8eb11`→`19cf144`); T08 integration committed (`8920359`). Backend suite
+> 91 passed; frontend 42 passed; `orc-demo --fake` e2e smoke green. `review`
+> (not `done`) because the Codex sign-off (Bram's dual-review rule) and T08's
+> visual Chrome pass are still pending.
 
 ## Phases / parallelism
 
@@ -78,3 +85,19 @@ The task file header is the source of truth; the table below is a mirror.
 Anything ambiguous → Bram decides. The re-identification risk (DESIGN D8) is
 Constantijn's; if a task discovers a NEW cross-seam problem, log it here, don't
 solve it locally.
+
+### Open findings
+
+- **[2026-07-09] Scenario→wall-clock time dilation (~1.37×) — T01/T03 seam,
+  demo-timing only.** `FakeCaptureSource.read()` (T01) sleeps `1/fps` *before*
+  yielding a frame, but T03's capture loop adds ~40 ms/frame (1080p mask-render
+  + JPEG-encode), so effective throughput is ~7.3 fps, not 10. Scenario time
+  (tracker `frame_count/fps`) runs slower than the wall-clock `t` the `Session`
+  stamps windows with, so scripted events at t=20/35/50 s surface at wall
+  ≈28/48/68 s. **Not a correctness bug:** events fire in the right order and
+  recorded report values are correct (Session stamps from the wall `t` passed
+  in); only *when* they appear drifts. Surfaced by T08's e2e smoke; RUNBOOK
+  rehearsal timings were corrected to wall-clock. Fix option (for the T01/T03
+  owner): make `read()` a rate-limiter that subtracts elapsed loop time instead
+  of a fixed pre-sleep, so scenario-seconds ≈ wall-seconds as the docstring
+  claims. Bram to decide whether the demo needs true-time or the caveat suffices.
