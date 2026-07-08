@@ -34,6 +34,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--camera-index", type=int, default=0)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
+    # Recording mode (TR5): capture rate the encoder is opened at, and the
+    # every-frame post-pass mining threshold. Threaded into app.state below.
+    parser.add_argument("--capture-fps", type=float, default=30.0)
+    parser.add_argument("--mining-threshold", type=float, default=0.25)
     return parser
 
 
@@ -64,6 +68,10 @@ def main(argv: list[str] | None = None) -> None:
         # suspenders, but it keeps shutdown uniform for every exit.
         capture.start()
         app = create_app(detector, writer_factory=writer_factory, capture=capture)
+        # Recording-mode config (TR5): threaded into app.state after build.
+        app.state.capture_fps = args.capture_fps
+        app.state.mining_threshold = args.mining_threshold
+        app.state.model_version = args.model_version
         uvicorn.run(app, host=args.host, port=args.port)
     finally:
         capture.stop()

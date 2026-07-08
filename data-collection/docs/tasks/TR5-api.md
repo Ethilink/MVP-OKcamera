@@ -1,6 +1,6 @@
 # TR5 — Recording API + state machine
 
-status: todo
+status: done
 depends-on: TR1, TR2, TR3, TR4
 blocks: TR6, TR7
 spec: [RECORDING.md](../RECORDING.md) §API & state, §Thresholds, §Detector sharing, §Encoder
@@ -140,3 +140,26 @@ post-pass video (inject a fake `PostPassJob` / fake video reader).
 
 - 2026-07-08 — Brief created (recording-mode decomposition of RECORDING.md, task
   cut T-R5).
+- 2026-07-08 — **Done** via `/blind-tdd`. `backend/app.py` (recording state
+  machine + /record/* + /keyframe endpoints; recording touches on /frame, /flag,
+  /status), `backend/main.py` (--capture-fps / --mining-threshold CLI args →
+  app.state), `tests/test_recording_api.py` (29 tests, all 12 ACs). Blind coder
+  ran on **Opus** (concurrency-heavy). Phase-1.5 test review caught a missing
+  transition (start-while-`processing` → 409) + strengthened the stop_recording
+  return-contract; added start-while-`failed`/retry-while-`processing` guards.
+  **Opus code review found one ❌ concurrency blocker**: discard-during-processing
+  left `inference_paused` inconsistent (orphaned post-pass worker resumed the
+  detector mid-way through a *later* take → §Detector-sharing violation). Fixed by
+  tying resume to job ownership — invariant: `resume_inference()` fires **exactly
+  once** per processing episode (worker iff `rec.job is job` at completion, else
+  discard when it takes ownership away; an orphaned worker never resumes). Codex
+  review independently corroborated the lock area (noted GET-side `rec.state`
+  reads outside the lock — harmless, read-only) but **stalled before a verdict**;
+  consensus rested on Opus + the green test gate. Phase-4 fixes: (1) /record/start
+  mints `<output>/<entry>/video/` itself (open_encoder is injectable, a fake won't
+  mkdir); (2) AC5 racy-wait + a JPEG-round-trip decode flake fixed (escape hatch),
+  and the ring-eviction race in the AC5 header re-lookup fixed by sizing the test's
+  capture ring past its frame count. **AC9 carve-out**: T05's `test_ac7` key-set
+  assertion gained `recording_state` (the one field AC9 mandates on /status) —
+  mirrors TR1's sanctioned /flag carve-out; image-mode behavior otherwise
+  unchanged. Full suite: 149 passed, stable across repeated + full-suite runs.

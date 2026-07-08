@@ -291,6 +291,9 @@ def test_ac7_status_fields_and_health_ok(tmp_path):
     try:
         assert _wait_for(lambda: capture.health == "ok")
         body = client.get("/status").json()
+        # recording_state is the one additive field TR5 AC9 mandates on /status
+        # (== "idle" when not recording); every image-mode field is preserved.
+        # Sanctioned carve-out, mirroring TR1's one-line /flag carve-out.
         assert set(body) == {
             "count",
             "confidence",
@@ -299,7 +302,9 @@ def test_ac7_status_fields_and_health_ok(tmp_path):
             "n_flagged",
             "capture_health",
             "camera_index",
+            "recording_state",
         }
+        assert body["recording_state"] == "idle"
         assert body["confidence"] == 0.6
         assert body["dataset_name"] is None
         assert body["output_path"] is None
