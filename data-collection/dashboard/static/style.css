@@ -188,6 +188,17 @@ main {
 .live-badge[data-health="stale"] .dot,
 .live-badge[data-health="dead"] .dot { background: var(--bad); animation: pulse 0.8s infinite; }
 
+/* REC / PROCESSING / FAILED badge — recording-mode state, top-right HUD. */
+.rec-badge .dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--bad); }
+.rec-badge[data-state="recording"] { color: #ffd9da; }
+.rec-badge[data-state="recording"] .dot { animation: pulse 1s infinite; }
+.rec-badge[data-state="processing"] { color: var(--warn); }
+.rec-badge[data-state="processing"] .dot { background: var(--warn); animation: pulse 1.2s infinite; }
+.rec-badge[data-state="failed"] { color: var(--bad); }
+
+/* Keyframe counter — visible only while recording. */
+.keyframe-pill b { color: var(--text); }
+
 /* No-signal veil, shown when the stream is stale/dead */
 .no-signal {
   position: absolute; inset: 0; z-index: 4;
@@ -209,6 +220,16 @@ main {
    so it reads as "this exact still was saved", distinct from the live blue ring. */
 .stage-frame.frozen::after {
   box-shadow: inset 0 0 0 2px rgba(47, 208, 122, 0.7), inset 0 0 60px rgba(0, 0, 0, 0.55);
+}
+
+/* Recording-mode ring — distinct colour per state so it reads at a glance
+   (TR6 "state reflection": recording/processing/failed are visually distinct). */
+.stage-frame[data-rec-state="recording"]::after {
+  box-shadow: inset 0 0 0 2px rgba(255, 90, 95, 0.75), inset 0 0 60px rgba(0, 0, 0, 0.55);
+}
+.stage-frame[data-rec-state="processing"]::after,
+.stage-frame[data-rec-state="failed"]::after {
+  box-shadow: inset 0 0 0 2px rgba(245, 177, 61, 0.65), inset 0 0 60px rgba(0, 0, 0, 0.55);
 }
 
 /* Capture confirmation chip — "✓ saved · Discard", bottom-centre over the still */
@@ -237,6 +258,10 @@ main {
 }
 .discard-btn:hover { border-color: var(--bad); color: #ffd9da; background: rgba(255, 90, 95, 0.12); }
 
+/* Keyframe mark confirmation — a brief pulse, no freeze (recording mode). */
+.keyframe-chip { border-color: rgba(255, 255, 255, 0.35); }
+.keyframe-chip .saved-tick { color: var(--text); }
+
 /* Capture flash overlay — a quick white pop on every flag */
 .capture-flash {
   position: absolute; inset: 0; z-index: 5;
@@ -245,10 +270,84 @@ main {
   pointer-events: none;
 }
 .capture-flash.fire { animation: capflash 0.32s ease-out; }
+.capture-flash.fire-keyframe { background: #4fd1ff; animation: capflash 0.32s ease-out; }
 @keyframes capflash {
   0% { opacity: 0.85; }
   100% { opacity: 0; }
 }
+
+/* Processing / failed veil — covers the stage so it can't be mistaken for a
+   live feed while the post-pass owns the detector. */
+.postpass-veil {
+  position: absolute; inset: 0; z-index: 7;
+  display: grid; place-items: center;
+  background: rgba(6, 9, 13, 0.86);
+  backdrop-filter: blur(3px);
+  text-align: center;
+  padding: 1rem;
+}
+.postpass-veil[hidden] { display: none; }
+.postpass-box { width: min(360px, 90%); }
+.postpass-title { margin: 0 0 0.8rem; font-size: 1.05rem; font-weight: 700; }
+.postpass-veil[data-state="failed"] .postpass-title { color: var(--bad); }
+.progress-track {
+  width: 100%; height: 10px; border-radius: 999px;
+  background: var(--panel-3);
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+}
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--ok), #1eaf63);
+  transition: width 0.2s ease;
+}
+.postpass-veil[data-state="failed"] .progress-fill {
+  background: linear-gradient(90deg, var(--bad), #c23a3e);
+}
+.postpass-sub { margin: 0.6rem 0 0; font-size: 0.85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.postpass-error {
+  margin: 0.8rem 0 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 90, 95, 0.14);
+  border: 1px solid rgba(255, 90, 95, 0.5);
+  color: #ffd2d3;
+  font-size: 0.85rem;
+}
+.postpass-error[hidden] { display: none; }
+.postpass-actions { display: flex; gap: 0.6rem; justify-content: center; margin-top: 1rem; }
+.postpass-actions button[hidden] { display: none; }
+
+/* Stage controls row — FLAG (still-capture/keyframe) + Record/Stop + Discard */
+.stage-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+.record-controls { display: flex; align-items: center; gap: 0.6rem; }
+
+/* Record/Stop button */
+.record-btn {
+  display: inline-flex; align-items: center; gap: 0.6rem;
+  padding: 0.75rem 1.6rem;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text);
+}
+.record-btn .record-dot {
+  width: 0.7rem; height: 0.7rem; border-radius: 50%;
+  background: var(--bad);
+  display: inline-block;
+}
+.record-btn[data-state="recording"] {
+  background: linear-gradient(180deg, #3a1418, #24080a);
+  border-color: rgba(255, 90, 95, 0.6);
+  color: #ffd9da;
+}
+.record-btn[data-state="recording"] .record-dot { animation: pulse 1s infinite; }
 
 /* FLAG button — the primary action, big and tactile */
 .flag-btn {

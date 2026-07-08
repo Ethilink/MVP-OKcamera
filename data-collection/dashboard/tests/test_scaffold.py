@@ -30,7 +30,7 @@ def test_ac03_index_served():
     client = TestClient(app)
     resp = client.get("/")
     assert resp.status_code == 200
-    assert "<title>ORC data-collection dashboard</title>" in resp.text
+    assert "<title>ORB data-collection dashboard</title>" in resp.text
 
 
 def test_ac04_cli_requires_weights_and_version():

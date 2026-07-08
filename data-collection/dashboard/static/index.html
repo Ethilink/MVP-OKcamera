@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ORC data-collection dashboard</title>
+    <title>ORB data-collection dashboard</title>
     <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
@@ -51,6 +51,12 @@
           </div>
           <div class="hud hud-tr">
             <span class="hud-pill"><b id="hud-count">0</b>&nbsp;instruments</span>
+            <span class="hud-pill rec-badge" id="rec-badge" hidden>
+              <span class="dot"></span><span id="rec-badge-text">REC</span>
+            </span>
+            <span class="hud-pill keyframe-pill" id="keyframe-pill" hidden>
+              <b id="n-keyframes">0</b>&nbsp;keyframes
+            </span>
           </div>
 
           <div class="no-signal" id="no-signal" hidden>
@@ -69,12 +75,46 @@
             <button type="button" class="discard-btn" id="discard">Discard</button>
           </div>
 
+          <!-- Keyframe mark confirmation: a brief pulse, no freeze (recording mode). -->
+          <div class="saved-chip keyframe-chip" id="keyframe-chip" role="status" aria-live="polite" hidden>
+            <span class="saved-tick" aria-hidden="true">✓</span>
+            <span class="saved-text" id="keyframe-chip-text">Keyframe marked</span>
+          </div>
+
+          <!-- Processing / failed veil: covers the stage while the post-pass runs
+               or has failed, so the operator can't mistake it for a live feed. -->
+          <div class="postpass-veil" id="postpass-veil" hidden>
+            <div class="postpass-box">
+              <p class="postpass-title" id="postpass-title">Processing…</p>
+              <div class="progress-track">
+                <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+              </div>
+              <p class="postpass-sub" id="postpass-sub">0 / 0 frames</p>
+              <p class="postpass-error" id="postpass-error" hidden></p>
+              <div class="postpass-actions">
+                <button type="button" class="secondary" id="postpass-retry" hidden>Retry</button>
+                <button type="button" class="secondary" id="postpass-discard" hidden>Discard</button>
+              </div>
+            </div>
+          </div>
+
           <div class="capture-flash" id="capture-flash" aria-hidden="true"></div>
         </div>
 
-        <button id="flag" class="flag-btn" type="button">
-          FLAG <kbd>space</kbd>
-        </button>
+        <div class="stage-controls">
+          <button id="flag" class="flag-btn" type="button">
+            <span id="flag-label">FLAG</span> <kbd>space</kbd>
+          </button>
+          <div class="record-controls">
+            <button id="record" class="record-btn" type="button">
+              <span class="record-dot" aria-hidden="true"></span>
+              <span id="record-label">Record</span>
+            </button>
+            <button id="record-discard" class="secondary" type="button" hidden>
+              Discard recording
+            </button>
+          </div>
+        </div>
       </section>
 
       <aside class="panel">

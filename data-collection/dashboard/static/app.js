@@ -33,10 +33,36 @@ const els = {
   liveBadge: $("live-badge"),
   noSignal: $("no-signal"),
   captureFlash: $("capture-flash"),
+  // Recording mode (TR6) — guarded the same way.
+  flagLabel: $("flag-label"),
+  record: $("record"),
+  recordLabel: $("record-label"),
+  recordDiscard: $("record-discard"),
+  recBadge: $("rec-badge"),
+  recBadgeText: $("rec-badge-text"),
+  keyframePill: $("keyframe-pill"),
+  nKeyframes: $("n-keyframes"),
+  keyframeChip: $("keyframe-chip"),
+  postpassVeil: $("postpass-veil"),
+  postpassTitle: $("postpass-title"),
+  progressFill: $("progress-fill"),
+  postpassSub: $("postpass-sub"),
+  postpassError: $("postpass-error"),
+  postpassRetry: $("postpass-retry"),
+  postpassDiscard: $("postpass-discard"),
 };
 
 let currentHealth = "unknown";
 let toastTimer = null;
+
+// --- recording state (TR6) ---------------------------------------------------
+// idle | recording | processing | failed — mirrors the TR5 state machine.
+let recState = "idle";
+let recordBusy = false; // guards the Record/Stop button while a request is in flight
+let nKeyframes = 0;
+let postpassDone = 0;
+let postpassTotal = 0;
+let postError = null;
 
 // --- live frame loop (client-driven display, AC-freeze) ---------------------
 // We poll /frame instead of using an <img src="/stream"> MJPEG feed, because the
@@ -49,6 +75,10 @@ let currentBlobUrl = null; // object URL backing the <img>, revoked on swap
 let frozen = false; // true while a just-captured frame is held for confirmation
 let freezeTimer = null; // auto-resume timer for the confirmation hold
 let frameTimer = null;
+// The on-screen frame's number, from X-Frame-Number (present while recording
+// only). SPACE-while-recording echoes THIS value to /keyframe — never the
+// newest frame — because that is the frame the operator was looking at.
+let currentFrameNumber = -1;
 
 async function frameLoop() {
   if (!frozen) {
@@ -56,6 +86,8 @@ async function frameLoop() {
       const res = await fetch(`/frame?after=${currentGen}`);
       if (res.status === 200) {
         const gen = Number(res.headers.get("X-Frame-Generation"));
+        const fn = res.headers.get("X-Frame-Number");
+        currentFrameNumber = fn !== null ? Number(fn) : -1;
         const url = URL.createObjectURL(await res.blob());
         els.stream.src = url;
         if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
@@ -156,9 +188,28 @@ function fireCaptureAnimation() {
   void els.flag.offsetWidth; // restart the CSS animation
   els.flag.classList.add("flash");
   if (els.captureFlash) {
-    els.captureFlash.classList.remove("fire");
+    els.captureFlash.classList.remove("fire", "fire-keyframe");
     void els.captureFlash.offsetWidth; // restart the flash animation
     els.captureFlash.classList.add("fire");
+  }
+}
+
+// Keyframe mark feedback (recording mode): a brief tinted pulse, no freeze —
+// distinct from fireCaptureAnimation's still-capture flash (AC2, spec §What
+// the operator experiences).
+let keyframeChipTimer = null;
+function fireKeyframeAnimation() {
+  if (els.captureFlash) {
+    els.captureFlash.classList.remove("fire", "fire-keyframe");
+    void els.captureFlash.offsetWidth;
+    els.captureFlash.classList.add("fire-keyframe");
+  }
+  if (els.keyframeChip) {
+    clearTimeout(keyframeChipTimer);
+    els.keyframeChip.hidden = false;
+    keyframeChipTimer = setTimeout(() => {
+      els.keyframeChip.hidden = true;
+    }, 700);
   }
 }
 
@@ -207,7 +258,44 @@ async function flag() {
   }
 }
 
-els.flag.addEventListener("click", flag);
+// Mark the on-screen frame as a keyframe (recording mode). Instant, no freeze
+// — sends the X-Frame-Number captured from the latest /frame response, never
+// the newest frame (AC2/AC3 of RECORDING.md — the frame the operator saw).
+async function markKeyframe() {
+  if (recState !== "recording") return;
+  if (currentFrameNumber < 0) return; // nothing painted yet
+  const frameNumber = currentFrameNumber;
+  try {
+    const body = await readJson(
+      await fetch("/keyframe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ frame_number: frameNumber }),
+      })
+    );
+    if (typeof body.n_keyframes === "number") {
+      nKeyframes = body.n_keyframes;
+    }
+    fireKeyframeAnimation();
+    renderRecordingUI();
+    clearError();
+  } catch (e) {
+    showError(`Keyframe: ${e.message}`); // 409 (not recording) / 422 (out of range) — never swallowed
+  }
+}
+
+// SPACE and the FLAG button branch on recording_state (TR6 UI contract):
+// idle -> still-capture flag (unchanged), recording -> keyframe mark.
+// processing/failed: no-op — there is no live frame to act on.
+function flagOrKeyframe() {
+  if (recState === "recording") {
+    markKeyframe();
+  } else if (recState === "idle") {
+    flag();
+  }
+}
+
+els.flag.addEventListener("click", flagOrKeyframe);
 
 // Discard the just-saved capture (undo). Available while the confirmation is up.
 if (els.discard) {
@@ -243,7 +331,7 @@ document.addEventListener("keydown", (e) => {
   if (e.repeat) return; // hold-to-repeat must not machine-gun
   if (typingInField(e.target)) return; // SPACE while typing is a space, not a flag
   e.preventDefault(); // stop the page from scrolling
-  flag();
+  flagOrKeyframe();
 });
 
 // --- settings (AC3 collision/invalid handling) ------------------------------
@@ -309,6 +397,183 @@ els.validate.addEventListener("click", async () => {
   }
 });
 
+// --- recording mode (TR6): Record/Stop, progress, retry/discard -------------
+
+// FLAG disables when the stream is unhealthy (unchanged) OR while a post-pass
+// owns the detector (processing/failed — there is nothing live to act on).
+function updateFlagDisabled() {
+  if (!els.flag) return;
+  els.flag.disabled =
+    currentHealth !== "ok" || recState === "processing" || recState === "failed";
+}
+
+function renderRecordingUI() {
+  const recording = recState === "recording";
+  const processing = recState === "processing";
+  const failed = recState === "failed";
+
+  if (els.stageFrame) els.stageFrame.dataset.recState = recState;
+
+  if (els.recBadge) {
+    els.recBadge.hidden = !(recording || processing || failed);
+    els.recBadge.dataset.state = recState;
+  }
+  if (els.recBadgeText) {
+    els.recBadgeText.textContent = recording
+      ? "REC"
+      : processing
+      ? "PROCESSING"
+      : failed
+      ? "FAILED"
+      : "";
+  }
+
+  // Keyframe counter — visible only while recording (spec: "Visible while recording").
+  if (els.keyframePill) els.keyframePill.hidden = !recording;
+  if (els.nKeyframes) els.nKeyframes.textContent = nKeyframes;
+
+  // Record/Stop button.
+  if (els.record) {
+    els.record.disabled = processing || failed || recordBusy;
+    els.record.dataset.state = recState;
+  }
+  if (els.recordLabel) {
+    els.recordLabel.textContent = recording
+      ? "Stop"
+      : processing
+      ? "Processing…"
+      : failed
+      ? "Failed"
+      : "Record";
+  }
+
+  // Discard while actively recording (abort) — lives next to Record/Stop.
+  if (els.recordDiscard) els.recordDiscard.hidden = !recording || recordBusy;
+
+  // Processing/failed veil over the stage, with the progress bar + error/retry.
+  if (els.postpassVeil) {
+    els.postpassVeil.hidden = !(processing || failed);
+    els.postpassVeil.dataset.state = recState;
+  }
+  if (els.postpassTitle) {
+    els.postpassTitle.textContent = failed ? "Post-pass failed" : "Processing…";
+  }
+  const pct = postpassTotal > 0 ? Math.round((postpassDone / postpassTotal) * 100) : 0;
+  if (els.progressFill) els.progressFill.style.width = `${pct}%`;
+  if (els.postpassSub) {
+    els.postpassSub.textContent = `${postpassDone} / ${postpassTotal} frames`;
+  }
+  if (els.postpassError) {
+    els.postpassError.hidden = !failed;
+    els.postpassError.textContent = postError || "Unknown error";
+  }
+  if (els.postpassRetry) els.postpassRetry.hidden = !failed;
+  // Discard is available from recording/processing/failed (AC7); the veil-side
+  // control covers processing/failed, els.recordDiscard covers recording.
+  if (els.postpassDiscard) els.postpassDiscard.hidden = !(processing || failed);
+
+  if (els.flagLabel) els.flagLabel.textContent = recording ? "KEYFRAME" : "FLAG";
+  updateFlagDisabled();
+}
+
+// Record/Stop: idle -> prompt for entry_name -> /record/start; recording -> /record/stop.
+if (els.record) {
+  els.record.addEventListener("click", async () => {
+    if (recState === "idle") {
+      const name = window.prompt("Entry name:");
+      if (name === null) return; // cancelled
+      const entryName = name.trim();
+      if (!entryName) return;
+      recordBusy = true;
+      renderRecordingUI();
+      try {
+        await readJson(
+          await fetch("/record/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ entry_name: entryName }),
+          })
+        );
+        recState = "recording";
+        nKeyframes = 0;
+        clearError();
+      } catch (e) {
+        showError(`Record: ${e.message}`); // 409 collision/wrong-state, 422 bad name
+      } finally {
+        recordBusy = false;
+        renderRecordingUI();
+      }
+    } else if (recState === "recording") {
+      recordBusy = true;
+      renderRecordingUI();
+      try {
+        await readJson(await fetch("/record/stop", { method: "POST" }));
+        recState = "processing";
+        clearError();
+      } catch (e) {
+        showError(`Record: ${e.message}`);
+      } finally {
+        recordBusy = false;
+        renderRecordingUI();
+      }
+    }
+  });
+}
+
+async function discardRecording() {
+  try {
+    await readJson(await fetch("/record/discard", { method: "POST" }));
+    recState = "idle";
+    nKeyframes = 0;
+    postpassDone = 0;
+    postpassTotal = 0;
+    postError = null;
+    showToast("Recording discarded");
+    clearError();
+  } catch (e) {
+    showError(`Discard recording: ${e.message}`);
+  } finally {
+    renderRecordingUI();
+  }
+}
+if (els.recordDiscard) els.recordDiscard.addEventListener("click", discardRecording);
+if (els.postpassDiscard) els.postpassDiscard.addEventListener("click", discardRecording);
+
+if (els.postpassRetry) {
+  els.postpassRetry.addEventListener("click", async () => {
+    try {
+      await readJson(await fetch("/record/retry", { method: "POST" }));
+      recState = "processing";
+      postError = null;
+      clearError();
+    } catch (e) {
+      showError(`Retry: ${e.message}`);
+    } finally {
+      renderRecordingUI();
+    }
+  });
+}
+
+// Polled alongside /status (same 1 s cadence, see poll() below). Silently
+// keeps the last known recording state on failure — this 404s until TR5's
+// backend ships, same as any other not-yet-implemented endpoint.
+async function pollRecordStatus() {
+  try {
+    const s = await readJson(await fetch("/record/status"));
+    if (typeof s.state === "string") recState = s.state;
+    if (typeof s.n_keyframes === "number") nKeyframes = s.n_keyframes;
+    if (s.postpass) {
+      if (typeof s.postpass.done === "number") postpassDone = s.postpass.done;
+      if (typeof s.postpass.total === "number") postpassTotal = s.postpass.total;
+    }
+    postError = s.error || null;
+  } catch (_) {
+    /* TR5 backend not deployed yet, or transient — keep the last known state */
+  } finally {
+    renderRecordingUI();
+  }
+}
+
 // --- status poll (1 s, AC5 health) ------------------------------------------
 
 function applyHealth(health) {
@@ -316,7 +581,7 @@ function applyHealth(health) {
   const healthy = health === "ok";
   els.health.dataset.health = health;
   els.healthText.textContent = healthy ? "live" : health; // "stale" / "dead"
-  els.flag.disabled = !healthy; // FLAG disables while unhealthy
+  updateFlagDisabled(); // FLAG disables while unhealthy or mid-postpass
   if (els.liveBadge) els.liveBadge.dataset.health = health;
   // Veil the video with a "no signal" message the moment the feed freezes.
   if (els.noSignal) els.noSignal.hidden = healthy || health === "unknown";
@@ -345,12 +610,17 @@ async function poll() {
       els.cameraIndex.value = s.camera_index;
     }
     applyHealth(s.capture_health || "unknown");
+    // Early/cheap signal for the top-level state (also refined by
+    // pollRecordStatus's richer /record/status body, same cadence below).
+    if (typeof s.recording_state === "string") recState = s.recording_state;
   } catch (_) {
     applyHealth("dead"); // status unreachable → treat as dead, block flagging
   }
+  await pollRecordStatus();
 }
 
 renderConfidence(els.confidence.value);
+renderRecordingUI();
 poll();
 setInterval(poll, 1000);
 frameLoop();
