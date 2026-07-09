@@ -2,7 +2,14 @@
 
 ## Status
 
-accepted — supersedes the "Detector sharing (settled)" section of `RECORDING.md`.
+**SUPERSEDED (2026-07-09) by
+[`0002-keyframe-only-synchronous-stop.md`](0002-keyframe-only-synchronous-stop.md)**
+— the all-frames offline post-pass was removed, so the queue this ADR describes
+(and all its pause/resume/retry/halt-on-failure machinery) no longer exists.
+Kept as historical record of why the queue was introduced. Everything below
+described the (now-deleted) queue model.
+
+~~accepted — supersedes the "Detector sharing (settled)" section of `RECORDING.md`.~~
 
 ## Decision
 
@@ -46,3 +53,11 @@ wait between takes.
   provider for the detector (see `docs/tasks/REDESIGN.md` §S1 — measured 2.4×,
   ~50× → ~15–25× clip length). That helps but does **not** retire this queue:
   a 1-min clip is still ~20 min, so idle-draining + pause/resume stay load-bearing.
+- While a job drains, the single detector is borrowed, so the live overlay is
+  boxless. A mid-drain **image-mode flag** does not accept that gap: `/flag`
+  reclaims the detector for one predict on the frozen frame
+  (`capture.predict_now`), serialized on the same detector lock as the drain so
+  it never overlaps a drain predict (INV-3) — effectively a one-frame pause of
+  the drain. Chosen (U4, Bram) over 409-while-draining and accept-boxless,
+  because a silently empty/stale label poisons the active-learning set. See
+  `docs/RECORDING.md` §Queue model.

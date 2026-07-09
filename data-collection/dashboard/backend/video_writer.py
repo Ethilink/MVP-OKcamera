@@ -1,29 +1,41 @@
-"""VideoEntryWriter — turns a finished recording (MP4 already on disk) + a
-keyframe list + per-frame detections into the four video-project artifacts
-(IMPORT_FORMAT_VIDEO.md §§2-5): annotations.json (COCO-VID, keyframes only),
-keyframe JPEGs, selected_frames.json, and the full_frame_detections.json
-sidecar.
+"""VideoEntryWriter — turns a finished recording (MP4 already on disk) + the
+keyframes marked live during the take into the three reviewed video-project
+artifacts (IMPORT_FORMAT_VIDEO.md §§2-4): annotations.json (COCO-VID, keyframes
+only), one keyframe JPEG per mark, and selected_frames.json.
 
-Camera-free and detector-free by design — the post-pass job decodes the MP4
-and runs the detector, handing decoded frames + detections to ``add_frame``
-one at a time, in increasing ``frame_number`` order. Not thread-safe — the
-caller serializes calls to one writer with its own lock.
+Since the 2026-07-09 simplification (ADR-0002) there is no all-frames post-pass
+and no ``full_frame_detections.json`` sidecar — each keyframe carries the live
+detection captured at SPACE-press time (frame pre-encoded to JPEG bytes,
+detections, and the live threshold), so this writer never decodes the MP4 and
+never runs a detector. The caller feeds keyframes one at a time via
+``add_keyframe`` in increasing ``frame_number`` order; not thread-safe (the
+caller serializes with its own lock).
 """
 
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
-
-import cv2
-import numpy as np
 
 from backend import coco
 
-# AC13 (idempotent rebuild): annotations.json and full_frame_detections.json
-# must be byte-identical across two separate writer instances fed the same
-# add_frame sequence, so no wall-clock timestamp may leak into either file.
+# annotations.json / selected_frames.json must be reproducible byte-for-byte
+# from the same keyframe inputs (idempotent rebuild), so no wall-clock timestamp
+# may leak into either file.
 _FIXED_TIMESTAMP = "1970-01-01T00:00:00"
+
+
+def _atomic_write_json(path: Path, document: dict) -> None:
+    """Write ``document`` as JSON via a temp file + ``os.replace`` so the target
+    is never a torn/partial file. This is what keeps the partial-entry contract
+    honest: ``annotations.json`` is either fully present or absent — a crash
+    mid-``json.dump`` can only leave the ``.tmp``, never a half-written project
+    the discovery rule would try to open (mirrors ``DatasetWriter``)."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(document, f, indent=2)
+    os.replace(tmp, path)
 
 
 class VideoEntryWriter:
@@ -31,25 +43,15 @@ class VideoEntryWriter:
         self,
         entry_dir: Path,
         entry_name: str,
-        model_version: str,
         *,
         video: dict,
         keyframes,
-        operator_threshold: float,
-        mining_threshold: float,
-        model_name: str = "nf-detector",
     ):
         self._entry_dir = Path(entry_dir)
         self._entry_name = entry_name
-        self._model_version = model_version
         self._video = video
         self._keyframes = sorted(set(keyframes))
-        self._keyframe_set = set(self._keyframes)
-        self._operator_threshold = operator_threshold
-        self._mining_threshold = mining_threshold
-        self._model_name = model_name
 
-        self._sidecar_frames: dict = {}
         self._images: list = []
         self._annotations: list = []
         self._next_image_id = 1
@@ -67,29 +69,19 @@ class VideoEntryWriter:
             "fps": fps,
             "selected_frames_with_time": [{"frame": f, "seconds": f / fps} for f in self._keyframes],
         }
-        with open(metadata_dir / "selected_frames.json", "w", encoding="utf-8") as f:
-            json.dump(document, f, indent=2)
+        _atomic_write_json(metadata_dir / "selected_frames.json", document)
 
-    def add_frame(self, frame_number: int, frame: np.ndarray, dets: "sv.Detections") -> None:
-        detections = []
-        for i in range(len(dets)):
-            x1, y1, x2, y2 = dets.xyxy[i]
-            detections.append(
-                {
-                    "bbox": [float(x1), float(y1), float(x2 - x1), float(y2 - y1)],
-                    "score": float(dets.confidence[i]),
-                    "label": coco.CATEGORIES[0]["name"],
-                }
-            )
-        self._sidecar_frames[frame_number] = {"frame_number": frame_number, "detections": detections}
-
-        if frame_number not in self._keyframe_set:
-            return
-
+    def add_keyframe(self, frame_number: int, jpeg: bytes, dets: "sv.Detections", threshold: float) -> None:
+        """Write one keyframe's JPEG (the pre-encoded bytes captured live at
+        SPACE-press time) and accumulate its image record + annotations, filtered
+        at ``threshold`` — the live per-frame snapshot value at press time
+        (image-mode's exact provenance rule), not a take-wide operator threshold.
+        """
         images_dir = self._entry_dir / "images"
         images_dir.mkdir(parents=True, exist_ok=True)
         file_name = f"{self._entry_name}_f{frame_number:06d}.jpg"
-        cv2.imwrite(str(images_dir / file_name), frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        with open(images_dir / file_name, "wb") as f:
+            f.write(jpeg)
 
         W, H = int(self._video["width"]), int(self._video["height"])
         image_id = self._next_image_id
@@ -106,7 +98,7 @@ class VideoEntryWriter:
             }
         )
 
-        keyframe_dets = dets[dets.confidence >= self._operator_threshold]
+        keyframe_dets = dets[dets.confidence >= threshold]
         for i in range(len(keyframe_dets)):
             ann = coco.build_annotation(
                 keyframe_dets,
@@ -125,9 +117,9 @@ class VideoEntryWriter:
 
     def finalize(self) -> None:
         # `file_name` = the basename inside video/ (IMPORT_FORMAT_VIDEO.md §2,
-        # required on the annotations.json video block; §5 sidecar carries a
-        # copy). Consumers fall back to this when an image record lacks its own
-        # file_name — omitting it KeyErrors that path in the annotation tool.
+        # required on the annotations.json video block). Consumers fall back to
+        # this when an image record lacks its own file_name — omitting it KeyErrors
+        # that path in the annotation tool.
         mp4_name = f"{self._entry_name}.mp4"
         video_block = dict(self._video)
         video_block["id"] = 1
@@ -143,25 +135,7 @@ class VideoEntryWriter:
         }
         annotations_dir = self._entry_dir / "annotations"
         annotations_dir.mkdir(parents=True, exist_ok=True)
-        with open(annotations_dir / "annotations.json", "w", encoding="utf-8") as f:
-            json.dump(document, f, indent=2)
-
-        metadata_dir = annotations_dir / "metadata"
-        metadata_dir.mkdir(parents=True, exist_ok=True)
-        sidecar = {
-            "schema_version": 1,
-            "video": {**dict(self._video), "file_name": mp4_name},
-            "model": {
-                "name": self._model_name,
-                "version": self._model_version,
-                "conf_threshold": self._mining_threshold,
-            },
-            "frames": [self._sidecar_frames[fn] for fn in sorted(self._sidecar_frames)],
-        }
-        with open(metadata_dir / "full_frame_detections.json", "w", encoding="utf-8") as f:
-            json.dump(sidecar, f, indent=2)
-
-        self.write_selected_frames()
+        _atomic_write_json(annotations_dir / "annotations.json", document)
 
     @property
     def entry_dir(self) -> Path:

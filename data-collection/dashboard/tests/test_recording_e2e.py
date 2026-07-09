@@ -1,46 +1,36 @@
-"""TR7 AC1-AC6 (+ U2's queue/pause/resume ACs) — full recording pipeline
-end-to-end, with fakes (CI-gated).
+"""Full recording pipeline end-to-end, keyframe-only (ADR-0002), with fakes.
 
-U2 migration (docs/tasks/U2-queue.md): the pre-U2 blocking
-``processing``/``failed`` foreground states are gone; a completed OR failed
-post-pass is observed via ``/record/status``'s ``drain``/``error`` fields
-(``state`` stays "idle" the whole time once ``/record/stop`` returns — see
-``_wait_for_drain_settled`` below), and ``/record/retry`` now takes
-``{"entry_name": ...}``. Two new tests cover the ACs this file didn't
-previously exercise: AC2 (real FIFO drain of two queued entries, both become
-completed video projects) and AC3/AC6 (pause mid-drain reclaims the ONE
-shared detector for the live overlay with no concurrent ``.predict`` calls,
-then resumes the SAME job from its parked frame — INV-3/INV-4).
+The 2026-07-09 simplification dropped the all-frames post-pass and the drain
+queue. A recording is now: record the MP4 live, mark a handful of keyframes with
+SPACE (each capturing the live detection on the frame the operator saw), then
+``/record/stop`` writes the reviewed video project **synchronously** from those
+stored keyframes and returns to idle.
 
 Drives the WHOLE stack — real ``CaptureLoop`` (reader/inference/slot threads),
-real ``create_app`` state machine + ``/record/*`` + ``/keyframe`` endpoints, real
-``PostPassJob`` + ``VideoEntryWriter`` + ``coco`` helper — over a **fake numbered
-camera**. Only three seams are faked, and none needs hardware:
+real ``create_app`` + ``/record/*`` + ``/keyframe`` endpoints, real
+``VideoEntryWriter`` + ``coco`` helper — over a **fake numbered camera**. Only
+two seams are faked, and neither needs hardware:
 
-- **camera**: ``_PacedNumberedCap`` yields ``make_numbered_frames`` — each frame's
-  pixels encode its own 0-based content index, so a dropped / duplicated /
-  reordered / off-by-one frame is detectable after the fact (RECORDING.md
-  §Gotchas). It sleeps ~1/``fps`` per ``read`` so the un-rate-limited reader is
-  bounded to a camera-like rate (the "paced fake" — otherwise the reader spins
-  and ``frames_written`` explodes) and repeats the last frame when drained so
-  idle never starves ``/record/start``.
+- **camera**: ``_PacedNumberedCap`` yields ``make_numbered_frames`` — each
+  frame's pixels encode its own 0-based content index, so a dropped / duplicated
+  / reordered / off-by-one frame is detectable after the fact. It sleeps
+  ~1/``fps`` per ``read`` so the un-rate-limited reader is bounded to a
+  camera-like rate, and repeats the last frame when drained so idle never
+  starves ``/record/start``.
 - **encoder**: ``_FileEncoder`` records every written frame in order (the
   ground-truth "MP4 content") and, on ``release()``, drops a stub file into
   ``video/`` so the finished entry satisfies the video-project discovery rule
   (``annotations.json`` + non-empty ``video/``) without a real H.264 file.
-- **post-pass video read**: the real ``PostPassJob`` is handed a ``cap_factory``
-  that **replays the encoder's recorded frames losslessly** (numbered frames are
-  flat, so they survive the JPEG-95 keyframe re-encode too) and a ``probe_fn``
-  returning the true dims — so the post-pass decodes the exact pixels that were
-  "recorded", off-by-one stays detectable, and no ffmpeg/VideoToolbox runs.
+- **MP4 probe**: faked to return the true dims (no real file to probe), so the
+  writer's ``video`` block and image records carry the stream dims.
 
-The load-bearing identity fact this test leans on: the reader stamps
-``frame_number = its write index`` and the inference thread publishes *that*
-frame + number, so the frame displayed as ``frame_number == D`` **is** the frame
-at MP4 position ``D`` (``encoder.written[D]``). That equality is what
-``/keyframe`` echoes and what the post-pass seeks — it holds regardless of how
-the fake camera paces or repeats, which is why the assertions here are
-count-agnostic and race-free.
+The load-bearing identity fact: the reader stamps ``frame_number = its write
+index`` and the inference thread publishes *that* frame + number, so the frame
+displayed as ``frame_number == D`` **is** the frame at MP4 position ``D``
+(``encoder.written[D]``). ``/keyframe`` echoes the on-screen *generation*; the
+endpoint resolves it to that frame via the ring and pre-encodes it to the
+keyframe JPEG at press time (the live pre-encode frame — NOT an MP4 decode, per
+the settled AC2 relaxation).
 """
 
 from __future__ import annotations
@@ -57,14 +47,12 @@ from backend.app import create_app
 from backend.capture import CaptureLoop
 from backend.dataset_writer import DatasetWriter
 from backend.encoder import VideoProbe
-from backend.postpass import PostPassJob
 from fastapi.testclient import TestClient
 from tests.fakes import make_fake_dets
 from tests.recording_fakes import decode_frame_index, make_numbered_frames
 
 # Tiny frames keep the test fast; dims are asserted end-to-end anyway (a real
-# 1080p run keeps the dims-equal invariant trivially true — RECORDING.md §Gotchas
-# — and this exercises the same code path at 64x48).
+# 1080p run keeps the dims-equal invariant trivially true).
 _W, _H = 64, 48
 _CAM_FPS = 120.0  # paced read rate: bounds frames_written to a camera-like count
 
@@ -77,10 +65,8 @@ class _PacedNumberedCap:
 
     Sleeps ``1/fps`` per ``read`` so the (un-rate-limited) capture reader is
     bounded to a camera-like rate instead of spinning. Repeats the last frame
-    once the queue drains (``on_empty="repeat"`` semantics) so idle inference
-    never starves the initial ``/record/start`` snapshot. Thread-safe: idle,
-    reader, and the test may all touch it.
-    """
+    once the queue drains so idle inference never starves the initial
+    ``/record/start`` snapshot. Thread-safe."""
 
     def __init__(self, frames, fps: float = _CAM_FPS):
         self._frames = frames
@@ -126,10 +112,8 @@ class _PacedNumberedCap:
 
 
 class _OneBoxDetector:
-    """Detector stub returning a fixed single-instrument detection for every
-    frame (confidence 0.9, one solid mask). Frame-agnostic so it is safe to call
-    from both the live inference thread and the post-pass with no queue to drain
-    and no per-frame race. Records how many predicts ran."""
+    """Detector stub returning a fixed single-instrument detection (confidence
+    0.9) for every frame. Frame-agnostic and thread-safe."""
 
     def __init__(self, box=(10, 10, 40, 30), confidence_threshold: float = 0.5):
         self.confidence_threshold = confidence_threshold
@@ -145,9 +129,7 @@ class _OneBoxDetector:
 
 class _FileEncoder:
     """Encoder stub: records written frames in order and, on release, writes a
-    stub file to the MP4 path so ``video/`` is non-empty (video-project
-    discovery rule). Duck-types the encoder interface the capture loop needs
-    (``write`` / ``release`` / ``is_open``)."""
+    stub file to the MP4 path so ``video/`` is non-empty (discovery rule)."""
 
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -164,97 +146,8 @@ class _FileEncoder:
             if not self.is_open:
                 return
             self.is_open = False
-            # A real avc1/ffmpeg writer leaves a finalized MP4 here; a 1-byte stub
-            # is enough to make video/ non-empty for the discovery rule.
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.path.write_bytes(b"\x00")
-
-
-class _ReplayCap:
-    """Post-pass ``cap_factory`` stand-in: replays recorded frames in order,
-    losslessly. ``read`` past the end returns ``(False, None)`` (the post-pass
-    loop is bounded by ``frame_count`` and never reads past it)."""
-
-    def __init__(self, frames):
-        self._frames = frames
-        self._i = 0
-
-    def read(self):
-        if self._i < len(self._frames):
-            frame = self._frames[self._i]
-            self._i += 1
-            return (True, frame)
-        return (False, None)
-
-    def release(self) -> None:
-        pass
-
-
-class _ExplodingReplayCap(_ReplayCap):
-    """Replay cap that raises after ``explode_at`` reads — used to kill a
-    post-pass mid-loop (AC5). ``write_selected_frames`` has already run by then,
-    so the entry is left a valid partial (no ``annotations.json``)."""
-
-    def __init__(self, frames, explode_at: int):
-        super().__init__(frames)
-        self._explode_at = explode_at
-
-    def read(self):
-        if self._i >= self._explode_at:
-            raise RuntimeError("simulated post-pass decode failure (killed mid-run)")
-        return super().read()
-
-
-class _PacedReplayCap(_ReplayCap):
-    """U2 addition: like ``_ReplayCap`` but sleeps a small, fixed delay per
-    read — gives a post-pass drain enough wall-clock duration that a
-    concurrently-fired ``/record/start`` reliably lands mid-run (AC3), without
-    any sleep-and-hope on the TEST's side: every assertion built on this still
-    bounded-polls via ``_wait_for``."""
-
-    def __init__(self, frames, delay: float = 0.03):
-        super().__init__(frames)
-        self._delay = delay
-
-    def read(self):
-        time.sleep(self._delay)
-        return super().read()
-
-
-class _ConcurrencyGuardDetector:
-    """U2 addition: wraps a detector-shaped double, flagging whether any
-    ``predict()`` call overlaps another. In production the live capture's
-    inference thread and the drain worker share exactly ONE detector instance
-    (§Detector sharing / INV-3) — this is the decisive proof that pause/
-    reclaim actually serializes access, rather than relying on timing
-    coincidence to hide a race."""
-
-    def __init__(self, inner):
-        self._inner = inner
-        self._lock = threading.Lock()
-        self._active = 0
-        self.max_concurrent = 0
-        self.violations = 0
-
-    @property
-    def confidence_threshold(self):
-        return self._inner.confidence_threshold
-
-    @confidence_threshold.setter
-    def confidence_threshold(self, value):
-        self._inner.confidence_threshold = value
-
-    def predict(self, frame, confidence_threshold=None):
-        with self._lock:
-            self._active += 1
-            self.max_concurrent = max(self.max_concurrent, self._active)
-            if self._active > 1:
-                self.violations += 1
-        try:
-            return self._inner.predict(frame, confidence_threshold=confidence_threshold)
-        finally:
-            with self._lock:
-                self._active -= 1
 
 
 def _wait_for(predicate, timeout=5.0, interval=0.02) -> bool:
@@ -266,19 +159,6 @@ def _wait_for(predicate, timeout=5.0, interval=0.02) -> bool:
     return False
 
 
-def _wait_for_drain_settled(client, timeout=15.0) -> bool:
-    """U2: ``state`` goes idle the instant ``/record/stop`` returns (AC1) --
-    it is NOT the "post-pass finished" signal anymore. The drain has settled
-    (completed OR halted on failure) once ``drain.current`` clears OR
-    ``error`` is set (§5 halt-on-failure)."""
-
-    def _settled() -> bool:
-        body = client.get("/record/status").json()
-        return body["drain"]["current"] is None or body["error"] is not None
-
-    return _wait_for(_settled, timeout=timeout)
-
-
 def _writer_factory(model_version="rfdetr-e2e"):
     def factory(output_path, dataset_name):
         return DatasetWriter(output_path, dataset_name, model_version)
@@ -286,17 +166,12 @@ def _writer_factory(model_version="rfdetr-e2e"):
     return factory
 
 
-def _build_app(capture, detector, output_path, encoder_holder, *, job_hook=None,
-               mining_threshold=0.25, model_version="rfdetr-e2e"):
-    """create_app wired for the e2e: real endpoints, fake encoder (captured into
-    ``encoder_holder['enc']``), and a real ``PostPassJob`` whose video read is a
-    replay of the encoder's frames. ``job_hook(call_index, kwargs)`` may return a
-    replacement job (AC5's kill/retry); otherwise a normal replaying job runs."""
-    app = create_app(detector, _writer_factory(model_version), capture)
+def _build_app(capture, detector, output_path, encoder_holder):
+    """create_app wired for the e2e: real endpoints + real VideoEntryWriter,
+    fake encoder (captured into ``encoder_holder['enc']``), fake probe."""
+    app = create_app(detector, _writer_factory(), capture)
     app.state.output_path = str(output_path)
     app.state.capture_fps = 30.0
-    app.state.mining_threshold = mining_threshold
-    app.state.model_version = model_version
 
     def open_encoder(path, fps, frame_size, **kwargs):
         enc = _FileEncoder(path)
@@ -305,25 +180,9 @@ def _build_app(capture, detector, output_path, encoder_holder, *, job_hook=None,
         return enc
 
     app.state.open_encoder = open_encoder
-
-    calls = {"n": 0}
-
-    def post_pass_factory(entry_dir, entry_name, det, **kwargs):
-        written = encoder_holder["enc"].written
-        idx = calls["n"]
-        calls["n"] += 1
-        cap_factory = None
-        if job_hook is not None:
-            cap_factory = job_hook(idx, written)
-        if cap_factory is None:
-            cap_factory = lambda p: _ReplayCap(written)  # noqa: E731
-        return PostPassJob(
-            entry_dir, entry_name, det, **kwargs,
-            cap_factory=cap_factory,
-            probe_fn=lambda p: VideoProbe(fps=30.0, frame_count=len(written), width=_W, height=_H),
-        )
-
-    app.state.post_pass_factory = post_pass_factory
+    app.state.probe_video = lambda p, **kw: VideoProbe(
+        fps=30.0, frame_count=0, width=_W, height=_H
+    )
     return app
 
 
@@ -334,38 +193,39 @@ def _start_capture(frames, detector):
         render_fn=lambda frame, dets: frame,
         cap_factory=lambda idx: _PacedNumberedCap(frames),
         stale_after_s=5.0,
-        ring_size=20000,  # never evict a generation before /frame re-reads it
+        ring_size=20000,  # never evict a generation before /keyframe re-reads it
     )
     capture.start()
     return capture
 
 
 def _mark_keyframe(client, capture):
-    """Read the on-screen frame's X-Frame-Number, echo it to /keyframe (exactly
-    what the browser does), and return (frame_number, decoded_displayed_index) —
-    the displayed frame's raw pixel identity, captured atomically via the ring."""
+    """Read the on-screen frame's generation, echo it to /keyframe (exactly what
+    the browser does), and return (frame_number, decoded_displayed_index,
+    displayed_frame) — the displayed frame's identity, captured atomically via
+    the ring."""
     r = client.get("/frame")
     assert r.status_code == 200
-    assert "x-frame-number" in r.headers
-    fn = int(r.headers["x-frame-number"])
     gen = int(r.headers["x-frame-generation"])
     displayed = capture.snapshot_at(gen)
-    assert displayed is not None and displayed.frame_number == fn
+    assert displayed is not None and displayed.frame_number is not None
+    fn = displayed.frame_number
     disp_index = decode_frame_index(displayed.frame)
-    resp = client.post("/keyframe", json={"frame_number": fn})
+    disp_frame = displayed.frame.copy()
+    resp = client.post("/keyframe", json={"generation": gen})
     resp.raise_for_status()
-    return fn, disp_index, resp.json()["n_keyframes"]
+    assert resp.json()["generation"] == gen
+    return fn, disp_index, disp_frame
 
 
-def _run_recording(tmp_path, entry_base, *, n_keyframes=2, job_hook=None):
-    """Full record → keyframe(s) → stop drive. Returns a dict of everything the
-    assertions need. Leaves the machine wherever the post-pass ended (idle on
-    success / failed on a killed run)."""
+def _run_recording(tmp_path, entry_base, *, n_keyframes=2):
+    """Full record → keyframe(s) → stop drive. Returns everything the assertions
+    need; leaves the machine idle (synchronous stop)."""
     frames = make_numbered_frames(400, _W, _H)
     detector = _OneBoxDetector()
     capture = _start_capture(frames, detector)
     holder: dict = {}
-    app = _build_app(capture, detector, tmp_path, holder, job_hook=job_hook)
+    app = _build_app(capture, detector, tmp_path, holder)
     client = TestClient(app)
     kf: list = []
     try:
@@ -381,10 +241,10 @@ def _run_recording(tmp_path, entry_base, *, n_keyframes=2, job_hook=None):
         seen = set()
         deadline = time.monotonic() + 5.0
         while len(kf) < n_keyframes and time.monotonic() < deadline:
-            fn, disp_index, _ = _mark_keyframe(client, capture)
+            fn, disp_index, disp_frame = _mark_keyframe(client, capture)
             if fn not in seen:
                 seen.add(fn)
-                kf.append((fn, disp_index))
+                kf.append((fn, disp_index, disp_frame))
             # let the displayed frame advance so the next keyframe is a new one
             _wait_for(
                 lambda: capture.snapshot() is not None
@@ -397,10 +257,8 @@ def _run_recording(tmp_path, entry_base, *, n_keyframes=2, job_hook=None):
         stop.raise_for_status()
         frames_written = stop.json()["frames_written"]
         assert stop.json()["ok"] is True
-        assert client.get("/record/status").json()["state"] == "idle"  # AC1: immediate
-        # Wait for the background drain to settle (done or halted-on-failure).
-        assert _wait_for_drain_settled(client, timeout=15.0)
-        status = client.get("/record/status").json()
+        # Synchronous stop: back to idle, entry fully on disk (AC1: no drain).
+        assert client.get("/record/status").json()["state"] == "idle"
         return {
             "client": client,
             "capture": capture,
@@ -409,9 +267,8 @@ def _run_recording(tmp_path, entry_base, *, n_keyframes=2, job_hook=None):
             "entry_name": entry_name,
             "encoder": holder["enc"],
             "written": holder["enc"].written,
-            "keyframes": kf,          # list of (frame_number, decoded_displayed_index)
+            "keyframes": kf,  # list of (frame_number, disp_index, disp_frame)
             "frames_written": frames_written,
-            "final_status": status,
         }
     finally:
         capture.stop()
@@ -427,18 +284,13 @@ def _load(entry_dir: Path, rel: str):
 def test_ac1_completed_run_is_a_video_project(tmp_path):
     res = _run_recording(tmp_path, "take1")
     entry = res["entry_dir"]
-    # U2: state is idle throughout regardless of drain outcome -- success is
-    # drain.current clearing with no error (never "processing"/"failed").
-    assert res["final_status"]["state"] == "idle"
-    assert res["final_status"]["drain"]["current"] is None
-    assert res["final_status"]["error"] is None
     # Discovery rule: annotations.json present + non-empty video/.
     assert (entry / "annotations" / "annotations.json").is_file()
     video_files = list((entry / "video").iterdir())
     assert video_files and all(p.stat().st_size > 0 for p in video_files)
 
 
-# --- AC2: keyframe fidelity — one entry each, pixels match, displayed frame --
+# --- AC2 (relaxed) + AC3: keyframe fidelity + displayed-frame identity -------
 
 
 def test_ac2_keyframe_fidelity_and_displayed_frame_identity(tmp_path):
@@ -452,7 +304,7 @@ def test_ac2_keyframe_fidelity_and_displayed_frame_identity(tmp_path):
     anns = _load(entry, "annotations/annotations.json")
     selected = _load(entry, "annotations/metadata/selected_frames.json")
 
-    marked = sorted(fn for fn, _ in keyframes)
+    marked = sorted(fn for fn, _, _ in keyframes)
     assert selected["selected_frames"] == marked
     # exactly one image record per SPACE press, one JPEG each
     assert sorted(im["frame_number"] for im in anns["images"]) == marked
@@ -461,64 +313,29 @@ def test_ac2_keyframe_fidelity_and_displayed_frame_identity(tmp_path):
         f"{resolved}_f{fn:06d}.jpg" for fn in marked
     ]
 
-    # JPEG's BGR->YCbCr->BGR conversion perturbs each channel by ~+-1-2 even on a
-    # flat frame, so the keyframe JPEG can never be BYTE-equal to the source and
-    # decode_frame_index (which weights R by 65536) can't be used on it. The
-    # rigorous frame-identity / off-by-one proof is therefore assertion (a)
-    # below, on the LOSSLESS recorded frame; assertion (b) is the JPEG pixel-
-    # fidelity claim within re-encode tolerance (spec AC2 "pixels equal ...").
     _JPEG_TOL = 4
-    for fn, disp_index in keyframes:
-        # (a) the displayed frame IS the frame at MP4 position fn (no
-        #     newest-at-press lag, no off-by-one): written[fn] decodes to what
-        #     was on screen when SPACE was pressed. Lossless -> exact.
+    for fn, disp_index, disp_frame in keyframes:
+        # (a) writer index == MP4 index (no off-by-one): the frame written at MP4
+        #     position fn decodes to the same content that was on screen when
+        #     SPACE was pressed. Lossless -> exact.
         assert decode_frame_index(written[fn]) == disp_index
-        # (b) the keyframe JPEG's pixels equal the video decoded at fn (both are
-        #     written[fn]) within JPEG re-encode tolerance.
+        # (b) AC2 relaxed: the keyframe JPEG is the LIVE pre-encode frame captured
+        #     at press time (not an MP4 decode) — its pixels equal the displayed
+        #     frame within JPEG re-encode tolerance.
         jpg = cv2.imread(str(jpg_dir / f"{resolved}_f{fn:06d}.jpg"))
         assert jpg is not None
-        assert jpg.shape == written[fn].shape
-        assert int(np.abs(jpg.astype(int) - written[fn].astype(int)).max()) <= _JPEG_TOL
-        # (c) displayed frame lagged the newest write (it is a real earlier
-        #     frame, not the newest-at-press-time frame).
+        assert jpg.shape == disp_frame.shape
+        assert int(np.abs(jpg.astype(int) - disp_frame.astype(int)).max()) <= _JPEG_TOL
+        # (c) the displayed frame lagged the newest write (a real earlier frame,
+        #     not newest-at-press-time).
         assert fn < frames_written
 
 
-# --- AC3: sidecar completeness — every frame, pixel-space coords, dims -------
+# --- AC5: keyframe annotation == image-mode structure + video-mode fields ---
 
 
-def test_ac3_sidecar_has_every_frame_with_stream_dims(tmp_path):
-    res = _run_recording(tmp_path, "take3")
-    entry = res["entry_dir"]
-    resolved = res["entry_name"]  # resolved <base>_NNN (U1) — names the mp4
-    frames_written = res["frames_written"]
-    sidecar = _load(entry, "annotations/metadata/full_frame_detections.json")
-
-    frame_numbers = [f["frame_number"] for f in sidecar["frames"]]
-    assert frame_numbers == list(range(frames_written))  # 0..frame_count-1, contiguous
-    assert sidecar["video"]["width"] == _W and sidecar["video"]["height"] == _H
-    assert sidecar["video"]["frame_count"] == frames_written
-    # file_name = basename inside video/ (IMPORT_FORMAT_VIDEO.md §2/§5).
-    assert sidecar["video"]["file_name"] == f"{resolved}.mp4"
-
-    anns = _load(entry, "annotations/annotations.json")
-    assert anns["video"]["width"] == _W and anns["video"]["height"] == _H
-    assert anns["video"]["frame_count"] == frames_written
-    assert anns["video"]["file_name"] == f"{resolved}.mp4"
-    for im in anns["images"]:
-        assert im["width"] == _W and im["height"] == _H
-    # coords in original pixel space: every sidecar bbox fits inside the frame.
-    for f in sidecar["frames"]:
-        for d in f["detections"]:
-            x, y, w, h = d["bbox"]
-            assert 0 <= x <= _W and 0 <= y <= _H and w <= _W and h <= _H
-
-
-# --- AC4: keyframe annotation == image-mode structure + video-mode fields ---
-
-
-def test_ac4_keyframe_annotation_structure(tmp_path):
-    res = _run_recording(tmp_path, "take4", n_keyframes=2)
+def test_ac5_keyframe_annotation_structure(tmp_path):
+    res = _run_recording(tmp_path, "take5", n_keyframes=2)
     entry = res["entry_dir"]
     anns = _load(entry, "annotations/annotations.json")
 
@@ -538,69 +355,9 @@ def test_ac4_keyframe_annotation_structure(tmp_path):
         assert image_keys <= set(a.keys())  # image-mode structure preserved
         assert a["video_id"] == 1
         assert "track_id" in a
-        # the annotation's image carries the frame_number (video-mode field)
         img = next(im for im in anns["images"] if im["id"] == a["image_id"])
         assert "frame_number" in img
     assert anns["categories"] == coco.CATEGORIES
-
-
-# --- AC5: kill mid-run -> valid partial; retry completes; byte-identical -----
-
-
-def test_ac5_kill_partial_then_retry_is_identical(tmp_path):
-    # First post-pass explodes after 3 decoded frames; retry (2nd factory call)
-    # replays cleanly. write_selected_frames runs before the loop, so the killed
-    # entry is a valid partial (selected_frames.json, no annotations.json).
-    def job_hook(call_index, written):
-        if call_index == 0:
-            return lambda p: _ExplodingReplayCap(written, explode_at=3)
-        return None  # retry: normal replay
-
-    res = _run_recording(tmp_path, "take5", n_keyframes=2, job_hook=job_hook)
-    entry = res["entry_dir"]
-    resolved = res["entry_name"]  # resolved <base>_NNN (U1) — names the mp4
-    client = res["client"]
-
-    # Killed: U2 halt-on-failure (§5) -- `state` stays "idle" (never
-    # "failed"); the failed job halts as drain.current with `error` set, and
-    # a valid partial project sits on disk (INV-5: nobody auto-deleted it).
-    assert res["final_status"]["state"] == "idle"
-    assert res["final_status"]["error"]
-    assert res["final_status"]["drain"]["current"]["entry_name"] == resolved
-    assert (entry / "annotations" / "metadata" / "selected_frames.json").is_file()
-    assert not (entry / "annotations" / "annotations.json").exists()
-    assert list((entry / "video").iterdir())  # video survived
-
-    # Retry (now scoped by entry_name, §5) completes.
-    client.post("/record/retry", json={"entry_name": resolved}).raise_for_status()
-    assert _wait_for_drain_settled(client, timeout=15.0)
-    assert client.get("/record/status").json()["error"] is None
-    assert (entry / "annotations" / "annotations.json").is_file()
-
-    # Byte-identical to an uninterrupted run: rebuild a reference straight from
-    # the same recorded frames + keyframes + frame_count (VideoEntryWriter is
-    # deterministic — fixed timestamps, running ids), then diff the JSONs.
-    ref_dir = tmp_path / "reference"
-    (ref_dir / "video").mkdir(parents=True)
-    (ref_dir / "video" / f"{resolved}.mp4").write_bytes(b"\x00")
-    written = res["written"]
-    ref_job = PostPassJob(
-        ref_dir, resolved, _OneBoxDetector(),
-        keyframes=sorted(fn for fn, _ in res["keyframes"]),
-        frame_count=res["frames_written"],
-        mining_threshold=0.25,
-        operator_threshold=0.5,
-        model_version="rfdetr-e2e",
-        cap_factory=lambda p: _ReplayCap(written),
-        probe_fn=lambda p: VideoProbe(fps=30.0, frame_count=len(written), width=_W, height=_H),
-    )
-    ref_job.run()
-    assert ref_job.status.state == "done"
-
-    for rel in ("annotations/annotations.json",
-                "annotations/metadata/full_frame_detections.json",
-                "annotations/metadata/selected_frames.json"):
-        assert (entry / rel).read_bytes() == (ref_dir / rel).read_bytes(), f"{rel} differs from clean run"
 
 
 # --- AC6: import validator runs advisory-clean on the finished entry --------
@@ -613,190 +370,3 @@ def test_ac6_validator_advisory_clean(tmp_path):
 
     errors, warnings = validate(entry)
     assert errors == [], f"validator reported errors: {errors}"
-
-
-# --- U2 AC2: real FIFO drain of two queued entries, one at a time -----------
-
-
-def test_u2_ac2_fifo_drains_two_queued_entries_in_order(tmp_path):
-    """U2 AC2, over the REAL stack: record two takes back-to-back (the
-    second started WHILE the first's post-pass is still draining, per AC1) --
-    the single background worker drains them strictly one at a time, in
-    enqueue order (INV-6), and BOTH end up fully completed video projects
-    (``annotations.json`` present)."""
-    frames = make_numbered_frames(400, _W, _H)
-    detector = _OneBoxDetector()
-    capture = _start_capture(frames, detector)
-    holder: dict = {}
-    app = _build_app(capture, detector, tmp_path, holder)
-    client = TestClient(app)
-    try:
-        assert _wait_for(lambda: capture.snapshot() is not None)
-
-        # --- take 1 ---
-        start1 = client.post("/record/start", json={"entry_base": "fifo1"})
-        start1.raise_for_status()
-        entry1 = start1.json()["entry_name"]
-        assert _wait_for(
-            lambda: capture.snapshot() is not None
-            and capture.snapshot().frame_number is not None
-        )
-        _mark_keyframe(client, capture)
-        stop1 = client.post("/record/stop")
-        stop1.raise_for_status()
-
-        # --- take 2, started immediately -- take1's post-pass is still
-        # enqueued/draining (AC1 accepts this; it pauses take1's job rather
-        # than racing it) ---
-        start2 = client.post("/record/start", json={"entry_base": "fifo2"})
-        assert start2.status_code == 200
-        entry2 = start2.json()["entry_name"]
-        assert _wait_for(
-            lambda: capture.snapshot() is not None
-            and capture.snapshot().frame_number is not None
-        )
-        _mark_keyframe(client, capture)
-        stop2 = client.post("/record/stop")
-        stop2.raise_for_status()
-
-        def _status():
-            return client.get("/record/status").json()
-
-        # Both eventually drain, FIFO, one at a time (INV-6) -- and cleanly:
-        # no failure surfaced along the way.
-        assert _wait_for(
-            lambda: _status()["drain"]["current"] is None
-            and _status()["drain"]["queued"] == []
-            and _status()["error"] is None,
-            timeout=20.0,
-        )
-
-        entry1_dir = tmp_path / "videos" / entry1
-        entry2_dir = tmp_path / "videos" / entry2
-        assert (entry1_dir / "annotations" / "annotations.json").is_file()
-        assert (entry2_dir / "annotations" / "annotations.json").is_file()
-    finally:
-        capture.stop()
-
-
-# --- U2 AC3 (crux) + AC6/INV-3: pause reclaims the shared detector, no ------
-# --- concurrent predict, resumes the SAME job from its parked index --------
-
-
-def test_u2_ac3_ac6_pause_mid_drain_reclaims_detector_with_no_concurrent_predict(tmp_path):
-    """U2 AC3 (crux) + AC6/INV-3, over the REAL stack: pause a mid-drain
-    post-pass by starting a new recording, prove the ONE shared detector
-    never sees a concurrent ``.predict`` call across the live overlay and the
-    drain worker, then prove the SAME job resumes from its parked frame index
-    and finishes byte-identical to an uninterrupted run (INV-4)."""
-    frames = make_numbered_frames(400, _W, _H)
-    guard = _ConcurrencyGuardDetector(_OneBoxDetector())
-    capture = _start_capture(frames, guard)
-    holder: dict = {}
-
-    # job1 (take1's post-pass) reads paced slowly enough that /record/start
-    # reliably lands mid-drain; job2 (take2's own post-pass) replays at full
-    # speed -- only the interrupted job needs to be slow.
-    def job_hook(call_index, written):
-        if call_index == 0:
-            return lambda p: _PacedReplayCap(written, delay=0.03)
-        return None
-
-    app = _build_app(capture, guard, tmp_path, holder, job_hook=job_hook)
-    client = TestClient(app)
-
-    def _status():
-        return client.get("/record/status").json()
-
-    try:
-        assert _wait_for(lambda: capture.snapshot() is not None)
-
-        start1 = client.post("/record/start", json={"entry_base": "pause1"})
-        start1.raise_for_status()
-        entry1 = start1.json()["entry_name"]
-        assert _wait_for(
-            lambda: capture.snapshot() is not None
-            and capture.snapshot().frame_number is not None
-        )
-        kf1_fn, _disp1, _n1 = _mark_keyframe(client, capture)
-        # Give job1 enough frames that pacing it out is meaningful.
-        assert _wait_for(lambda: capture.frames_written >= 8, timeout=3.0)
-
-        stop1 = client.post("/record/stop")
-        stop1.raise_for_status()
-        frames_written1 = stop1.json()["frames_written"]
-        written1 = list(holder["enc"].written)  # snapshot before take2 replaces holder["enc"]
-
-        # Let job1 make genuine progress before interrupting it.
-        assert _wait_for(
-            lambda: (_status()["drain"]["current"] or {}).get("done", 0) >= 2,
-            timeout=5.0,
-        )
-
-        start2 = client.post("/record/start", json={"entry_base": "pause2"})
-        assert start2.status_code == 200
-        entry2 = start2.json()["entry_name"]
-
-        # job1 paused: done stops advancing across a bounded re-check window.
-        done_at_pause = _status()["drain"]["current"]["done"]
-        assert (
-            _wait_for(
-                lambda: (_status()["drain"]["current"] or {}).get("done") != done_at_pause,
-                timeout=0.5,
-            )
-            is False
-        )
-        assert _status()["drain"]["current"]["entry_name"] == entry1
-
-        # Record take2 for real, using the SAME shared (guarded) detector.
-        assert _wait_for(
-            lambda: capture.snapshot() is not None
-            and capture.snapshot().frame_number is not None
-        )
-        _mark_keyframe(client, capture)
-        stop2 = client.post("/record/stop")
-        stop2.raise_for_status()
-
-        # Both drain to completion; job1 resumed (not restarted) from its
-        # parked index, and not a single concurrent predict happened anywhere
-        # across the whole interleaving (INV-3, the decisive proof).
-        assert _wait_for(
-            lambda: _status()["drain"]["current"] is None
-            and _status()["drain"]["queued"] == []
-            and _status()["error"] is None,
-            timeout=20.0,
-        )
-        assert guard.violations == 0, f"detector saw {guard.violations} concurrent predict call(s)"
-
-        entry1_dir = tmp_path / "videos" / entry1
-        entry2_dir = tmp_path / "videos" / entry2
-        assert (entry1_dir / "annotations" / "annotations.json").is_file()
-        assert (entry2_dir / "annotations" / "annotations.json").is_file()
-
-        # Byte-identical to an uninterrupted run over the SAME recorded
-        # frames (INV-4's decisive proof: resuming from the parked index, not
-        # 0, produced the exact artifacts a clean run would have).
-        ref_dir = tmp_path / "reference"
-        (ref_dir / "video").mkdir(parents=True)
-        (ref_dir / "video" / f"{entry1}.mp4").write_bytes(b"\x00")
-        ref_job = PostPassJob(
-            ref_dir, entry1, _OneBoxDetector(),
-            keyframes=[kf1_fn],
-            frame_count=frames_written1,
-            mining_threshold=0.25,
-            operator_threshold=0.5,
-            model_version="rfdetr-e2e",
-            cap_factory=lambda p: _ReplayCap(written1),
-            probe_fn=lambda p: VideoProbe(fps=30.0, frame_count=len(written1), width=_W, height=_H),
-        )
-        ref_job.run()
-        assert ref_job.status.state == "done"
-
-        for rel in ("annotations/annotations.json",
-                    "annotations/metadata/full_frame_detections.json",
-                    "annotations/metadata/selected_frames.json"):
-            assert (entry1_dir / rel).read_bytes() == (ref_dir / rel).read_bytes(), (
-                f"{rel} differs from an uninterrupted run"
-            )
-    finally:
-        capture.stop()

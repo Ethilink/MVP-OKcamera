@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 from backend.app import create_app
 from tests.fakes import FakeDetector, make_fake_frame
 from tests.test_api import StubCapture, _snap_latest, _writer_factory
-from tests.test_recording_api import RecordingStubCapture, _build_app, _drain, _wait_for
+from tests.test_recording_api import RecordingStubCapture, _build_app
 
 
 # ---------------------------------------------------------------------------
@@ -60,34 +60,24 @@ def test_ac1_settings_nests_dataset_under_images(tmp_path):
 
 def test_ac2_record_start_mints_videos_counter_and_returns_resolved_name(tmp_path):
     capture = RecordingStubCapture(frame=make_fake_frame(64, 48))
-    app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
+    app, *_ = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
-    try:
-        resp = client.post("/record/start", json={"entry_base": "X"})
-        assert resp.status_code == 200
-        assert resp.json()["entry_name"] == "X_001"
-        assert (tmp_path / "videos" / "X_001").is_dir()
 
-        # Finalize the first take (stop -> enqueue -> drain) WITHOUT discarding,
-        # so videos/X_001/ persists on disk and the counter must step past it.
-        # (A discard would delete the folder, and the disk-scan counter would
-        # then correctly reuse X_001 — so discarding here would falsely reject a
-        # spec-correct implementation.) U2: `state` goes "idle" the instant
-        # /record/stop returns (AC1) — that alone no longer means the post-pass
-        # finished, so wait for drain.current to clear instead before minting
-        # the second entry.
-        client.post("/record/stop").raise_for_status()
-        assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
-        jobs[0].release.set()
-        assert _wait_for(lambda: _drain(client)["current"] is None)
+    resp = client.post("/record/start", json={"entry_base": "X"})
+    assert resp.status_code == 200
+    assert resp.json()["entry_name"] == "X_001"
+    assert (tmp_path / "videos" / "X_001").is_dir()
 
-        resp2 = client.post("/record/start", json={"entry_base": "X"})
-        assert resp2.status_code == 200
-        assert resp2.json()["entry_name"] == "X_002"
-        assert (tmp_path / "videos" / "X_002").is_dir()
-    finally:
-        for job in jobs:
-            job.release.set()
+    # Finalize the first take WITHOUT discarding, so videos/X_001/ persists on
+    # disk and the counter must step past it. /record/stop now writes the video
+    # project synchronously and returns to idle (ADR-0002) — the entry is fully
+    # on disk the instant it returns, so no drain to wait for.
+    client.post("/record/stop").raise_for_status()
+
+    resp2 = client.post("/record/start", json={"entry_base": "X"})
+    assert resp2.status_code == 200
+    assert resp2.json()["entry_name"] == "X_002"
+    assert (tmp_path / "videos" / "X_002").is_dir()
 
 
 # ---------------------------------------------------------------------------

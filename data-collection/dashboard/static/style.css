@@ -101,44 +101,6 @@ html, body {
 .chip.dataset.active { color: var(--text); border-color: var(--line-2); }
 .chip.dataset.active::before { background: var(--accent); }
 
-/* Post-pass drain queue chip (AC6) — top-bar, replaces the old veil. Shows
-   `done/total · N queued · ~ETA`; turns red with a Retry button on a failed
-   head; Discard always drops the current/head job. */
-.chip.queue { gap: 0.5rem; color: var(--text); border-color: var(--line-2); }
-.chip.queue[hidden] { display: none; }
-.chip.queue #queue-chip-text { font-variant-numeric: tabular-nums; }
-.chip.queue.error {
-  color: #ffd2d3;
-  border-color: rgba(255, 90, 95, 0.5);
-  background: rgba(255, 90, 95, 0.14);
-}
-.queue-spinner {
-  width: 0.6rem; height: 0.6rem; border-radius: 50%;
-  border: 2px solid var(--faint);
-  border-top-color: var(--accent);
-  animation: queue-spin 0.8s linear infinite;
-  flex: none;
-}
-.chip.queue.error .queue-spinner {
-  border-color: rgba(255, 90, 95, 0.45);
-  border-top-color: var(--bad);
-  animation: none;
-}
-@keyframes queue-spin { to { transform: rotate(360deg); } }
-.queue-btn {
-  cursor: pointer;
-  padding: 0.15rem 0.55rem;
-  border-radius: 999px;
-  font-size: 0.72rem; font-weight: 700;
-  color: var(--text);
-  background: var(--panel-3);
-  border: 1px solid var(--line-2);
-}
-.queue-btn[hidden] { display: none; }
-.queue-btn:hover { border-color: #444448; background: var(--panel-2); }
-#queue-retry:hover { border-color: var(--warn); color: var(--warn); }
-#queue-discard:hover { border-color: var(--bad); color: #ffd9da; background: rgba(255, 90, 95, 0.12); }
-
 /* Health indicator: dot + label, colour-coded, so a frozen stream is obvious. */
 .health { transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease; }
 .health .dot {
@@ -347,9 +309,6 @@ main {
   0% { opacity: 0.85; }
   100% { opacity: 0; }
 }
-
-/* The post-pass no longer veils the stage — it drains in the background and
-   reports via the top-bar #queue-chip (see ".chip.queue" below). */
 
 /* Stage controls row — FLAG (still-capture/keyframe) + Record/Stop + Discard */
 .stage-controls {

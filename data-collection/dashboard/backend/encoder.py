@@ -4,8 +4,9 @@
 hardware H.264 on macOS) first, falling back to piping raw BGR frames to an
 `ffmpeg -c:v h264_videotoolbox` subprocess when `avc1` is unavailable in the
 installed OpenCV build. `probe_video` reads back a finished file's real
-`(fps, frame_count, width, height)` — the post-pass must not trust these
-blindly (see RECORDING.md §Post-pass specifics).
+`(fps, frame_count, width, height)` — `/record/stop` uses these for the
+video-project `video` block, but prefers the recording's own frame counter for
+`frame_count` (re-encoded MP4s can misreport it; see RECORDING.md §Stop).
 """
 
 from __future__ import annotations
@@ -129,9 +130,10 @@ def open_encoder(
 
 def probe_video(path, *, cap_factory=cv2.VideoCapture) -> VideoProbe:
     """Open the finished file and read CAP_PROP_FPS / FRAME_COUNT / FRAME_WIDTH /
-    FRAME_HEIGHT. Do NOT trust these blindly downstream (import doc §7): TR4
-    asserts frame_count ≈ its own recording counter and prefers the counter on a
-    re-encode-style mismatch. RuntimeError if the file will not open."""
+    FRAME_HEIGHT. Do NOT trust these blindly downstream (import doc §7):
+    `/record/stop` prefers its own recording frame counter over the probed
+    frame_count on a re-encode-style mismatch. RuntimeError if the file will not
+    open."""
     cap = cap_factory(str(path))
     if not cap.isOpened():
         raise RuntimeError(f"could not open video for probing: {path}")

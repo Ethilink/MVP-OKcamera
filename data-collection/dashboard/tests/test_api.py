@@ -14,7 +14,6 @@ import json
 import threading
 import time
 
-import pytest
 from fastapi.testclient import TestClient
 
 from backend.app import create_app, mjpeg_stream
@@ -412,6 +411,34 @@ def test_ac9_flag_records_snapshot_threshold(tmp_path):
         # The frozen snapshot value survives — not the live 0.8 slider.
         assert ann["confidence_threshold"] == 0.3
         assert ann["model_version"] == "rfdetr-test"
+
+
+# --- /flag saves the frozen frame's live detections verbatim ----------------
+
+
+def _empty_snap(threshold=0.3):
+    return _latest(
+        frame=make_fake_frame(1920, 1080),
+        dets=make_fake_dets([], size=(1920, 1080)),
+        threshold=threshold,
+    )
+
+
+def test_flag_saves_snapshot_dets_verbatim(tmp_path):
+    """The capture loop is the sole predictor now (ADR-0002): /flag uses the
+    frozen snapshot's dets as-is — a frame the operator saw as boxless is saved
+    boxless (hard-negative mining), at the snapshot's own threshold."""
+    stub = StubCapture(latest=_empty_snap(threshold=0.3))
+    app = create_app(FakeDetector(), _writer_factory("rfdetr-test"), stub)
+    client = TestClient(app)
+    client.post(
+        "/settings", json={"output_path": str(tmp_path), "dataset_name": "ds"}
+    ).raise_for_status()
+
+    resp = client.post("/flag")
+    resp.raise_for_status()
+
+    assert resp.json()["n_annotations"] == 0
 
 
 # --- /frame: client-driven display carries the frame generation -------------

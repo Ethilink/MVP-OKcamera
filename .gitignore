@@ -144,3 +144,6 @@ tmp/
 temp/
 *.pid
 *.seed
+
+# Runtime capture output (datasets/video entries written by the dashboard)
+data-collection/dashboard/captures/

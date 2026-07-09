@@ -212,7 +212,7 @@ def _public_state_snapshot(loop) -> dict:
     the loop's whole public surface before/after the failure to detect
     ANY new or changed observable state generically.
     """
-    known = {"is_recording", "frames_written", "inference_paused", "camera_index", "generation", "health"}
+    known = {"is_recording", "frames_written", "camera_index", "generation", "health"}
     snap = {}
     for name in dir(loop):
         if name.startswith("_") or name in known:
@@ -481,47 +481,6 @@ def test_ac06_stop_recording_while_not_recording_raises(FakeDetector, FakeCaptur
 
         with pytest.raises(RuntimeError):
             loop.stop_recording()
-
-
-# ---------------------------------------------------------------------------
-# AC7 — pause_inference() stops detector.predict calls while the reader
-# stays alive and health stays "ok"; resume_inference() restores predict
-# calls. Works in idle mode.
-# ---------------------------------------------------------------------------
-
-
-def test_ac07_pause_inference_stops_predict_calls_in_idle_mode(fake_frame, FakeDetector, FakeCapture):
-    frame = fake_frame(64, 48)
-    cap = FakeCapture(frames=[frame])
-    detector = FakeDetector()
-
-    with running_loop(
-        detector, camera_index=0, render_fn=_identity_render, cap_factory=lambda idx: cap
-    ) as loop:
-        _wait_until(lambda: len(detector.seen_frames) > 0)
-
-        loop.pause_inference()
-        assert loop.inference_paused is True
-
-        seen_before = len(detector.seen_frames)
-        reads_before = cap.read_count
-
-        # Proving an ABSENCE of predict() calls needs a bounded observation
-        # window (there is no "it happened" event to poll for) — mirrors
-        # T03's AC7 tight-spin-bound check, which uses the same pattern for
-        # the same reason.
-        time.sleep(0.2)
-
-        # The reader keeps reading from the camera (alive, not wedged)...
-        assert cap.read_count > reads_before
-        # ...but the detector was never called again while paused.
-        assert len(detector.seen_frames) == seen_before
-        assert loop.health == "ok"
-
-        loop.resume_inference()
-        assert loop.inference_paused is False
-
-        _wait_until(lambda: len(detector.seen_frames) > seen_before)
 
 
 # ---------------------------------------------------------------------------

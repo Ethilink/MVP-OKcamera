@@ -169,22 +169,15 @@ never per stream frame.
   `latest` (generation counter + short async sleep, or a Condition) — a naive
   `while True: yield jpeg` busy-spins the event loop and floods the socket with
   duplicate frames.
-- **Shared detector with the video post-pass queue (new, 2026-07-09).** The
-  `detector.predict()` call in the capture-infer loop above and the video
-  post-pass drain worker are the **same single detector instance** — never
-  two (see
-  [`adr/0001-idle-draining-postpass-queue.md`](adr/0001-idle-draining-postpass-queue.md)).
-  Whenever the tool is **idle** — regardless of which mode is selected on the
-  toggle — *and* a video Entry is draining in the background queue, the
-  drain worker temporarily owns the detector between frames; this loop's
-  `predict()` is skipped and `latest` publishes the **raw** frame (no
-  boxes/masks) for that stretch (`RECORDING.md` §Queue model). A SPACE press
-  during that window still flags successfully, just with an empty detection
-  list — a "the detector didn't run on this one" gap, not a genuine
-  empty-frame result. **Flagged for the post-U2/U3 e2e/hardware pass:** the
-  exact UI treatment of this window (e.g. a badge on the Image-mode stream
-  while the queue chip is active) is a U3 frontend detail not settled by this
-  doc — verify against the built UI.
+- **Single detector, single caller (2026-07-09, ADR-0002).** The capture-infer
+  loop is the **only** thing that ever calls `detector.predict()`. The video
+  side no longer runs an offline all-frames post-pass, so there is no second
+  consumer to share the detector with — the drain queue, the detector-lock /
+  `pause_inference` / `predict_now` machinery, and the "flag pauses the drain"
+  rule are all gone (see
+  [`adr/0002-keyframe-only-synchronous-stop.md`](adr/0002-keyframe-only-synchronous-stop.md)).
+  A SPACE press in image mode always flags the live detection on the frozen
+  frame; the overlay is never boxless waiting on a background job.
 
 ## `sv.Detections → COCO-VID` mapping (the crux — our side, not the model's)
 
@@ -353,3 +346,68 @@ output_path/
   empty frames. Detection quality on actual surgical instruments (T07 AC8) needs
   Bram to point Camo at instruments in decent light — a "aim the camera" step,
   not a code gap.
+- **U4 hardware pass — backend mechanics verified live (2026-07-09).** Ran
+  `backend.main` on the built-in 1080p webcam (index 0; Camo was not attached —
+  index 3 was gone, only 0/1/2 enumerated) with the real RF-DETR ONNX weights on
+  the CoreML EP, and drove a mixed one-base session (`u4base`) via the HTTP API:
+  4 image-mode stills → `images/u4base/…` (JPEGs + `annotations.json`), and 4
+  video-mode clips → `videos/u4base_00N/…`, each a valid project (H.264/`avc1`
+  MP4 + COCO-VID `annotations.json` + `selected_frames.json` +
+  `full_frame_detections.json`). Confirmed on real hardware: the queue **drains
+  only while idle** (`done` advances at idle, freezes the instant a new
+  `/record/start` lands — clip 2 held at `done=60/152` for the whole clip-3
+  recording, then resumed from 60, not 0), **FIFO** ordering (`queued=['u4base_003']`
+  behind the parked head), each post-pass completes to a valid project, and the
+  **flag-pauses-drain** path (this section, above) runs mid-drain without deadlock
+  or an INV-3 violation (live `count` frozen at 0 during the drain confirms the
+  detector was borrowed; a mid-drain `/flag` still wrote its still).
+- **U4 visual pass — browser layer verified live (2026-07-09, Chrome
+  extension, Camo index 3 on real instruments).** Drove a mixed `u4visual`
+  session entirely through the rendered UI (2 image stills →
+  `images/u4visual/`, 2 video clips → `videos/u4visual_00{1,2}/`). Confirmed
+  in the browser:
+  - **📷/🎬 mode toggle** switches the control set — the big button relabels
+    FLAG↔KEYFRAME, the Record toggle (`● Record`↔`■ Stop`) appears only in
+    Video, and the Settings name field relabels Dataset name↔Recording
+    session name. The toggle is **disabled while recording OR draining**.
+  - **Unified SPACE/FLAG** dispatches on mode: SPACE flags a still in Image
+    mode (`n_flagged` 0→2, brief freeze + "Saved" confirmation), marks a
+    keyframe while recording (counter 0→2), and shows a **"Press Record
+    first"** toast in Video-idle.
+  - **Top-bar queue chip** renders `done/total · N queued · ~ETA` with a
+    Discard control, advances `done` **only while idle**, and — starting a
+    2nd recording mid-drain — **froze the head at `done=206` for the whole
+    clip-2 take** (parked `u4visual_001`), then showed **`1 queued`**
+    (`u4visual_002` behind the resuming head) once back to idle. FIFO +
+    pause/resume/queue-depth all read correctly from the chip.
+  - **ETA over-estimate** renders as documented (chip showed ~120–190 min for
+    a 4477-frame backlog at `detect_fps=0.6` while CoreML actually drained
+    ~3 fps) — advisory, not flagged as a bug.
+  - GIF of the mixed session saved to `~/Downloads/u4-mixed-session.gif`.
+
+  **Discrepancy found (verify-against-pixels, U4 heads-up) — the
+  flag-during-drain window is NOT reachable in the built U3 UI.** While a job
+  drains: the mode toggle is disabled (both buttons), so you cannot switch to
+  Image mode; and Video-idle SPACE only surfaces the "Press Record first"
+  toast — so a still cannot be flagged from the browser mid-drain. And the
+  live stream **freezes** on the last overlay frame (`X-Frame-Generation`
+  pinned across seconds while `done` advances) rather than showing boxless
+  raw frames — it keeps a **stale** overlay, a stale `● LIVE` badge, and a
+  stale instrument count, with the top-bar chip the only drain indicator.
+  (This reconciles the earlier "count frozen at 0" note: the count doesn't
+  *drop* to 0, it **freezes at the last live value** — 0 on the earlier
+  blank-frame webcam run, 11 here with instruments in view.) The backend
+  `/flag` re-detect-the-frozen-frame mechanic exists and is API-verified
+  (above), but there is **no browser path to trigger it during a drain**.
+  Frontend follow-ups for the owner: (a) show a "paused/draining" state on
+  the stream instead of a stale `LIVE` badge, and (b) decide whether
+  Image-mode flagging should be reachable mid-drain — RECORDING.md §Queue
+  model's "flag pauses the drain" UX assumes it is.
+- **`eta_seconds` is a large over-estimate on the CoreML EP (2026-07-09).** The
+  ETA formula divides remaining frames by `detect_fps` (default **0.6**, the
+  ADR's *CPU* RF-DETR rate). On the CoreML/Neural-Engine EP the post-pass
+  measured ~**3–9 fps** (69 frames drained in ~8 s; a 124-frame clip in ~90 s),
+  so the chip's ETA reads roughly **5–10× too long**. Not a correctness bug (the
+  chip is advisory), but worth a follow-up: bump the `detect_fps` default to the
+  measured CoreML rate, or make it an adaptive running estimate, so the chip
+  stops scaring the operator with 2-minute ETAs for 15-second work.

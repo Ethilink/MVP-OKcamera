@@ -1,15 +1,13 @@
-"""U3 frontend — the unified capture UI, asserted against the SERVED markup/JS.
+"""Unified-capture frontend — asserted against the SERVED markup/JS.
 
-These are *structure* tests, not live-behavior tests: the backend that produces
-the new ``/record/status`` ``drain`` shape lands with U2 (concurrently). So we
-assert that the frozen DESIGN is present in what the app serves — the mode
-toggle, the single relabeling FLAG button, the top-bar queue chip, the removal
-of the old full-screen ``postpass-veil`` — and that ``app.js`` contains the
-SPACE-dispatch and chip-render logic keyed off the frozen ``drain`` shape
-(``{state, drain:{current,queued,eta_seconds}, error}``, U2 §2).
+These are *structure* tests, not live-behavior tests. They assert the settled
+DESIGN is present in what the app serves — the mode toggle, the single
+relabeling FLAG button, the Record toggle — and, post-ADR-0002, that the drain
+queue is GONE: no queue chip / retry / processing veil, and ``pollRecordStatus``
+reads only ``{state}``. ``/keyframe`` sends ``{generation}``.
 
-Owned by U3 (REDESIGN §"File-ownership constraints"). Renders "/" and reads the
-static assets through ``TestClient(create_app(...))`` with the existing fakes.
+Renders "/" and reads the static assets through ``TestClient(create_app(...))``
+with the existing fakes.
 """
 
 from __future__ import annotations
@@ -162,69 +160,38 @@ def test_ac4_name_field_relabels_and_sends_per_mode(index_html, app_js):
     assert "entry_base:" in app_js
 
 
-# --- AC5: mode toggle greyed while recording AND while draining ---------------
+# --- AC5: mode toggle greyed while recording ---------------------------------
 
 
-def test_ac5_toggle_greyed_while_recording_or_draining(app_js):
-    # lockMode = recording OR draining; both toggle buttons get disabled.
-    assert re.search(r'lockMode\s*=\s*recording\s*\|\|\s*isDraining\(\)', app_js)
+def test_ac5_toggle_greyed_while_recording(app_js):
+    # lockMode = recording; both toggle buttons get disabled. (ADR-0002 dropped
+    # the drain queue, so there is no "draining" lock condition anymore.)
+    assert re.search(r'lockMode\s*=\s*recording', app_js)
     assert "els.modeImage.disabled = lockMode" in app_js
     assert "els.modeVideo.disabled = lockMode" in app_js
-    # Draining is derived from the frozen drain.current field.
-    assert "function isDraining" in app_js
-    assert "drain.current != null" in app_js
 
 
-# --- AC6: status chip in the top bar; veil removed ---------------------------
+# --- AC6: no processing veil, no drain-queue chip (ADR-0002) ------------------
 
 
-def test_ac6_queue_chip_in_topbar(index_html):
-    assert 'id="queue-chip"' in index_html
-    assert 'id="queue-chip-text"' in index_html
-    assert 'id="queue-retry"' in index_html
-    assert 'id="queue-discard"' in index_html
-
-
-def test_ac6_postpass_veil_removed(index_html, app_js, style_css):
-    # The old full-screen veil is gone from markup, JS, and CSS.
+def test_ac6_no_queue_chip_or_veil(index_html, app_js, style_css):
+    # The drain-queue chip and the old full-screen veil are both gone from the
+    # served markup / JS — /record/stop writes synchronously, nothing to report.
+    assert 'id="queue-chip"' not in index_html
+    assert 'id="queue-retry"' not in index_html
     assert "postpass-veil" not in index_html
-    assert 'id="postpass-veil"' not in index_html
     assert "postpassVeil" not in app_js
+    assert "renderQueueChip" not in app_js
     assert ".postpass-veil" not in style_css
 
 
-def test_ac6_chip_render_keyed_off_frozen_drain_shape(app_js):
-    assert "function renderQueueChip" in app_js
-    # Reads the frozen U2 §2 fields off `drain`.
-    assert "drain.current" in app_js
-    assert "drain.queued" in app_js
-    assert "drain.eta_seconds" in app_js
-    # `done/total · N queued · ~ETA` composition.
-    assert re.search(r'cur\.done.*cur\.total', app_js)
-    assert "queued" in app_js
-    assert "function formatEta" in app_js
-
-
-def test_ac6_retry_on_error_targets_entry_name(app_js):
-    # Retry surfaces only on a failed head (drainError) and targets it by name.
-    assert "drainError" in app_js
-    assert "els.queueRetry.hidden = !failed" in app_js
-    assert "entry_name:" in app_js
-    assert "drain.current.entry_name" in app_js
-    # Retry hits /record/retry.
-    assert "/record/retry" in app_js
-
-
-def test_ac6_status_parsed_from_frozen_shape(app_js):
-    # pollRecordStatus reads {state, drain:{current,queued,eta_seconds}, error}.
+def test_ac6_record_status_parsed_as_state_only(app_js):
+    # pollRecordStatus now reads just {state: "idle" | "recording"}.
     assert "/record/status" in app_js
-    assert "s.drain.current" in app_js
-    assert "s.drain.queued" in app_js
-    assert "s.drain.eta_seconds" in app_js
-    assert "s.error" in app_js
-    # The superseded pre-U2 top-level fields are no longer read.
-    assert "s.postpass" not in app_js
-    assert "s.n_keyframes" not in app_js
+    assert "s.state" in app_js
+    # The superseded drain block + retry endpoint are gone.
+    assert "s.drain" not in app_js
+    assert "/record/retry" not in app_js
 
 
 # --- AC7: toggling modes when idle does NOT re-fire /settings ----------------
