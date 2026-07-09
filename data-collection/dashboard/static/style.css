@@ -101,6 +101,44 @@ html, body {
 .chip.dataset.active { color: var(--text); border-color: var(--line-2); }
 .chip.dataset.active::before { background: var(--accent); }
 
+/* Post-pass drain queue chip (AC6) — top-bar, replaces the old veil. Shows
+   `done/total · N queued · ~ETA`; turns red with a Retry button on a failed
+   head; Discard always drops the current/head job. */
+.chip.queue { gap: 0.5rem; color: var(--text); border-color: var(--line-2); }
+.chip.queue[hidden] { display: none; }
+.chip.queue #queue-chip-text { font-variant-numeric: tabular-nums; }
+.chip.queue.error {
+  color: #ffd2d3;
+  border-color: rgba(255, 90, 95, 0.5);
+  background: rgba(255, 90, 95, 0.14);
+}
+.queue-spinner {
+  width: 0.6rem; height: 0.6rem; border-radius: 50%;
+  border: 2px solid var(--faint);
+  border-top-color: var(--accent);
+  animation: queue-spin 0.8s linear infinite;
+  flex: none;
+}
+.chip.queue.error .queue-spinner {
+  border-color: rgba(255, 90, 95, 0.45);
+  border-top-color: var(--bad);
+  animation: none;
+}
+@keyframes queue-spin { to { transform: rotate(360deg); } }
+.queue-btn {
+  cursor: pointer;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem; font-weight: 700;
+  color: var(--text);
+  background: var(--panel-3);
+  border: 1px solid var(--line-2);
+}
+.queue-btn[hidden] { display: none; }
+.queue-btn:hover { border-color: #444448; background: var(--panel-2); }
+#queue-retry:hover { border-color: var(--warn); color: var(--warn); }
+#queue-discard:hover { border-color: var(--bad); color: #ffd9da; background: rgba(255, 90, 95, 0.12); }
+
 /* Health indicator: dot + label, colour-coded, so a frozen stream is obvious. */
 .health { transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease; }
 .health .dot {
@@ -137,6 +175,36 @@ main {
 /* ---- Stage (live video) ---------------------------------------------------- */
 
 .stage { display: flex; flex-direction: column; gap: 0.9rem; }
+
+/* Mode toggle (AC1) — segmented Image / Video control at the top of the stage. */
+.mode-toggle {
+  display: inline-flex;
+  align-self: center;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.mode-btn {
+  padding: 0.4rem 1.1rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.mode-btn:hover:not(:disabled):not(.active) { color: var(--text); background: var(--panel-3); }
+.mode-btn.active {
+  color: var(--text);
+  background: var(--panel-3);
+  border-color: var(--line-2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.mode-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .stage-frame {
   position: relative;
@@ -280,47 +348,8 @@ main {
   100% { opacity: 0; }
 }
 
-/* Processing / failed veil — covers the stage so it can't be mistaken for a
-   live feed while the post-pass owns the detector. */
-.postpass-veil {
-  position: absolute; inset: 0; z-index: 7;
-  display: grid; place-items: center;
-  background: rgba(6, 9, 13, 0.86);
-  backdrop-filter: blur(3px);
-  text-align: center;
-  padding: 1rem;
-}
-.postpass-veil[hidden] { display: none; }
-.postpass-box { width: min(360px, 90%); }
-.postpass-title { margin: 0 0 0.8rem; font-size: 1.05rem; font-weight: 700; }
-.postpass-veil[data-state="failed"] .postpass-title { color: var(--bad); }
-.progress-track {
-  width: 100%; height: 10px; border-radius: 999px;
-  background: var(--panel-3);
-  overflow: hidden;
-  border: 1px solid var(--line-2);
-}
-.progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--ok), #1eaf63);
-  transition: width 0.2s ease;
-}
-.postpass-veil[data-state="failed"] .progress-fill {
-  background: linear-gradient(90deg, var(--bad), #c23a3e);
-}
-.postpass-sub { margin: 0.6rem 0 0; font-size: 0.85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-.postpass-error {
-  margin: 0.8rem 0 0;
-  padding: 0.6rem 0.75rem;
-  border-radius: var(--radius-sm);
-  background: rgba(255, 90, 95, 0.14);
-  border: 1px solid rgba(255, 90, 95, 0.5);
-  color: #ffd2d3;
-  font-size: 0.85rem;
-}
-.postpass-error[hidden] { display: none; }
-.postpass-actions { display: flex; gap: 0.6rem; justify-content: center; margin-top: 1rem; }
-.postpass-actions button[hidden] { display: none; }
+/* The post-pass no longer veils the stage — it drains in the background and
+   reports via the top-bar #queue-chip (see ".chip.queue" below). */
 
 /* Stage controls row — FLAG (still-capture/keyframe) + Record/Stop + Discard */
 .stage-controls {
@@ -331,6 +360,9 @@ main {
   flex-wrap: wrap;
 }
 .record-controls { display: flex; align-items: center; gap: 0.6rem; }
+/* .record-controls sets display:flex, which beats the UA [hidden] rule on
+   specificity — without this it would show in image mode (AC3). */
+.record-controls[hidden] { display: none; }
 
 /* Record/Stop button */
 .record-btn {

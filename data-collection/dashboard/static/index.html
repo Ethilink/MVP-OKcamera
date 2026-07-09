@@ -29,6 +29,17 @@
         <span class="chip stat"><b id="count">–</b> instruments</span>
         <span class="chip stat"><b id="n-flagged">0</b> flagged</span>
         <span class="chip dataset" id="dataset-chip">no dataset</span>
+
+        <!-- Post-pass queue chip (AC6): appears whenever a drain job is current
+             or queued. Replaces the old full-screen stage veil. Shows
+             `done/total · N queued · ~ETA`; Retry surfaces on error, Discard
+             always drops the current/head drain job. -->
+        <span class="chip queue" id="queue-chip" role="status" aria-live="polite" hidden>
+          <span class="queue-spinner" aria-hidden="true"></span>
+          <span id="queue-chip-text">–</span>
+          <button type="button" class="queue-btn" id="queue-retry" hidden>Retry</button>
+          <button type="button" class="queue-btn" id="queue-discard">Discard</button>
+        </span>
       </div>
     </header>
 
@@ -38,6 +49,22 @@
 
     <main>
       <section class="stage">
+        <!-- Mode toggle (AC1): segmented Image / Video control at the top of the
+             stage. Switching flips the control set (FLAG vs Record) and the
+             SPACE behavior (flag a still vs mark a keyframe). Greyed while
+             recording or while the queue is draining (AC5). Toggling when idle
+             is purely client-side — it never re-fires /settings (AC7). -->
+        <div class="mode-toggle" id="mode-toggle" role="tablist" aria-label="Capture mode">
+          <button type="button" class="mode-btn active" id="mode-image" data-mode="image"
+                  role="tab" aria-selected="true">
+            <span aria-hidden="true">📷</span> Image
+          </button>
+          <button type="button" class="mode-btn" id="mode-video" data-mode="video"
+                  role="tab" aria-selected="false">
+            <span aria-hidden="true">🎬</span> Video
+          </button>
+        </div>
+
         <div class="stage-frame" id="stage-frame">
           <!-- Client-driven: app.js polls /frame and swaps this img's blob src,
                tracking each frame's generation so SPACE captures the EXACT frame
@@ -81,22 +108,9 @@
             <span class="saved-text" id="keyframe-chip-text">Keyframe marked</span>
           </div>
 
-          <!-- Processing / failed veil: covers the stage while the post-pass runs
-               or has failed, so the operator can't mistake it for a live feed. -->
-          <div class="postpass-veil" id="postpass-veil" hidden>
-            <div class="postpass-box">
-              <p class="postpass-title" id="postpass-title">Processing…</p>
-              <div class="progress-track">
-                <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
-              </div>
-              <p class="postpass-sub" id="postpass-sub">0 / 0 frames</p>
-              <p class="postpass-error" id="postpass-error" hidden></p>
-              <div class="postpass-actions">
-                <button type="button" class="secondary" id="postpass-retry" hidden>Retry</button>
-                <button type="button" class="secondary" id="postpass-discard" hidden>Discard</button>
-              </div>
-            </div>
-          </div>
+          <!-- The old full-screen processing veil is gone (AC6): the post-pass
+               now drains in the background and reports progress via the top-bar
+               queue chip (#queue-chip), never a blocking overlay. -->
 
           <div class="capture-flash" id="capture-flash" aria-hidden="true"></div>
         </div>
@@ -105,7 +119,7 @@
           <button id="flag" class="flag-btn" type="button">
             <span id="flag-label">FLAG</span> <kbd>space</kbd>
           </button>
-          <div class="record-controls">
+          <div class="record-controls" id="record-controls" hidden>
             <button id="record" class="record-btn" type="button">
               <span class="record-dot" aria-hidden="true"></span>
               <span id="record-label">Record</span>
@@ -148,7 +162,7 @@
           <label>Output path
             <input id="output_path" name="output_path" type="text" placeholder="./captures" />
           </label>
-          <label>Dataset name
+          <label><span id="name-field-label">Dataset name</span>
             <input id="dataset_name" name="dataset_name" type="text" placeholder="or-2026-07-07" />
           </label>
           <button type="submit" class="block">Apply settings</button>

@@ -35,32 +35,40 @@ const els = {
   flagLabel: $("flag-label"),
   record: $("record"),
   recordLabel: $("record-label"),
+  recordControls: $("record-controls"),
   recordDiscard: $("record-discard"),
   recBadge: $("rec-badge"),
   recBadgeText: $("rec-badge-text"),
   keyframePill: $("keyframe-pill"),
   nKeyframes: $("n-keyframes"),
   keyframeChip: $("keyframe-chip"),
-  postpassVeil: $("postpass-veil"),
-  postpassTitle: $("postpass-title"),
-  progressFill: $("progress-fill"),
-  postpassSub: $("postpass-sub"),
-  postpassError: $("postpass-error"),
-  postpassRetry: $("postpass-retry"),
-  postpassDiscard: $("postpass-discard"),
+  // Unified capture UI (U3): mode toggle + top-bar drain queue chip.
+  modeToggle: $("mode-toggle"),
+  modeImage: $("mode-image"),
+  modeVideo: $("mode-video"),
+  nameFieldLabel: $("name-field-label"),
+  datasetName: $("dataset_name"),
+  queueChip: $("queue-chip"),
+  queueChipText: $("queue-chip-text"),
+  queueRetry: $("queue-retry"),
+  queueDiscard: $("queue-discard"),
 };
 
 let currentHealth = "unknown";
 let toastTimer = null;
 
-// --- recording state (TR6) ---------------------------------------------------
-// idle | recording | processing | failed — mirrors the TR5 state machine.
-let recState = "idle";
+// --- capture mode + recording state (U3) -------------------------------------
+// Foreground state is now idle | recording ONLY (U2 collapsed processing/failed
+// into a background drain reported under `drain`). `mode` is a pure client-side
+// UI concern: image vs video. Toggling it never touches the backend (AC7).
+let mode = "image"; // "image" | "video"
+let recState = "idle"; // "idle" | "recording"
 let recordBusy = false; // guards the Record/Stop button while a request is in flight
 let nKeyframes = 0;
-let postpassDone = 0;
-let postpassTotal = 0;
-let postError = null;
+
+// The frozen /record/status `drain` block (U2 §2), mirrored for the queue chip.
+let drain = { current: null, queued: [], eta_seconds: 0 };
+let drainError = null; // top-level `error` — set iff the head drain job failed
 
 // --- live frame loop (client-driven display, AC-freeze) ---------------------
 // We poll /frame instead of using an <img src="/stream"> MJPEG feed, because the
@@ -282,15 +290,20 @@ async function markKeyframe() {
   }
 }
 
-// SPACE and the FLAG button branch on recording_state (TR6 UI contract):
-// idle -> still-capture flag (unchanged), recording -> keyframe mark.
-// processing/failed: no-op — there is no live frame to act on.
+// SPACE and the FLAG button dispatch on MODE now (AC2 — "SPACE marks, always"):
+//   image mode           -> flag a still
+//   video + recording    -> mark a keyframe
+//   video + idle         -> no-op with a hint ("Press Record first")
 function flagOrKeyframe() {
-  if (recState === "recording") {
-    markKeyframe();
-  } else if (recState === "idle") {
-    flag();
+  if (mode === "video") {
+    if (recState === "recording") {
+      markKeyframe();
+    } else {
+      showToast("Press Record first");
+    }
+    return;
   }
+  flag();
 }
 
 els.flag.addEventListener("click", flagOrKeyframe);
@@ -358,93 +371,140 @@ els.settings.addEventListener("submit", async (e) => {
   }
 });
 
-// --- recording mode (TR6): Record/Stop, progress, retry/discard -------------
+// --- capture mode + recording UI (U3) ---------------------------------------
 
-// FLAG disables when the stream is unhealthy (unchanged) OR while a post-pass
-// owns the detector (processing/failed — there is nothing live to act on).
+// True while the queue is draining — the head job is current (running, paused,
+// or a failed head). Mirrors `drain.current != null`.
+function isDraining() {
+  return drain.current != null;
+}
+
+// FLAG/KEYFRAME disables only when the live stream is unhealthy — there is no
+// live frame to act on. (Video+idle stays enabled so the button can surface the
+// "Press Record first" hint per AC2.)
 function updateFlagDisabled() {
   if (!els.flag) return;
-  els.flag.disabled =
-    currentHealth !== "ok" || recState === "processing" || recState === "failed";
+  els.flag.disabled = currentHealth !== "ok";
+}
+
+// Human ETA: seconds -> "15s" / "2m 5s" / "3m".
+function formatEta(seconds) {
+  const s = Math.max(0, Math.round(Number(seconds) || 0));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem ? `${m}m ${rem}s` : `${m}m`;
+}
+
+// Top-bar drain queue chip (AC6). Visible whenever a job is current or queued.
+// Shows `done/total · N queued · ~ETA`; on a failed head it turns red, surfaces
+// Retry, and carries the error string as a tooltip. Discard is always present.
+function renderQueueChip() {
+  if (!els.queueChip) return;
+  const cur = drain.current;
+  const queued = Array.isArray(drain.queued) ? drain.queued : [];
+  const active = cur != null || queued.length > 0;
+  els.queueChip.hidden = !active;
+  if (!active) {
+    els.queueChip.classList.remove("error");
+    return;
+  }
+
+  const failed = !!drainError;
+  const parts = [];
+  if (cur) parts.push(`${cur.done}/${cur.total}`);
+  parts.push(`${queued.length} queued`);
+  parts.push(`~${formatEta(drain.eta_seconds)}`);
+  if (els.queueChipText) els.queueChipText.textContent = parts.join(" · ");
+
+  els.queueChip.classList.toggle("error", failed);
+  els.queueChip.title = failed ? drainError : "";
+  if (els.queueRetry) els.queueRetry.hidden = !failed;
 }
 
 function renderRecordingUI() {
   const recording = recState === "recording";
-  const processing = recState === "processing";
-  const failed = recState === "failed";
+  const video = mode === "video";
+
+  // Mode toggle reflects the active mode and greys out while recording OR while
+  // the queue is draining (AC5) — you can't change modes mid-take/mid-drain.
+  const lockMode = recording || isDraining();
+  if (els.modeImage) {
+    els.modeImage.classList.toggle("active", !video);
+    els.modeImage.setAttribute("aria-selected", String(!video));
+    els.modeImage.disabled = lockMode;
+  }
+  if (els.modeVideo) {
+    els.modeVideo.classList.toggle("active", video);
+    els.modeVideo.setAttribute("aria-selected", String(video));
+    els.modeVideo.disabled = lockMode;
+  }
+  if (els.modeToggle) els.modeToggle.dataset.mode = mode;
+
+  // Settings name field relabels per mode (AC4).
+  if (els.nameFieldLabel) {
+    els.nameFieldLabel.textContent = video ? "Recording session name" : "Dataset name";
+  }
 
   if (els.stageFrame) els.stageFrame.dataset.recState = recState;
 
+  // REC badge — only while actually recording now (no processing/failed states).
   if (els.recBadge) {
-    els.recBadge.hidden = !(recording || processing || failed);
+    els.recBadge.hidden = !recording;
     els.recBadge.dataset.state = recState;
   }
-  if (els.recBadgeText) {
-    els.recBadgeText.textContent = recording
-      ? "REC"
-      : processing
-      ? "PROCESSING"
-      : failed
-      ? "FAILED"
-      : "";
-  }
+  if (els.recBadgeText) els.recBadgeText.textContent = recording ? "REC" : "";
 
-  // Keyframe counter — visible only while recording (spec: "Visible while recording").
+  // Keyframe counter — visible only while recording.
   if (els.keyframePill) els.keyframePill.hidden = !recording;
   if (els.nKeyframes) els.nKeyframes.textContent = nKeyframes;
 
-  // Record/Stop button.
+  // Record controls exist in VIDEO mode only (AC3).
+  if (els.recordControls) els.recordControls.hidden = !video;
+
+  // Record button toggles ● Record <-> ■ Stop (AC3).
   if (els.record) {
-    els.record.disabled = processing || failed || recordBusy;
+    els.record.disabled = recordBusy;
     els.record.dataset.state = recState;
   }
-  if (els.recordLabel) {
-    els.recordLabel.textContent = recording
-      ? "Stop"
-      : processing
-      ? "Processing…"
-      : failed
-      ? "Failed"
-      : "Record";
-  }
+  if (els.recordLabel) els.recordLabel.textContent = recording ? "Stop" : "Record";
 
-  // Discard while actively recording (abort) — lives next to Record/Stop.
+  // Discard appears while actively recording (abort the take) — the queued/head
+  // drain job's Discard lives on the queue chip instead.
   if (els.recordDiscard) els.recordDiscard.hidden = !recording || recordBusy;
 
-  // Processing/failed veil over the stage, with the progress bar + error/retry.
-  if (els.postpassVeil) {
-    els.postpassVeil.hidden = !(processing || failed);
-    els.postpassVeil.dataset.state = recState;
-  }
-  if (els.postpassTitle) {
-    els.postpassTitle.textContent = failed ? "Post-pass failed" : "Processing…";
-  }
-  const pct = postpassTotal > 0 ? Math.round((postpassDone / postpassTotal) * 100) : 0;
-  if (els.progressFill) els.progressFill.style.width = `${pct}%`;
-  if (els.postpassSub) {
-    els.postpassSub.textContent = `${postpassDone} / ${postpassTotal} frames`;
-  }
-  if (els.postpassError) {
-    els.postpassError.hidden = !failed;
-    els.postpassError.textContent = postError || "Unknown error";
-  }
-  if (els.postpassRetry) els.postpassRetry.hidden = !failed;
-  // Discard is available from recording/processing/failed (AC7); the veil-side
-  // control covers processing/failed, els.recordDiscard covers recording.
-  if (els.postpassDiscard) els.postpassDiscard.hidden = !(processing || failed);
+  // FLAG button relabels FLAG <-> KEYFRAME by mode, keeping its position (AC2).
+  if (els.flagLabel) els.flagLabel.textContent = video ? "KEYFRAME" : "FLAG";
 
-  if (els.flagLabel) els.flagLabel.textContent = recording ? "KEYFRAME" : "FLAG";
+  renderQueueChip();
   updateFlagDisabled();
 }
 
-// Record/Stop: idle -> prompt for entry_name -> /record/start; recording -> /record/stop.
+// Switch capture mode — purely client-side. Never re-fires /settings (AC7): the
+// image Dataset writer persists on the backend, so returning to image mode
+// resumes the same Dataset without a collision-reject.
+function setMode(next) {
+  if (next !== "image" && next !== "video") return;
+  if (next === mode) return;
+  if (recState === "recording" || isDraining()) return; // locked (AC5)
+  mode = next;
+  clearError();
+  renderRecordingUI();
+}
+if (els.modeImage) els.modeImage.addEventListener("click", () => setMode("image"));
+if (els.modeVideo) els.modeVideo.addEventListener("click", () => setMode("video"));
+
+// Record/Stop (video mode). idle -> /record/start with the Settings name field
+// as entry_base (AC4); recording -> /record/stop (enqueues, returns to idle
+// immediately per U2 AC1 — no blocking processing state).
 if (els.record) {
   els.record.addEventListener("click", async () => {
     if (recState === "idle") {
-      const name = window.prompt("Entry name:");
-      if (name === null) return; // cancelled
-      const entryName = name.trim();
-      if (!entryName) return;
+      const entryBase = els.datasetName ? els.datasetName.value.trim() : "";
+      if (!entryBase) {
+        showError("Record: enter a recording session name first");
+        return;
+      }
       recordBusy = true;
       renderRecordingUI();
       try {
@@ -452,14 +512,14 @@ if (els.record) {
           await fetch("/record/start", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ entry_name: entryName }),
+            body: JSON.stringify({ entry_base: entryBase }),
           })
         );
         recState = "recording";
         nKeyframes = 0;
         clearError();
       } catch (e) {
-        showError(`Record: ${e.message}`); // 409 collision/wrong-state, 422 bad name
+        showError(`Record: ${e.message}`); // 409 already recording, 422 bad base
       } finally {
         recordBusy = false;
         renderRecordingUI();
@@ -469,7 +529,7 @@ if (els.record) {
       renderRecordingUI();
       try {
         await readJson(await fetch("/record/stop", { method: "POST" }));
-        recState = "processing";
+        recState = "idle"; // enqueued; the chip now tracks the drain job
         clearError();
       } catch (e) {
         showError(`Record: ${e.message}`);
@@ -481,31 +541,42 @@ if (els.record) {
   });
 }
 
-async function discardRecording() {
+// Discard: aborts the live recording, or (from the chip) drops the current/head
+// drain job. The backend routes on state — same endpoint either way (U2 §2).
+async function discardRecording(label) {
   try {
     await readJson(await fetch("/record/discard", { method: "POST" }));
-    recState = "idle";
+    if (recState === "recording") recState = "idle";
     nKeyframes = 0;
-    postpassDone = 0;
-    postpassTotal = 0;
-    postError = null;
-    showToast("Recording discarded");
+    showToast(label || "Recording discarded");
     clearError();
   } catch (e) {
-    showError(`Discard recording: ${e.message}`);
+    showError(`Discard: ${e.message}`);
   } finally {
     renderRecordingUI();
   }
 }
-if (els.recordDiscard) els.recordDiscard.addEventListener("click", discardRecording);
-if (els.postpassDiscard) els.postpassDiscard.addEventListener("click", discardRecording);
+if (els.recordDiscard) {
+  els.recordDiscard.addEventListener("click", () => discardRecording("Recording discarded"));
+}
+if (els.queueDiscard) {
+  els.queueDiscard.addEventListener("click", () => discardRecording("Drain job discarded"));
+}
 
-if (els.postpassRetry) {
-  els.postpassRetry.addEventListener("click", async () => {
+// Retry a failed head drain job — targets it by entry_name (U2 §5).
+if (els.queueRetry) {
+  els.queueRetry.addEventListener("click", async () => {
+    const entryName = drain.current ? drain.current.entry_name : null;
+    if (!entryName) return;
     try {
-      await readJson(await fetch("/record/retry", { method: "POST" }));
-      recState = "processing";
-      postError = null;
+      await readJson(
+        await fetch("/record/retry", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ entry_name: entryName }),
+        })
+      );
+      drainError = null;
       clearError();
     } catch (e) {
       showError(`Retry: ${e.message}`);
@@ -515,21 +586,23 @@ if (els.postpassRetry) {
   });
 }
 
-// Polled alongside /status (same 1 s cadence, see poll() below). Silently
-// keeps the last known recording state on failure — this 404s until TR5's
-// backend ships, same as any other not-yet-implemented endpoint.
+// Polled alongside /status (same 1 s cadence). Parses the frozen U2 §2 shape:
+// {state, drain: {current, queued, eta_seconds}, error}. Keeps the last known
+// state on failure (the backend producing this shape lands with U2).
 async function pollRecordStatus() {
   try {
     const s = await readJson(await fetch("/record/status"));
     if (typeof s.state === "string") recState = s.state;
-    if (typeof s.n_keyframes === "number") nKeyframes = s.n_keyframes;
-    if (s.postpass) {
-      if (typeof s.postpass.done === "number") postpassDone = s.postpass.done;
-      if (typeof s.postpass.total === "number") postpassTotal = s.postpass.total;
+    if (s.drain && typeof s.drain === "object") {
+      drain = {
+        current: s.drain.current || null,
+        queued: Array.isArray(s.drain.queued) ? s.drain.queued : [],
+        eta_seconds: Number(s.drain.eta_seconds) || 0,
+      };
     }
-    postError = s.error || null;
+    drainError = s.error || null;
   } catch (_) {
-    /* TR5 backend not deployed yet, or transient — keep the last known state */
+    /* U2 backend not deployed yet, or transient — keep the last known state */
   } finally {
     renderRecordingUI();
   }
@@ -542,7 +615,7 @@ function applyHealth(health) {
   const healthy = health === "ok";
   els.health.dataset.health = health;
   els.healthText.textContent = healthy ? "live" : health; // "stale" / "dead"
-  updateFlagDisabled(); // FLAG disables while unhealthy or mid-postpass
+  updateFlagDisabled(); // FLAG/KEYFRAME disables while the stream is unhealthy
   if (els.liveBadge) els.liveBadge.dataset.health = health;
   // Veil the video with a "no signal" message the moment the feed freezes.
   if (els.noSignal) els.noSignal.hidden = healthy || health === "unknown";
