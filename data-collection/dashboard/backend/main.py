@@ -46,13 +46,33 @@ def main(argv: list[str] | None = None) -> None:
 
     # Heavy deps imported inside main so `from backend.main import create_app`
     # (what the tests use) stays light and camera/onnx-free.
+    import onnxruntime as ort
     import uvicorn
     from orc_model.components.detector import Detector
 
     from backend.capture import CaptureLoop
     from backend.render import render
 
-    detector = Detector(args.weights)
+    # CoreML execution provider (M3 Max GPU/Neural Engine) with a persistent
+    # on-disk compile cache next to the weights; fall back to plain CPU when the
+    # CoreML EP isn't available. Output parity with CPU is verified — see
+    # docs/tasks/REDESIGN.md §S1. MLProgram is mandatory here.
+    cache_dir = Path(args.weights).parent / ".coreml_cache"
+    if "CoreMLExecutionProvider" in ort.get_available_providers():
+        cache_dir.mkdir(exist_ok=True)
+        providers = ["CoreMLExecutionProvider", "CPUExecutionProvider"]
+        provider_options = [
+            {
+                "ModelFormat": "MLProgram",
+                "MLComputeUnits": "ALL",
+                "RequireStaticInputShapes": "1",
+                "ModelCacheDirectory": str(cache_dir),
+            },
+            {},
+        ]
+    else:
+        providers, provider_options = None, None
+    detector = Detector(args.weights, providers=providers, provider_options=provider_options)
 
     # T02's DatasetWriter bakes model_version in; T03's CaptureLoop owns the
     # camera and calls render() per tick. T05 assembles them here.

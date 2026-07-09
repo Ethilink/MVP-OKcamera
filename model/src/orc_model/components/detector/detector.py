@@ -22,6 +22,7 @@ class Detector:
         confidence_threshold: float = 0.5,
         top_k: int = 300,
         providers: list[str] | None = None,
+        provider_options: list[dict] | None = None,
     ) -> None:
         """Loads the RF-DETR ONNX model via onnxruntime.InferenceSession."""
         weights_path = Path(weights_path)
@@ -30,7 +31,9 @@ class Detector:
 
         self.confidence_threshold = confidence_threshold
         self.top_k = top_k
-        self.session = onnxruntime.InferenceSession(str(weights_path), providers=providers)
+        self.session = onnxruntime.InferenceSession(
+            str(weights_path), providers=providers, provider_options=provider_options
+        )
 
     def predict(
         self, image: np.ndarray, confidence_threshold: float | None = None

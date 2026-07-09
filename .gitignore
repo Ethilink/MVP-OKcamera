@@ -97,6 +97,9 @@ model/weights/*
 model/artifacts/*
 !model/artifacts/.gitkeep
 
+# CoreML EP on-disk compile cache (built next to the ONNX weights at runtime)
+.coreml_cache/
+
 # ===========================================================================
 # Node / frontend (app/frontend/)
 # ===========================================================================
