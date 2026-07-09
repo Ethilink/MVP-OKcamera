@@ -1,14 +1,19 @@
-"""Regression: /record/discard during ``processing`` must CANCEL the running
-post-pass worker (TR5-api.md "Follow-up bug surfaced during TR6 R4").
+"""Regression: /record/discard of a live drain job must CANCEL the running
+post-pass worker (TR5-api.md "Follow-up bug surfaced during TR6 R4"; U2
+migrates this from the pre-U2 blocking ``processing`` state to the
+idle-draining queue's ``drain.current`` — docs/tasks/U2-queue.md).
 
-Before the fix, discard only cleared ``rec.job``, resumed inference, and
-rmtree'd the entry folder — the orphaned worker kept calling
+Before the original fix, discard only cleared the job reference, resumed
+inference, and rmtree'd the entry folder — the orphaned worker kept calling
 ``detector.predict`` concurrently with the just-resumed live inference
 (§Detector-sharing violation) and its keyframe ``cv2.imwrite`` re-created a
 stray partial folder AFTER the rmtree. The fix: ``PostPassJob.cancel()``
 (cooperative, checked before every read/predict and again before every disk
-write) + discard joining the worker thread (outside ``recording_lock``,
-bounded) BEFORE deleting the folder.
+write) + discard joining the worker thread BEFORE deleting the folder. U2's
+single long-lived drain-worker thread changes WHO joins/how, but the
+observable guarantee is identical — this file asserts only the OBSERVABLE
+contract (files, detector/writer call counts, ``/record/status``), never the
+app's private thread bookkeeping (which U2 owns and this test never sees).
 
 Deterministic, no sleeps-as-synchronization: the real ``PostPassJob`` is fed
 an instant fake cap and a huge ``frame_count`` (millions of microsecond
@@ -33,6 +38,8 @@ from tests.fakes import make_fake_frame
 from tests.recording_fakes import FakeEncoder
 from tests.test_recording_api import (
     RecordingStubCapture,
+    _drain,
+    _status,
     _wait_for,
     _writer_factory,
 )
@@ -154,7 +161,7 @@ def _build_app_with_real_postpass(tmp_path, capture, detector):
 # ---------------------------------------------------------------------------
 
 
-def test_discard_during_processing_cancels_worker_and_leaves_no_stray(tmp_path):
+def test_discard_during_draining_cancels_worker_and_leaves_no_stray(tmp_path):
     # frame_count is minutes of work at the fake's pace — the discard below
     # (fired within milliseconds of the first confirmed write) always lands
     # mid-loop; without the fix the worker would run on long after discard.
@@ -172,44 +179,48 @@ def test_discard_during_processing_cancels_worker_and_leaves_no_stray(tmp_path):
     client.post("/record/stop").raise_for_status()
 
     # The post-pass is live mid-loop: at least one frame fully processed
-    # (predicted AND written to disk).
+    # (predicted AND written to disk), and visible as the drain.current job.
     assert _wait_for(lambda: writers and writers[0].add_frame_calls >= 1)
-    worker = app.state.recording.worker
-    assert worker is not None and worker.is_alive()
+    assert _wait_for(lambda: (_drain(client)["current"] or {}).get("entry_name") == resolved)
     entry_dir = tmp_path / "videos" / resolved
     assert entry_dir.exists()
 
     resp = client.post("/record/discard")
     assert resp.status_code == 200
 
-    # (a) The worker has actually STOPPED by the time discard returns —
-    # discard cancelled the job and joined the thread before the rmtree.
-    assert not worker.is_alive()
+    # (a) NO stray folder after discard returns — and it STAYS gone (bounded
+    # poll for a folder that must never reappear; pre-fix the orphaned
+    # worker's next write recreated it here). This is only possible if the
+    # worker had actually stopped touching this job's files before the
+    # rmtree ran — the decisive "actually stopped" proof, without reaching
+    # into the app's private thread bookkeeping (U2 owns that shape now).
+    assert not entry_dir.exists()
+    assert _wait_for(lambda: entry_dir.exists(), timeout=0.5) is False
+
     assert jobs[0].status.state == "cancelled"
     assert jobs[0].status.done < frame_count  # bailed early, not run to completion
     n_predicts = detector.calls
     n_writes = writers[0].add_frame_calls
     assert not writers[0].finalized
 
-    # (b) NO stray folder after discard returns — and it STAYS gone (bounded
-    # poll for a folder that must never reappear; pre-fix the orphaned
-    # worker's next write recreated it here).
-    assert not entry_dir.exists()
-    assert _wait_for(lambda: entry_dir.exists(), timeout=0.5) is False
-    # The dead worker performed no further detector calls and wrote no
+    # The cancelled worker performed no further detector calls and wrote no
     # further files during that window.
     assert detector.calls == n_predicts
     assert writers[0].add_frame_calls == n_writes
 
-    # (c) resume_inference fired EXACTLY once for the processing episode
+    # (b) resume_inference fired EXACTLY once for the draining episode
     # (discard-side; the orphaned worker's ownership guard must not fire it).
     assert capture.pause_calls == 1
     assert capture.resume_calls == 1
 
-    assert client.get("/record/status").json()["state"] == "idle"
+    body = _status(client)
+    assert body["state"] == "idle"
+    assert body["drain"]["current"] is None
+    assert body["error"] is None
 
     # The cancelled prior job doesn't interfere with a fresh take (AC-shaped
-    # sanity: the machine is fully reusable after a cancel-discard).
+    # sanity: the machine is fully reusable after a cancel-discard) — and
+    # since nothing is queued behind it, no further pause/resume is needed.
     assert client.post("/record/start", json={"entry_base": "take2"}).status_code == 200
     assert capture.resume_calls == 1  # still exactly once
 

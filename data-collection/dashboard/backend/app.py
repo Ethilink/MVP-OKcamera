@@ -24,6 +24,8 @@ import asyncio
 import re
 import shutil
 import threading
+import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Response
@@ -75,31 +77,71 @@ class KeyframeIn(BaseModel):
     frame_number: int
 
 
-class RecordingController:
-    """Recording-mode state (TR5).
+class RecordRetryIn(BaseModel):
+    """`/record/retry` body (U2 §5). ``entry_name`` must match the failed head
+    (``drain.current.entry_name``) — retry is head-of-line only, never by an
+    arbitrary queued name."""
 
-    A plain data holder for the ``idle → recording → processing → idle`` machine
-    (``processing → failed → processing`` on retry). Every field is read/written
-    only under ``app.state.recording_lock`` — the endpoints own the transitions
-    and the worker's completion handler; this class carries no logic so there is
-    exactly one place (the lock-guarded closures in ``create_app``) that mutates
-    the machine.
+    entry_name: str
+
+
+@dataclass
+class DrainItem:
+    """One enqueued post-pass unit: the ``PostPassJob`` plus the metadata the
+    queue owns *independently* of the job's internals.
+
+    Keeping ``entry_name``/``entry_dir``/``keyframes``/``frame_count``/
+    ``operator_threshold`` here (rather than reaching into the job) lets
+    ``/record/status`` report ``entry_name`` for a not-yet-started queued item,
+    ``/record/retry`` rebuild a *fresh* job from frame 0 (idempotent rebuild from
+    the MP4), and ``/record/discard`` ``rmtree`` the folder — none of which the
+    frozen ``PostPassJob`` surface exposes. ``frame_count`` mirrors the job's own
+    ``total`` so a queued item reports its total with no running job.
+    """
+
+    job: object
+    entry_name: str
+    entry_dir: Path
+    keyframes: list
+    frame_count: int
+    operator_threshold: float | None
+
+
+class RecordingController:
+    """Foreground recording state + the orthogonal post-pass drain queue (U2).
+
+    The foreground collapses to ``idle ↔ recording`` only (INV-1); ``processing``
+    and ``failed`` are gone as foreground states. Post-pass becomes a FIFO queue
+    (INV-6) drained by a *single* long-lived worker thread, but only while
+    ``state == 'idle'`` (INV-2). Every field is read/written only under
+    ``app.state.recording_lock`` — the same lock ``app.state.drain_cond`` waits
+    on — so one monitor guards both the foreground transitions and the queue.
     """
 
     def __init__(self) -> None:
-        self.state = "idle"
+        self.state = "idle"  # "idle" | "recording"  (INV-1)
+
+        # Recording-active scratch — meaningful only while state == "recording",
+        # then handed to the enqueued PostPassJob at /record/stop and cleared.
         self.entry_name: str | None = None
         self.entry_dir: Path | None = None
         self.operator_threshold: float | None = None
         self.keyframes: set[int] = set()
         self.frame_count = 0
+
+        # The drain queue. `current` is the job the worker is actively draining,
+        # the job parked mid-drain (paused for a recording), or the failed head
+        # that has halted the queue (§5); `queue` holds the items waiting behind
+        # it in FIFO order. `error` is set iff `current` is a failed head.
+        self.queue: list[DrainItem] = []
+        self.current: DrainItem | None = None
         self.error: str | None = None
-        self.job = None
-        # The threading.Thread running the current job's post-pass. Kept so
-        # /record/discard can cancel the job and JOIN the worker before it
-        # deletes the entry folder (otherwise an in-flight keyframe write
-        # could re-create a stray folder after the rmtree).
-        self.worker: threading.Thread | None = None
+
+        # Set by /record/start for the window in which it commits to recording
+        # but has released the lock to park the in-flight drain — so the worker
+        # will not grab a fresh queued job (and a second /record/start cannot
+        # also win) while state is still momentarily "idle".
+        self.recording_pending = False
 
 
 async def mjpeg_stream(capture):
@@ -171,7 +213,26 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
     app.state.probe_video = probe_video
     app.state.post_pass_factory = PostPassJob
     app.state.recording = RecordingController()
+    # recording_lock guards every RecordingController field; drain_cond wraps that
+    # SAME lock so the drain worker can wait/notify on it. `with recording_lock`
+    # (endpoints) and `with drain_cond` (the worker's wait) are therefore mutually
+    # exclusive — one monitor, no second lock to order against it.
     app.state.recording_lock = threading.Lock()
+    app.state.drain_cond = threading.Condition(app.state.recording_lock)
+    app.state.drain_shutdown = False
+    # The shared detector lock (INV-3): the SAME object the live capture loop
+    # guards each predict with, injected into every PostPassJob so the drain
+    # worker serialises its per-frame predict against the live loop. Owned by the
+    # real CaptureLoop (created at its construction, before this app, so its loop
+    # thread has it from the first tick); a stub capture without one gets a
+    # private fallback (a stub has no competing live predict, so INV-3 is moot
+    # there). It is a LEAF lock — never acquired while holding recording_lock /
+    # drain_cond / capture._lock, and only ever held around predict itself.
+    app.state.detector_lock = getattr(capture, "detector_lock", None) or threading.Lock()
+    # Post-pass throughput used to compute drain.eta_seconds (§6). A plain settable
+    # float so a test can inject a known value and assert the formula; defaults to
+    # the ADR's 0.6 frames/s. eta always reads THIS value (no hidden EMA).
+    app.state.detect_fps = 0.6
 
     # index.html pulls in /static/style.css + /static/app.js — without this mount
     # the page renders as raw unstyled HTML with a dead script (no styling, no
@@ -347,54 +408,167 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
             "recording_state": app.state.recording.state,
         }
 
-    # --- Recording endpoints (TR5) --------------------------------------------
+    # --- Recording endpoints + drain worker (U2) ------------------------------
     # Plain def (AC1): folder mint, encoder open, the reader-thread join, and the
-    # post-pass thread kick are all blocking and must stay off the event loop.
-    # Every state transition is guarded by recording_lock (lock ordering is
-    # always recording_lock -> capture's own lock, never the reverse, so the
-    # capture calls made under recording_lock cannot deadlock).
+    # drain hand-off are blocking and must stay off the event loop.
+    #
+    # Lock ordering (deadlock-freedom argument):
+    #   recording_lock (== drain_cond's lock)  →  capture's internal lock
+    # is the ONLY order any thread ever takes. capture never calls back into the
+    # recording machine, so there is no cycle. The drain worker holds
+    # recording_lock only to pick a job, publish `current`, toggle the detector
+    # flag, and handle completion — NEVER across job.run() (predict is slow and
+    # must not hold the monitor). /record/start and /record/discard both do their
+    # *bounded waits* (for the worker to park / reach a terminal state) with the
+    # lock RELEASED, precisely because the worker needs recording_lock the instant
+    # run() returns; waiting under the lock would deadlock them against it.
+    #
+    # Single-detector-owner (INV-3): the drain worker sets capture.pause_inference()
+    # before it predicts and capture.resume_inference() when the queue drains, when
+    # it halts on a failure, or when it yields to a recording. /record/start never
+    # opens the encoder until the in-flight drain has PARKED (bounded wait on
+    # job.status == "paused"/terminal), so a recording predict can never race a
+    # drain predict.
 
-    def _run_postpass(job) -> None:
-        # The post-pass owns the detector for its duration (inference was paused
-        # by the caller). run() is blocking, so it runs here on a worker thread,
-        # off both the event loop and the lock. On completion we transition AND
-        # resume inference ONLY if this is still the current job in `processing`.
-        # A /record/discard that raced us cleared rec.job (and resumed inference
-        # itself), so an orphaned/superseded worker must NOT touch state and must
-        # NOT resume — otherwise it would un-pause the detector mid-way through a
-        # later take's post-pass (§Detector sharing). Discard also CANCELS the
-        # job (cooperative — run() bails at its next per-frame check) and joins
-        # this thread before deleting the folder; a cancelled job is always
-        # orphaned (cancel + rec.job-clear happen atomically under the lock), so
-        # it can never pass the ownership guard below. Net: resume happens
-        # exactly once per processing episode — here on normal completion, or in
-        # discard.
+    _ETA_FPS_EPS = 1e-6  # eta div-by-zero guard (§6)
+
+    def _wait_for(predicate, timeout=10.0, interval=0.005) -> bool:
+        # Bounded poll (never sleep-and-hope): runs on the endpoint's threadpool
+        # thread (plain def), so a short time.sleep is off the event loop. Returns
+        # False on timeout — a safety net; in practice the worker parks / reaches a
+        # terminal state within ~one detector predict.
+        deadline = time.monotonic() + timeout
+        while not predicate():
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(interval)
+        return True
+
+    def _new_postpass_job(*, entry_dir, entry_name, keyframes, frame_count, operator_threshold):
+        # Build a post-pass job via the preserved factory seam, then inject the
+        # shared detector lock as an ATTRIBUTE (INV-3) — the factory CALL signature
+        # is unchanged, so injected fakes keep working; the real PostPassJob reads
+        # `predict_lock` to guard each predict, a fake simply ignores it. setattr
+        # is guarded so a slotted fake can't break the build.
+        job = app.state.post_pass_factory(
+            entry_dir,
+            entry_name,
+            app.state.detector,
+            keyframes=keyframes,
+            frame_count=frame_count,
+            mining_threshold=app.state.mining_threshold,
+            operator_threshold=operator_threshold,
+            model_version=app.state.model_version,
+        )
+        try:
+            job.predict_lock = app.state.detector_lock
+        except (AttributeError, TypeError):
+            pass
+        return job
+
+    def _drain_runnable_locked(rec) -> bool:
+        # Caller holds recording_lock. True when the worker may (re)start draining:
+        # the tool is idle, no /record/start is mid-commit, no failed head is
+        # blocking the queue (§5), and there is a job to run — either a `current`
+        # whose job is still "pending" (a retry's fresh job, or a just-assigned
+        # head) or a queued item. A "running"/"paused" current means the worker is
+        # already inside its run() (parked jobs are un-parked by the idle-return
+        # endpoints, not re-picked here), so it is NOT runnable.
+        if rec.state != "idle" or rec.recording_pending or rec.error is not None:
+            return False
+        if rec.current is not None:
+            return rec.current.job.status.state == "pending"
+        return bool(rec.queue)
+
+    def _take_runnable_locked(rec):
+        # Caller holds recording_lock and _drain_runnable_locked(rec) is True.
+        if rec.current is not None and rec.current.job.status.state == "pending":
+            return rec.current
+        item = rec.queue.pop(0)
+        rec.current = item
+        return item
+
+    def _resume_parked_current_locked() -> None:
+        # Caller holds recording_lock. On return to idle, reclaim the detector for
+        # the drain and un-park the head job so the worker's BLOCKED run() (parked
+        # inside PostPassJob.run on /record/start) continues from the parked index.
         rec = app.state.recording
-        job.run()
-        with app.state.recording_lock:
-            if rec.job is job and rec.state == "processing":
-                st = job.status
-                if st.state == "failed":
-                    rec.state = "failed"
-                    rec.error = st.error
-                else:
-                    rec.state = "idle"
-                    rec.error = None
-                rec.worker = None
-                app.state.capture.resume_inference()
+        cur = rec.current
+        if cur is not None and cur.job.status.state == "paused":
+            app.state.capture.pause_inference()
+            cur.job.resume()
+
+    def _drain_worker() -> None:
+        # The single long-lived daemon worker (INV-6: FIFO, one job at a time).
+        rec = app.state.recording
+        capture = app.state.capture
+        cond = app.state.drain_cond
+        while True:
+            with cond:
+                while not app.state.drain_shutdown and not _drain_runnable_locked(rec):
+                    cond.wait()
+                if app.state.drain_shutdown:
+                    return
+                item = _take_runnable_locked(rec)
+                # Claim the shared detector before predicting (INV-3). The live
+                # capture loop skips predict + publishes the raw frame while
+                # inference_paused is True.
+                capture.pause_inference()
+            try:
+                # run() blocks HERE across any pause: /record/start parks it
+                # internally and the idle-return path un-parks it; it returns only
+                # on a terminal state (done / failed / cancelled). No lock held —
+                # this is where the slow per-frame predict happens (INV-2: only
+                # while state == idle, enforced by the parking handshake).
+                item.job.run()
+            except Exception:  # a job double misbehaving must not kill the worker
+                pass
+            with cond:
+                st = item.job.status
+                if rec.current is item:
+                    if st.state == "failed":
+                        # Halt-on-failure (§5): the failed job STAYS as the head,
+                        # top-level error is set, the worker stops advancing.
+                        # INV-5: nothing is deleted.
+                        rec.error = st.error
+                    else:
+                        # "done" (normal) or "cancelled" without a discard having
+                        # taken ownership — drop the head and advance.
+                        rec.current = None
+                        rec.error = None
+                # else: /record/discard took ownership of this job (it cleared
+                # rec.current before cancelling) and owns the rmtree — we must not
+                # touch state for it.
+                # Release the detector to the live overlay whenever no further
+                # drain work is runnable (queue empty, or halted on a failed head,
+                # or a recording is now in progress).
+                if not _drain_runnable_locked(rec):
+                    capture.resume_inference()
+                cond.notify_all()
+
+    drain_worker_thread = threading.Thread(
+        target=_drain_worker, name="postpass-drain", daemon=True
+    )
+    # Started at build time (NOT gated on a FastAPI lifespan/startup event) so the
+    # queue drains under a bare TestClient(app) with no `with` block (§4).
+    drain_worker_thread.start()
+    app.state.drain_worker = drain_worker_thread
 
     @app.post("/record/start")
     def record_start(body: RecordStartIn) -> dict:
         rec = app.state.recording
         capture = app.state.capture
         entry_base = body.entry_base
+
+        # --- Phase 1 (under lock): validate, mint the folder, open the encoder,
+        # and decide whether an in-flight drain must be parked. None of this
+        # touches the drain yet, so a 4xx here leaves a draining queue undisturbed.
         with app.state.recording_lock:
-            # Start is valid ONLY from idle; the lock serializes concurrent
-            # starts so exactly one wins the transition (AC12).
-            if rec.state != "idle":
-                raise HTTPException(
-                    status_code=409, detail=f"cannot start recording from {rec.state!r}"
-                )
+            # 409 ONLY if already recording — or if a concurrent /record/start is
+            # mid-commit (recording_pending serializes them so exactly one wins,
+            # AC12). A DRAINING queue does NOT block start (AC1); we pause it.
+            if rec.state == "recording" or rec.recording_pending:
+                raise HTTPException(status_code=409, detail="already recording")
             # Same rule as dataset_name: single path component, no leading dot.
             bad_base = (
                 not entry_base
@@ -456,20 +630,75 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
                 video_dir.mkdir(parents=True)
                 encoder = app.state.open_encoder(mp4_path, app.state.capture_fps, frame_size)
             except OSError:
+                # mkdir may have created the dir before open_encoder failed —
+                # remove the orphan so a failed start leaves nothing behind.
+                shutil.rmtree(entry_dir, ignore_errors=True)
                 raise HTTPException(
                     status_code=400,
                     detail=f"cannot create output folder {entry_dir} — check that the Output path is a writable location you own",
                 )
-            capture.start_recording(encoder)
-            rec.state = "recording"
-            rec.entry_name = name
-            rec.entry_dir = entry_dir
-            rec.operator_threshold = operator_threshold
-            rec.keyframes = set()
-            rec.frame_count = 0
-            rec.error = None
-            rec.job = None
-            rec.worker = None
+            except BaseException:
+                # Any other failure opening the encoder: same cleanup, then let it
+                # propagate (a real bug surfaces as 500, but no orphan folder).
+                shutil.rmtree(entry_dir, ignore_errors=True)
+                raise
+            # Commit to recording. recording_pending closes the lock-released
+            # window below: the worker won't grab a fresh queued job and a second
+            # start can't win while state is still momentarily "idle".
+            rec.recording_pending = True
+            cur = rec.current
+            # The worker owns the detector iff inference is currently paused for
+            # an in-flight drain. Only then must we park that drain and reclaim
+            # the detector for the live overlay (INV-3); if inference is not
+            # paused the overlay already owns it, and a start must NOT spuriously
+            # resume (that inflates the pause/resume bookkeeping and, on the first
+            # take, resumes a detector nobody paused). Read under the lock so it
+            # cannot race the worker's own claim (which pauses under this lock).
+            worker_owns_detector = capture.inference_paused
+            if worker_owns_detector and cur is not None:
+                cur.job.pause()  # honored between frames (INV-4: within one frame)
+                app.state.drain_cond.notify_all()
+
+        # --- Phase 2 (lock RELEASED): wait for the drain to actually yield the
+        # detector — park at its current frame, or finish/fail/cancel — so a
+        # recording predict can never race a drain predict (INV-3). Bounded.
+        if worker_owns_detector and cur is not None:
+            _wait_for(
+                lambda: cur.job.status.state in ("paused", "done", "failed", "cancelled")
+            )
+
+        # --- Phase 3 (under lock): reclaim the detector for the live overlay and
+        # start recording. On the (guarded, not-expected) chance start_recording
+        # raises, roll back: un-park the drain so the queue is never stranded.
+        with app.state.recording_lock:
+            try:
+                if worker_owns_detector:
+                    capture.resume_inference()  # reclaim from the parked/finished drain
+                capture.start_recording(encoder)
+                rec.state = "recording"
+                rec.entry_name = name
+                rec.entry_dir = entry_dir
+                rec.operator_threshold = operator_threshold
+                rec.keyframes = set()
+                rec.frame_count = 0
+            except Exception:
+                # start_recording failed after we minted the folder + opened the
+                # encoder: release the encoder and remove the orphan entry dir so a
+                # failed start leaves nothing behind, and un-park the drain so the
+                # queue is never stranded. capture.start_recording assigns the
+                # encoder only on success, so releasing it here can't double-close.
+                _resume_parked_current_locked()
+                app.state.drain_cond.notify_all()
+                _release = getattr(encoder, "release", None)
+                if _release is not None:
+                    try:
+                        _release()
+                    except Exception:
+                        pass
+                shutil.rmtree(entry_dir, ignore_errors=True)
+                raise
+            finally:
+                rec.recording_pending = False
         return {"ok": True, "entry_name": name, "operator_threshold": operator_threshold}
 
     @app.post("/keyframe")
@@ -495,171 +724,174 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
                 raise HTTPException(status_code=409, detail="not recording")
             # stop_recording() stops+releases the encoder and RETURNS the final
             # frame count (and resets its own counter) — use the return value.
+            # The MP4 is finalized HERE, before enqueue, so the raw recording
+            # survives independent of the post-pass (INV-5).
             frames_written = capture.stop_recording()
-            rec.frame_count = frames_written
-            capture.pause_inference()  # the post-pass owns the detector now
-            job = app.state.post_pass_factory(
-                rec.entry_dir,
-                rec.entry_name,
-                app.state.detector,
+            # Enqueue the post-pass at the BACK of the queue (FIFO, INV-6). The
+            # job carries its own frame_count (== total). We do NOT start it or
+            # block on it — the worker drains it when the tool is idle (AC1).
+            job = _new_postpass_job(
+                entry_dir=rec.entry_dir,
+                entry_name=rec.entry_name,
                 keyframes=sorted(rec.keyframes),
                 frame_count=frames_written,
-                mining_threshold=app.state.mining_threshold,
                 operator_threshold=rec.operator_threshold,
-                model_version=app.state.model_version,
             )
-            rec.job = job
-            rec.state = "processing"
-            rec.error = None
-            worker = threading.Thread(target=_run_postpass, args=(job,), daemon=True)
-            rec.worker = worker
-            worker.start()
-        # Return immediately — the job finishes on the worker thread.
-        return {"ok": True, "frames_written": frames_written}
-
-    @app.post("/record/discard")
-    def record_discard() -> dict:
-        rec = app.state.recording
-        capture = app.state.capture
-
-        def _finish_discard(prior_state: str) -> None:
-            # Caller MUST hold recording_lock. Resets the machine to idle,
-            # resumes inference iff the discarded episode was a processing one,
-            # and deletes the entry folder in the SAME critical section so a
-            # /record/start racing in behind us can't mint the same folder only
-            # to have this delete it.
-            entry_dir = rec.entry_dir
+            rec.queue.append(
+                DrainItem(
+                    job=job,
+                    entry_name=rec.entry_name,
+                    entry_dir=rec.entry_dir,
+                    keyframes=sorted(rec.keyframes),
+                    frame_count=frames_written,
+                    operator_threshold=rec.operator_threshold,
+                )
+            )
+            # Back to idle immediately — never a foreground "processing" state.
             rec.state = "idle"
             rec.entry_name = None
             rec.entry_dir = None
             rec.operator_threshold = None
             rec.keyframes = set()
             rec.frame_count = 0
-            rec.error = None
-            # Discarding a still-running post-pass: inference is paused and the
-            # worker won't resume it (ownership guard fails — rec.job was
-            # cleared before we got here) — resume it here, exactly once. From
-            # "failed" the worker already resumed on completion; from
-            # "recording" inference was never paused.
-            if prior_state == "processing":
-                capture.resume_inference()
-            if entry_dir is not None:
-                shutil.rmtree(entry_dir, ignore_errors=True)
+            # Resume the head drain we parked at /record/start (if any) so it
+            # continues from its parked index; otherwise the worker picks up the
+            # job just enqueued. Either way, wake the worker.
+            _resume_parked_current_locked()
+            app.state.drain_cond.notify_all()
+        return {"ok": True, "frames_written": frames_written}
 
-        with app.state.recording_lock:
-            state = rec.state
-            if state == "idle":
-                raise HTTPException(status_code=409, detail="nothing to discard")
-            if state == "processing" and rec.job is None:
-                # A concurrent discard already took ownership (cleared rec.job)
-                # and is joining the worker outside the lock below; it will
-                # finish the reset+rmtree itself. Letting a second discard
-                # proceed would resume inference twice.
-                raise HTTPException(status_code=409, detail="discard already in progress")
-            # From recording this is an abort: stop+release the encoder. Inference
-            # was NOT paused while recording, so nothing to resume here.
-            if state == "recording":
-                capture.stop_recording()
-            # Clear job identity FIRST so an orphaned worker (state was
-            # "processing") fails its ownership guard and neither transitions
-            # state nor resumes — resume then happens exactly once, in
-            # _finish_discard.
-            job = rec.job
-            worker = rec.worker
-            rec.job = None
-            rec.worker = None
-            cancel = None
-            if state == "processing" and job is not None:
-                # Cooperatively cancel the still-running post-pass so it stops
-                # calling the shared detector and writing keyframe JPEGs.
-                # getattr: injected job fakes without cancel() keep the legacy
-                # single-critical-section path (nothing to join — such a job
-                # can't be stopped anyway).
-                cancel = getattr(job, "cancel", None)
-                if cancel is not None:
-                    cancel()
-            if cancel is None or worker is None:
-                # No cancellable live worker: finish everything under this one
-                # lock hold (recording/failed episodes, or a job double without
-                # cancel support).
-                _finish_discard(state)
-                return {"ok": True}
-        # A cancelled live worker: JOIN it before deleting the folder, so an
-        # in-flight cv2.imwrite can't re-create a stray partial folder after
-        # the rmtree. Lock ordering: the join happens with recording_lock
-        # RELEASED. PostPassJob.run() itself takes no lock, but the worker's
-        # wrapper (_run_postpass) acquires recording_lock immediately after
-        # run() returns — joining while holding the lock would deadlock the
-        # worker against us until the timeout, every time. With the lock
-        # released the worker bails at its next cancel check, fails the
-        # ownership guard (rec.job was cleared above, atomically with the
-        # cancel), and exits. Meanwhile the machine still reads
-        # state == "processing" with rec.job None: /record/start, /record/stop,
-        # /record/retry and /keyframe all 409, and a second /record/discard
-        # 409s on the in-progress guard above — nobody can mutate the machine
-        # or mint the same entry folder before _finish_discard runs below.
-        # The timeout is a bounded safety net (a healthy worker joins within
-        # ~one detector predict); if it ever expires we still proceed — run()'s
-        # post-predict cancel re-check keeps the stray-write window closed.
-        worker.join(timeout=10.0)
-        with app.state.recording_lock:
-            _finish_discard(state)
-        return {"ok": True}
-
-    @app.post("/record/retry")
-    def record_retry() -> dict:
+    @app.post("/record/discard")
+    def record_discard() -> dict:
         rec = app.state.recording
         capture = app.state.capture
         with app.state.recording_lock:
-            if rec.state != "failed":
-                raise HTTPException(
-                    status_code=409, detail="can only retry a failed post-pass"
-                )
-            # Fresh job from the on-disk MP4 + stored keyframes (idempotent
-            # rebuild — TR4 rebuilds every artifact from scratch).
-            job = app.state.post_pass_factory(
-                rec.entry_dir,
-                rec.entry_name,
-                app.state.detector,
-                keyframes=sorted(rec.keyframes),
-                frame_count=rec.frame_count,
-                mining_threshold=app.state.mining_threshold,
-                operator_threshold=rec.operator_threshold,
-                model_version=app.state.model_version,
-            )
-            rec.job = job
-            rec.state = "processing"
+            state = rec.state
+            if state == "recording":
+                # Abort the live take (as today): stop+release the encoder and
+                # delete the half-written Entry — the operator's explicit choice,
+                # the one sanctioned delete (INV-5). Inference was NOT owned by
+                # the drain while recording, so there is nothing to resume for the
+                # take itself; but a drain we PARKED to start this recording must
+                # be un-parked so the queue is not stranded.
+                capture.stop_recording()
+                entry_dir = rec.entry_dir
+                rec.state = "idle"
+                rec.entry_name = None
+                rec.entry_dir = None
+                rec.operator_threshold = None
+                rec.keyframes = set()
+                rec.frame_count = 0
+                if entry_dir is not None:
+                    shutil.rmtree(entry_dir, ignore_errors=True)
+                _resume_parked_current_locked()
+                app.state.drain_cond.notify_all()
+                return {"ok": True}
+            # Idle: discard the CURRENT drain job — the one in drain.current,
+            # actively draining OR a failed head (§5). Discarding an arbitrary
+            # QUEUED entry is out of scope (U2 §9).
+            if rec.current is None:
+                raise HTTPException(status_code=409, detail="nothing to discard")
+            victim = rec.current
+            # Take ownership away from the worker FIRST (clear current + any
+            # failed-head error) so its post-run handler won't touch state for
+            # this job — this is the single-worker analogue of the old rec.job
+            # clear. Then cooperatively cancel so run() stops calling the shared
+            # detector and writing files.
+            rec.current = None
             rec.error = None
-            capture.pause_inference()
-            worker = threading.Thread(target=_run_postpass, args=(job,), daemon=True)
-            rec.worker = worker
-            worker.start()
+            cancel = getattr(victim.job, "cancel", None)
+            if cancel is not None:
+                cancel()
+            # A parked head (unreachable from idle, but defensive) must be
+            # un-parked to observe the cancel.
+            if victim.job.status.state == "paused":
+                victim.job.resume()
+            app.state.drain_cond.notify_all()
+        # Lock RELEASED: wait only while the job could still be mid-write — i.e.
+        # while run() is actually executing ("running", or "paused" which we just
+        # un-parked toward a cancel). Once it leaves those states it performs no
+        # further disk writes (cancel is re-checked after predict, before every
+        # write), so it is safe to rmtree. A head that never started ("pending" —
+        # e.g. a retry job discarded before the worker picked it up) or is already
+        # terminal ("cancelled"/"failed"/"done") returns the wait immediately, so
+        # discard never burns the timeout on a job that isn't touching disk. This
+        # is the single-worker replacement for the old thread join and preserves
+        # the "no stray folder after rmtree" guarantee for jobs that WERE running.
+        # Bounded; if it ever times out we still proceed (run()'s post-predict
+        # cancel re-check keeps the window closed). We do NOT hold the lock here
+        # because the worker needs it the instant run() returns.
+        if cancel is not None:
+            _wait_for(lambda: victim.job.status.state not in ("running", "paused"))
+        shutil.rmtree(victim.entry_dir, ignore_errors=True)
+        # Advance the queue: wake the worker to start the next job (if any). The
+        # detector flag is owned by the worker (it resumes inference itself when
+        # nothing is runnable), so we only notify.
+        with app.state.recording_lock:
+            app.state.drain_cond.notify_all()
+        return {"ok": True}
+
+    @app.post("/record/retry")
+    def record_retry(body: RecordRetryIn) -> dict:
+        rec = app.state.recording
+        with app.state.recording_lock:
+            # Valid ONLY when the head is a FAILED drain job whose entry_name
+            # matches (§5, head-of-line). Because the worker halts on the first
+            # failure, at most one entry is ever failed — so this single check is
+            # unambiguous.
+            if (
+                rec.error is None
+                or rec.current is None
+                or rec.current.entry_name != body.entry_name
+            ):
+                raise HTTPException(
+                    status_code=409, detail="no matching failed drain job to retry"
+                )
+            item = rec.current
+            # Fresh job — idempotent rebuild from the on-disk MP4 + stored
+            # keyframes, from frame 0 (TR4 rebuilds every artifact from scratch).
+            # Replace the failed job IN PLACE on the head DrainItem so it stays the
+            # current head; clearing the error makes the worker pick it up.
+            item.job = _new_postpass_job(
+                entry_dir=item.entry_dir,
+                entry_name=item.entry_name,
+                keyframes=sorted(item.keyframes),
+                frame_count=item.frame_count,
+                operator_threshold=item.operator_threshold,
+            )
+            rec.error = None
+            app.state.drain_cond.notify_all()
         return {"ok": True}
 
     @app.get("/record/status")
     def record_status() -> dict:
         rec = app.state.recording
-        capture = app.state.capture
         with app.state.recording_lock:
             state = rec.state
-            entry_name = rec.entry_name
-            n_keyframes = len(rec.keyframes)
-            error = rec.error if state == "failed" else None
-            job = rec.job
-            frame_count = rec.frame_count
-        # Live count from capture while recording; the last count (or 0) otherwise.
-        frames_written = capture.frames_written if state == "recording" else frame_count
-        if state in ("processing", "failed") and job is not None:
-            st = job.status
-            postpass = {"done": st.done, "total": st.total}
-        else:
-            postpass = {"done": 0, "total": 0}
+            cur = rec.current
+            if cur is not None:
+                st = cur.job.status
+                current = {
+                    "entry_name": cur.entry_name,
+                    "done": st.done,
+                    "total": cur.frame_count,
+                }
+                remaining = max(cur.frame_count - st.done, 0)
+            else:
+                current = None
+                remaining = 0
+            queued = [it.entry_name for it in rec.queue]
+            remaining += sum(it.frame_count for it in rec.queue)
+            error = rec.error
+        # eta = remaining_frames / detect_fps (§6), computed from the CURRENT
+        # app.state.detect_fps so a test can inject a known fps and assert the
+        # formula. 0 when nothing is draining or queued; div-by-zero guarded.
+        detect_fps = app.state.detect_fps
+        fps = detect_fps if detect_fps > _ETA_FPS_EPS else _ETA_FPS_EPS
+        eta_seconds = remaining / fps if remaining else 0.0
         return {
             "state": state,
-            "entry_name": entry_name,
-            "frames_written": frames_written,
-            "n_keyframes": n_keyframes,
-            "postpass": postpass,
+            "drain": {"current": current, "queued": queued, "eta_seconds": eta_seconds},
             "error": error,
         }
 

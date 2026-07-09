@@ -38,6 +38,8 @@ injected:
 from __future__ import annotations
 
 import json
+import threading
+import time
 from pathlib import Path
 
 import cv2
@@ -53,6 +55,18 @@ from tests.recording_fakes import decode_frame_index, make_numbered_frames
 ENTRY_NAME = "entry1"
 FPS = 24.0
 W, H = 16, 16
+
+
+def _wait_for(predicate, timeout=3.0, interval=0.02) -> bool:
+    """Bounded poll (mirrors tests/test_recording_api.py's helper) -- never a
+    bare/unbounded wait; a stuck job fails the assertion fast instead of
+    hanging the suite."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(interval)
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +232,35 @@ class ProgressObservingDetector:
     def predict(self, frame, confidence_threshold=None):
         job = self._job_holder["job"]
         self.observed.append((job.status.state, job.status.done))
+        return self._queue.pop(0) if self._queue else sv.Detections.empty()
+
+
+class PausingObserverDetector:
+    """U2 addition: detector double that calls ``job.pause()`` (from INSIDE a
+    ``predict()`` call, on the worker thread) the moment a target number of
+    frames have been predicted, then keeps predicting normally once resumed.
+    This is what lets a test drive ``PostPassJob.pause()/resume()`` exactly
+    like the real caller (TR5's ``/record/start`` handler) would: pause() only
+    *requests* the yield, and ``run()`` itself parks on its own next
+    read/predict/write check (never mid-predict) -- ``run()`` must therefore
+    execute on a background thread so the parking doesn't deadlock the thread
+    that called ``pause()``. Records every frame it saw (in order) so a test
+    can prove, after resume, that the run processed 0..frame_count-1 exactly
+    once each -- the decisive proof that resume continues from the PARKED
+    index rather than restarting at 0 (INV-4)."""
+
+    def __init__(self, job_holder, dets_per_frame, pause_after: int):
+        self._job_holder = job_holder
+        self._queue = list(dets_per_frame)
+        self._pause_after = pause_after
+        self.seen_frames: list = []
+        self.paused_once = False
+
+    def predict(self, frame, confidence_threshold=None):
+        self.seen_frames.append(frame)
+        if len(self.seen_frames) == self._pause_after and not self.paused_once:
+            self.paused_once = True
+            self._job_holder["job"].pause()
         return self._queue.pop(0) if self._queue else sv.Detections.empty()
 
 
@@ -668,3 +711,202 @@ def test_ac7_run_touches_detector_only_through_predict(tmp_path):
 
     assert spy.accessed == {"predict"}
     assert len(inner.seen_frames) == frame_count
+
+
+# ---------------------------------------------------------------------------
+# U2 additions — PostPassJob.pause()/resume() (docs/tasks/U2-queue.md §4
+# "PostPassJob additions", INV-4). Additive: cancel()/run()/AC7 semantics
+# above are unchanged by these tests. ``run()`` executes on a background
+# thread in every test below because pause() only *requests* the yield --
+# the park happens inside run()'s own loop, on ITS thread, so the caller that
+# invokes pause()/resume() must be a different thread (exactly mirroring the
+# real caller: TR5's ``/record/start`` handler pausing the drain worker).
+# ---------------------------------------------------------------------------
+
+
+def test_pause_resume_continues_from_parked_index_byte_identical_to_uninterrupted(tmp_path):
+    """INV-4's core claim: a job paused mid-run and resumed produces output
+    byte-identical to an uninterrupted run, because it resumes from the
+    PARKED frame index rather than restarting at 0. Proven two ways: (1) the
+    detector saw frames 0..frame_count-1 exactly once each, in order (a
+    restart-from-0 bug would duplicate frames 0..pause_after-1); (2) the
+    on-disk artifacts (annotations.json, sidecar, keyframe JPEGs) are
+    byte-for-byte identical to a reference job given the same inputs.
+    """
+    frame_count = 8
+    keyframes = [2, 5]
+    operator_threshold = 0.5
+    mining_threshold = 0.2
+    model_version = "model-pause"
+    probe = VideoProbe(fps=FPS, frame_count=frame_count, width=W, height=H)
+
+    def _dets_sequence():
+        seq = []
+        for fn in range(frame_count):
+            if fn in keyframes:
+                seq.append(make_fake_dets([[2, 2, 10, 10]], confidences=[0.9], size=(W, H)))
+            else:
+                seq.append(make_fake_dets([], size=(W, H)))
+        return seq
+
+    # --- uninterrupted reference run ---
+    direct_dir = tmp_path / "direct" / ENTRY_NAME
+    direct_cap_factory, _ = _make_cap_factory(lambda: NumberedFrameReader(make_numbered_frames(frame_count, W, H)))
+    direct_probe_fn, _ = _make_probe_fn(probe)
+    direct_job = PostPassJob(
+        direct_dir,
+        ENTRY_NAME,
+        FakeDetector(predictions=_dets_sequence()),
+        keyframes=keyframes,
+        frame_count=frame_count,
+        mining_threshold=mining_threshold,
+        operator_threshold=operator_threshold,
+        model_version=model_version,
+        probe_fn=direct_probe_fn,
+        cap_factory=direct_cap_factory,
+        video_writer_factory=VideoEntryWriter,
+    )
+    direct_job.run()
+    assert direct_job.status.state == "done"
+
+    ann_direct = (direct_dir / "annotations" / "annotations.json").read_bytes()
+    side_direct = (direct_dir / "annotations" / "metadata" / "full_frame_detections.json").read_bytes()
+    jpgs_direct = {
+        fn: (direct_dir / "images" / f"{ENTRY_NAME}_f{fn:06d}.jpg").read_bytes() for fn in keyframes
+    }
+
+    # --- paused-and-resumed run, on the SAME entry_dir shape ---
+    paused_dir = tmp_path / "paused" / ENTRY_NAME
+    paused_cap_factory, _ = _make_cap_factory(lambda: NumberedFrameReader(make_numbered_frames(frame_count, W, H)))
+    paused_probe_fn, _ = _make_probe_fn(probe)
+    job_holder: dict = {}
+    detector = PausingObserverDetector(job_holder, _dets_sequence(), pause_after=3)
+    job = PostPassJob(
+        paused_dir,
+        ENTRY_NAME,
+        detector,
+        keyframes=keyframes,
+        frame_count=frame_count,
+        mining_threshold=mining_threshold,
+        operator_threshold=operator_threshold,
+        model_version=model_version,
+        probe_fn=paused_probe_fn,
+        cap_factory=paused_cap_factory,
+        video_writer_factory=VideoEntryWriter,
+    )
+    job_holder["job"] = job
+
+    worker = threading.Thread(target=job.run, daemon=True)
+    worker.start()
+
+    # Parked after exactly 3 frames processed (frame_number 0,1,2 written);
+    # bounded wait, never sleep-and-hope.
+    assert _wait_for(lambda: job.status.state == "paused", timeout=3.0)
+    assert job.status.done == 3
+
+    # Prove it really is parked: done does NOT creep forward while paused.
+    assert _wait_for(lambda: job.status.done != 3, timeout=0.3) is False
+
+    job.resume()
+    worker.join(timeout=5.0)
+    assert not worker.is_alive()
+
+    assert job.status.state == "done"
+    assert job.status.done == frame_count
+
+    # (1) exactly frame_count predicts, each frame decoded exactly once, in
+    # order -- a restart-from-0 bug would show frames 0,1,2 twice.
+    assert [decode_frame_index(f) for f in detector.seen_frames] == list(range(frame_count))
+
+    # (2) byte-identical on-disk artifacts vs the uninterrupted reference.
+    ann_paused = (paused_dir / "annotations" / "annotations.json").read_bytes()
+    side_paused = (paused_dir / "annotations" / "metadata" / "full_frame_detections.json").read_bytes()
+    jpgs_paused = {
+        fn: (paused_dir / "images" / f"{ENTRY_NAME}_f{fn:06d}.jpg").read_bytes() for fn in keyframes
+    }
+    assert ann_paused == ann_direct
+    assert side_paused == side_direct
+    assert jpgs_paused == jpgs_direct
+
+
+def test_pause_state_transitions_pending_running_paused_running_done():
+    """``status.state`` gains "paused" while parked; existing states
+    (pending/running/done) are otherwise unchanged -- a plain state-string
+    contract test, independent of the byte-identical proof above."""
+    frame_count = 4
+    job_holder: dict = {}
+    detector = PausingObserverDetector(
+        job_holder, [sv.Detections.empty()] * frame_count, pause_after=2
+    )
+    cap_factory, _ = _make_cap_factory(lambda: NumberedFrameReader(make_numbered_frames(frame_count, W, H)))
+    probe_fn, _ = _make_probe_fn(VideoProbe(fps=FPS, frame_count=frame_count, width=W, height=H))
+    writer_factory, _log = make_recording_writer_factory()
+
+    job = PostPassJob(
+        Path("unused"),
+        ENTRY_NAME,
+        detector,
+        keyframes=[],
+        frame_count=frame_count,
+        mining_threshold=0.25,
+        operator_threshold=0.5,
+        model_version="v1",
+        probe_fn=probe_fn,
+        cap_factory=cap_factory,
+        video_writer_factory=writer_factory,
+    )
+    job_holder["job"] = job
+
+    assert job.status.state == "pending"
+
+    worker = threading.Thread(target=job.run, daemon=True)
+    worker.start()
+    assert _wait_for(lambda: job.status.state == "paused", timeout=3.0)
+
+    job.resume()
+    # Immediately after resume, run() must still be alive and finish on its
+    # own (never re-pending, never re-raise) -- state eventually settles on
+    # "done" without a second pause (pause_after fires only once per detector).
+    worker.join(timeout=3.0)
+    assert not worker.is_alive()
+    assert job.status.state == "done"
+    assert job.status.done == frame_count
+
+
+def test_cancel_while_paused_stops_the_job_without_completing(tmp_path):
+    """A job discarded WHILE paused (operator starts a new take, then
+    discards it before it ever goes back to idle) must still cancel cleanly --
+    park must not swallow a concurrent cancel() (INV-5 / discard robustness)."""
+    frame_count = 6
+    job_holder: dict = {}
+    detector = PausingObserverDetector(
+        job_holder, [sv.Detections.empty()] * frame_count, pause_after=2
+    )
+    cap_factory, _ = _make_cap_factory(lambda: NumberedFrameReader(make_numbered_frames(frame_count, W, H)))
+    probe_fn, _ = _make_probe_fn(VideoProbe(fps=FPS, frame_count=frame_count, width=W, height=H))
+    writer_factory, _log = make_recording_writer_factory()
+
+    job = PostPassJob(
+        tmp_path / ENTRY_NAME,
+        ENTRY_NAME,
+        detector,
+        keyframes=[],
+        frame_count=frame_count,
+        mining_threshold=0.25,
+        operator_threshold=0.5,
+        model_version="v1",
+        probe_fn=probe_fn,
+        cap_factory=cap_factory,
+        video_writer_factory=writer_factory,
+    )
+    job_holder["job"] = job
+
+    worker = threading.Thread(target=job.run, daemon=True)
+    worker.start()
+    assert _wait_for(lambda: job.status.state == "paused", timeout=3.0)
+
+    job.cancel()
+    worker.join(timeout=3.0)
+    assert not worker.is_alive()
+    assert job.status.state == "cancelled"
+    assert job.status.done == 2  # bailed at the parked index, never resumed forward

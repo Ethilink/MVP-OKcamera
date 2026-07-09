@@ -1,4 +1,16 @@
-"""TR7 AC1-AC6 — full recording pipeline end-to-end, with fakes (CI-gated).
+"""TR7 AC1-AC6 (+ U2's queue/pause/resume ACs) — full recording pipeline
+end-to-end, with fakes (CI-gated).
+
+U2 migration (docs/tasks/U2-queue.md): the pre-U2 blocking
+``processing``/``failed`` foreground states are gone; a completed OR failed
+post-pass is observed via ``/record/status``'s ``drain``/``error`` fields
+(``state`` stays "idle" the whole time once ``/record/stop`` returns — see
+``_wait_for_drain_settled`` below), and ``/record/retry`` now takes
+``{"entry_name": ...}``. Two new tests cover the ACs this file didn't
+previously exercise: AC2 (real FIFO drain of two queued entries, both become
+completed video projects) and AC3/AC6 (pause mid-drain reclaims the ONE
+shared detector for the live overlay with no concurrent ``.predict`` calls,
+then resumes the SAME job from its parked frame — INV-3/INV-4).
 
 Drives the WHOLE stack — real ``CaptureLoop`` (reader/inference/slot threads),
 real ``create_app`` state machine + ``/record/*`` + ``/keyframe`` endpoints, real
@@ -193,6 +205,58 @@ class _ExplodingReplayCap(_ReplayCap):
         return super().read()
 
 
+class _PacedReplayCap(_ReplayCap):
+    """U2 addition: like ``_ReplayCap`` but sleeps a small, fixed delay per
+    read — gives a post-pass drain enough wall-clock duration that a
+    concurrently-fired ``/record/start`` reliably lands mid-run (AC3), without
+    any sleep-and-hope on the TEST's side: every assertion built on this still
+    bounded-polls via ``_wait_for``."""
+
+    def __init__(self, frames, delay: float = 0.03):
+        super().__init__(frames)
+        self._delay = delay
+
+    def read(self):
+        time.sleep(self._delay)
+        return super().read()
+
+
+class _ConcurrencyGuardDetector:
+    """U2 addition: wraps a detector-shaped double, flagging whether any
+    ``predict()`` call overlaps another. In production the live capture's
+    inference thread and the drain worker share exactly ONE detector instance
+    (§Detector sharing / INV-3) — this is the decisive proof that pause/
+    reclaim actually serializes access, rather than relying on timing
+    coincidence to hide a race."""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self._lock = threading.Lock()
+        self._active = 0
+        self.max_concurrent = 0
+        self.violations = 0
+
+    @property
+    def confidence_threshold(self):
+        return self._inner.confidence_threshold
+
+    @confidence_threshold.setter
+    def confidence_threshold(self, value):
+        self._inner.confidence_threshold = value
+
+    def predict(self, frame, confidence_threshold=None):
+        with self._lock:
+            self._active += 1
+            self.max_concurrent = max(self.max_concurrent, self._active)
+            if self._active > 1:
+                self.violations += 1
+        try:
+            return self._inner.predict(frame, confidence_threshold=confidence_threshold)
+        finally:
+            with self._lock:
+                self._active -= 1
+
+
 def _wait_for(predicate, timeout=5.0, interval=0.02) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -200,6 +264,19 @@ def _wait_for(predicate, timeout=5.0, interval=0.02) -> bool:
             return True
         time.sleep(interval)
     return False
+
+
+def _wait_for_drain_settled(client, timeout=15.0) -> bool:
+    """U2: ``state`` goes idle the instant ``/record/stop`` returns (AC1) --
+    it is NOT the "post-pass finished" signal anymore. The drain has settled
+    (completed OR halted on failure) once ``drain.current`` clears OR
+    ``error`` is set (§5 halt-on-failure)."""
+
+    def _settled() -> bool:
+        body = client.get("/record/status").json()
+        return body["drain"]["current"] is None or body["error"] is not None
+
+    return _wait_for(_settled, timeout=timeout)
 
 
 def _writer_factory(model_version="rfdetr-e2e"):
@@ -319,9 +396,10 @@ def _run_recording(tmp_path, entry_base, *, n_keyframes=2, job_hook=None):
         stop = client.post("/record/stop")
         stop.raise_for_status()
         frames_written = stop.json()["frames_written"]
-        # Wait for the worker-thread post-pass to leave 'processing'.
-        assert _wait_for(lambda: client.get("/record/status").json()["state"] != "processing",
-                         timeout=15.0)
+        assert stop.json()["ok"] is True
+        assert client.get("/record/status").json()["state"] == "idle"  # AC1: immediate
+        # Wait for the background drain to settle (done or halted-on-failure).
+        assert _wait_for_drain_settled(client, timeout=15.0)
         status = client.get("/record/status").json()
         return {
             "client": client,
@@ -349,7 +427,11 @@ def _load(entry_dir: Path, rel: str):
 def test_ac1_completed_run_is_a_video_project(tmp_path):
     res = _run_recording(tmp_path, "take1")
     entry = res["entry_dir"]
-    assert res["final_status"]["state"] == "idle"  # success
+    # U2: state is idle throughout regardless of drain outcome -- success is
+    # drain.current clearing with no error (never "processing"/"failed").
+    assert res["final_status"]["state"] == "idle"
+    assert res["final_status"]["drain"]["current"] is None
+    assert res["final_status"]["error"] is None
     # Discovery rule: annotations.json present + non-empty video/.
     assert (entry / "annotations" / "annotations.json").is_file()
     video_files = list((entry / "video").iterdir())
@@ -479,16 +561,20 @@ def test_ac5_kill_partial_then_retry_is_identical(tmp_path):
     resolved = res["entry_name"]  # resolved <base>_NNN (U1) — names the mp4
     client = res["client"]
 
-    # Killed: failed state, valid partial project on disk.
-    assert res["final_status"]["state"] == "failed"
+    # Killed: U2 halt-on-failure (§5) -- `state` stays "idle" (never
+    # "failed"); the failed job halts as drain.current with `error` set, and
+    # a valid partial project sits on disk (INV-5: nobody auto-deleted it).
+    assert res["final_status"]["state"] == "idle"
     assert res["final_status"]["error"]
+    assert res["final_status"]["drain"]["current"]["entry_name"] == resolved
     assert (entry / "annotations" / "metadata" / "selected_frames.json").is_file()
     assert not (entry / "annotations" / "annotations.json").exists()
     assert list((entry / "video").iterdir())  # video survived
 
-    # Retry completes.
-    client.post("/record/retry").raise_for_status()
-    assert _wait_for(lambda: client.get("/record/status").json()["state"] == "idle", timeout=15.0)
+    # Retry (now scoped by entry_name, §5) completes.
+    client.post("/record/retry", json={"entry_name": resolved}).raise_for_status()
+    assert _wait_for_drain_settled(client, timeout=15.0)
+    assert client.get("/record/status").json()["error"] is None
     assert (entry / "annotations" / "annotations.json").is_file()
 
     # Byte-identical to an uninterrupted run: rebuild a reference straight from
@@ -527,3 +613,190 @@ def test_ac6_validator_advisory_clean(tmp_path):
 
     errors, warnings = validate(entry)
     assert errors == [], f"validator reported errors: {errors}"
+
+
+# --- U2 AC2: real FIFO drain of two queued entries, one at a time -----------
+
+
+def test_u2_ac2_fifo_drains_two_queued_entries_in_order(tmp_path):
+    """U2 AC2, over the REAL stack: record two takes back-to-back (the
+    second started WHILE the first's post-pass is still draining, per AC1) --
+    the single background worker drains them strictly one at a time, in
+    enqueue order (INV-6), and BOTH end up fully completed video projects
+    (``annotations.json`` present)."""
+    frames = make_numbered_frames(400, _W, _H)
+    detector = _OneBoxDetector()
+    capture = _start_capture(frames, detector)
+    holder: dict = {}
+    app = _build_app(capture, detector, tmp_path, holder)
+    client = TestClient(app)
+    try:
+        assert _wait_for(lambda: capture.snapshot() is not None)
+
+        # --- take 1 ---
+        start1 = client.post("/record/start", json={"entry_base": "fifo1"})
+        start1.raise_for_status()
+        entry1 = start1.json()["entry_name"]
+        assert _wait_for(
+            lambda: capture.snapshot() is not None
+            and capture.snapshot().frame_number is not None
+        )
+        _mark_keyframe(client, capture)
+        stop1 = client.post("/record/stop")
+        stop1.raise_for_status()
+
+        # --- take 2, started immediately -- take1's post-pass is still
+        # enqueued/draining (AC1 accepts this; it pauses take1's job rather
+        # than racing it) ---
+        start2 = client.post("/record/start", json={"entry_base": "fifo2"})
+        assert start2.status_code == 200
+        entry2 = start2.json()["entry_name"]
+        assert _wait_for(
+            lambda: capture.snapshot() is not None
+            and capture.snapshot().frame_number is not None
+        )
+        _mark_keyframe(client, capture)
+        stop2 = client.post("/record/stop")
+        stop2.raise_for_status()
+
+        def _status():
+            return client.get("/record/status").json()
+
+        # Both eventually drain, FIFO, one at a time (INV-6) -- and cleanly:
+        # no failure surfaced along the way.
+        assert _wait_for(
+            lambda: _status()["drain"]["current"] is None
+            and _status()["drain"]["queued"] == []
+            and _status()["error"] is None,
+            timeout=20.0,
+        )
+
+        entry1_dir = tmp_path / "videos" / entry1
+        entry2_dir = tmp_path / "videos" / entry2
+        assert (entry1_dir / "annotations" / "annotations.json").is_file()
+        assert (entry2_dir / "annotations" / "annotations.json").is_file()
+    finally:
+        capture.stop()
+
+
+# --- U2 AC3 (crux) + AC6/INV-3: pause reclaims the shared detector, no ------
+# --- concurrent predict, resumes the SAME job from its parked index --------
+
+
+def test_u2_ac3_ac6_pause_mid_drain_reclaims_detector_with_no_concurrent_predict(tmp_path):
+    """U2 AC3 (crux) + AC6/INV-3, over the REAL stack: pause a mid-drain
+    post-pass by starting a new recording, prove the ONE shared detector
+    never sees a concurrent ``.predict`` call across the live overlay and the
+    drain worker, then prove the SAME job resumes from its parked frame index
+    and finishes byte-identical to an uninterrupted run (INV-4)."""
+    frames = make_numbered_frames(400, _W, _H)
+    guard = _ConcurrencyGuardDetector(_OneBoxDetector())
+    capture = _start_capture(frames, guard)
+    holder: dict = {}
+
+    # job1 (take1's post-pass) reads paced slowly enough that /record/start
+    # reliably lands mid-drain; job2 (take2's own post-pass) replays at full
+    # speed -- only the interrupted job needs to be slow.
+    def job_hook(call_index, written):
+        if call_index == 0:
+            return lambda p: _PacedReplayCap(written, delay=0.03)
+        return None
+
+    app = _build_app(capture, guard, tmp_path, holder, job_hook=job_hook)
+    client = TestClient(app)
+
+    def _status():
+        return client.get("/record/status").json()
+
+    try:
+        assert _wait_for(lambda: capture.snapshot() is not None)
+
+        start1 = client.post("/record/start", json={"entry_base": "pause1"})
+        start1.raise_for_status()
+        entry1 = start1.json()["entry_name"]
+        assert _wait_for(
+            lambda: capture.snapshot() is not None
+            and capture.snapshot().frame_number is not None
+        )
+        kf1_fn, _disp1, _n1 = _mark_keyframe(client, capture)
+        # Give job1 enough frames that pacing it out is meaningful.
+        assert _wait_for(lambda: capture.frames_written >= 8, timeout=3.0)
+
+        stop1 = client.post("/record/stop")
+        stop1.raise_for_status()
+        frames_written1 = stop1.json()["frames_written"]
+        written1 = list(holder["enc"].written)  # snapshot before take2 replaces holder["enc"]
+
+        # Let job1 make genuine progress before interrupting it.
+        assert _wait_for(
+            lambda: (_status()["drain"]["current"] or {}).get("done", 0) >= 2,
+            timeout=5.0,
+        )
+
+        start2 = client.post("/record/start", json={"entry_base": "pause2"})
+        assert start2.status_code == 200
+        entry2 = start2.json()["entry_name"]
+
+        # job1 paused: done stops advancing across a bounded re-check window.
+        done_at_pause = _status()["drain"]["current"]["done"]
+        assert (
+            _wait_for(
+                lambda: (_status()["drain"]["current"] or {}).get("done") != done_at_pause,
+                timeout=0.5,
+            )
+            is False
+        )
+        assert _status()["drain"]["current"]["entry_name"] == entry1
+
+        # Record take2 for real, using the SAME shared (guarded) detector.
+        assert _wait_for(
+            lambda: capture.snapshot() is not None
+            and capture.snapshot().frame_number is not None
+        )
+        _mark_keyframe(client, capture)
+        stop2 = client.post("/record/stop")
+        stop2.raise_for_status()
+
+        # Both drain to completion; job1 resumed (not restarted) from its
+        # parked index, and not a single concurrent predict happened anywhere
+        # across the whole interleaving (INV-3, the decisive proof).
+        assert _wait_for(
+            lambda: _status()["drain"]["current"] is None
+            and _status()["drain"]["queued"] == []
+            and _status()["error"] is None,
+            timeout=20.0,
+        )
+        assert guard.violations == 0, f"detector saw {guard.violations} concurrent predict call(s)"
+
+        entry1_dir = tmp_path / "videos" / entry1
+        entry2_dir = tmp_path / "videos" / entry2
+        assert (entry1_dir / "annotations" / "annotations.json").is_file()
+        assert (entry2_dir / "annotations" / "annotations.json").is_file()
+
+        # Byte-identical to an uninterrupted run over the SAME recorded
+        # frames (INV-4's decisive proof: resuming from the parked index, not
+        # 0, produced the exact artifacts a clean run would have).
+        ref_dir = tmp_path / "reference"
+        (ref_dir / "video").mkdir(parents=True)
+        (ref_dir / "video" / f"{entry1}.mp4").write_bytes(b"\x00")
+        ref_job = PostPassJob(
+            ref_dir, entry1, _OneBoxDetector(),
+            keyframes=[kf1_fn],
+            frame_count=frames_written1,
+            mining_threshold=0.25,
+            operator_threshold=0.5,
+            model_version="rfdetr-e2e",
+            cap_factory=lambda p: _ReplayCap(written1),
+            probe_fn=lambda p: VideoProbe(fps=30.0, frame_count=len(written1), width=_W, height=_H),
+        )
+        ref_job.run()
+        assert ref_job.status.state == "done"
+
+        for rel in ("annotations/annotations.json",
+                    "annotations/metadata/full_frame_detections.json",
+                    "annotations/metadata/selected_frames.json"):
+            assert (entry1_dir / rel).read_bytes() == (ref_dir / rel).read_bytes(), (
+                f"{rel} differs from an uninterrupted run"
+            )
+    finally:
+        capture.stop()

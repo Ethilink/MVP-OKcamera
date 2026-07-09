@@ -70,6 +70,16 @@ class CaptureLoop:
         # reader thread so exactly one thread ever reads the camera at a time
         # (and the idle loop never steals a frame the encoder should have got).
         self._read_lock = threading.Lock()
+        # Serialises the ACTUAL detector.predict call between the live capture
+        # loop and the idle-drain post-pass worker so the two never predict on the
+        # shared detector concurrently (INV-3, U2). The `_inference_paused` flag
+        # decides WHO should predict; this lock guarantees no overlap even in the
+        # flag-check→predict window (a claim can't slip in mid-predict). It is a
+        # LEAF lock: held ONLY around predict, never while holding self._lock /
+        # recording_lock / drain_cond, and released between frames on both sides
+        # (the post-pass job never holds it across a pause/park). The drain worker
+        # shares THIS object via app.state.detector_lock (see backend/app.py).
+        self._detector_lock = threading.Lock()
 
         self._camera_index = camera_index
         self._pending_camera_index: int | None = None
@@ -203,14 +213,19 @@ class CaptureLoop:
         threshold = self._detector.confidence_threshold
         # Paused (the post-pass owns the detector between takes): keep the camera
         # alive and health fresh, but don't run predict or publish — the stream
-        # keeps serving the last overlay. Read the paused flag under the lock as
-        # the last thing before predict so a pause that has already returned is
-        # observed and no new predict starts.
-        with self._lock:
+        # keeps serving the last overlay. The check→predict is made atomic under
+        # the detector lock (INV-3): hold the lock, re-read the paused flag, and
+        # either skip (drain owns the detector) or predict WHILE holding it, so the
+        # drain worker's per-frame predict can never overlap this one. The flag is
+        # read WITHOUT self._lock here to keep the detector lock a leaf (never
+        # acquire self._lock while holding it); a plain bool read is atomic under
+        # the GIL, and pause_inference()/resume_inference() publish it under
+        # self._lock, so a value that has already been set is observed.
+        with self._detector_lock:
             if self._inference_paused:
                 self._heartbeat = time.monotonic()
                 return
-        dets = self._detector.predict(frame, confidence_threshold=threshold)
+            dets = self._detector.predict(frame, confidence_threshold=threshold)
         overlay = self._render_fn(frame.copy(), dets)
         ok_encode, buf = cv2.imencode(".jpg", overlay)
         overlay_jpeg = buf.tobytes() if ok_encode else b""
@@ -331,12 +346,14 @@ class CaptureLoop:
             return
         frame, frame_number = slot
         threshold = self._detector.confidence_threshold
-        # Read the paused flag under the lock as the last thing before predict so
-        # a pause that has already returned is observed and no new predict starts.
-        with self._lock:
+        # Same atomic check→predict under the detector lock as the idle tick
+        # (INV-3). During recording the drain is parked, so this lock is normally
+        # uncontended — but holding it keeps the "live loop and drain never predict
+        # concurrently" invariant true unconditionally, in both directions.
+        with self._detector_lock:
             if self._inference_paused:
                 return
-        dets = self._detector.predict(frame, confidence_threshold=threshold)
+            dets = self._detector.predict(frame, confidence_threshold=threshold)
         overlay = self._render_fn(frame.copy(), dets)
         ok_encode, buf = cv2.imencode(".jpg", overlay)
         overlay_jpeg = buf.tobytes() if ok_encode else b""
@@ -419,6 +436,15 @@ class CaptureLoop:
     def inference_paused(self) -> bool:
         with self._lock:
             return self._inference_paused
+
+    @property
+    def detector_lock(self) -> threading.Lock:
+        """The leaf lock serialising ``detector.predict`` between the live loop
+        and the idle-drain post-pass worker (INV-3, U2). The app injects THIS
+        object into each PostPassJob so both sides guard the shared detector with
+        the same lock; see ``backend/app.py``.
+        """
+        return self._detector_lock
 
     @property
     def recording_error(self) -> BaseException | None:

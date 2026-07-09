@@ -1,28 +1,54 @@
-"""TR5 AC1-AC12: behavior contract for the recording-mode API + state machine.
+"""U2 (docs/tasks/U2-queue.md) behavior contract for the recording-mode API +
+idle-draining post-pass queue, migrated from TR5's blocking-`processing`
+contract (`docs/tasks/TR5-api.md`).
 
-Written from ``docs/tasks/TR5-api.md`` (the frozen SPEC — endpoint table, state
-diagram, 12 ACs) and ``docs/RECORDING.md`` §API & state / §Thresholds /
-§Detector sharing / §Encoder. Blind-TDD: this file exercises the HTTP behaviour
-contract via ``fastapi.testclient.TestClient`` against the frozen ``create_app``
-seam; the coder replaces ``backend/app.py``'s Phase-0 recording stubs without
-ever seeing this file.
+Blind-TDD: this file exercises the HTTP behaviour contract via
+``fastapi.testclient.TestClient`` against the frozen ``create_app`` seam; the
+coder replaces ``backend/app.py``'s pre-U2 blocking recording state machine
+without ever seeing this file.
+
+The frozen `/record/status` shape (U2-queue.md §2) this file tests against:
+
+    {"state": "idle" | "recording",
+     "drain": {"current": {"entry_name", "done", "total"} | None,
+               "queued": [entry_name, ...],
+               "eta_seconds": number},
+     "error": string | None}
+
+``state`` is the FOREGROUND mode only -- `processing`/`failed` NEVER appear as
+`state` anymore; draining progress and halt-on-failure live under `drain`/
+`error` instead (§5 halt-on-failure: the queue stops on the first failure,
+which stays as `drain.current` with `error` set, until Retry or Discard acts
+on it).
 
 Everything is camera-free / ffmpeg-free / onnx-free:
 
 - ``app.state.open_encoder`` is overridden with a factory returning TR1's
   ``FakeEncoder`` (``tests/recording_fakes.py``) so no real ffmpeg runs, and so
   the call args (path / fps / frame_size) are inspectable.
-- ``app.state.post_pass_factory`` is overridden with ``_FakeJob`` — a
-  controllable job whose ``run()`` blocks on an event the test releases, so the
-  ``processing -> idle`` / ``processing -> failed`` transitions (kicked on a
-  worker thread) are observed deterministically via a bounded ``_wait_for``
-  poll of ``/record/status`` — never sleep-and-hope.
+- ``app.state.post_pass_factory`` is overridden with ``_FakeJob`` -- enriched
+  for U2 with per-frame progress and a ``pause()``/``resume()`` seam
+  (``status.state`` gains ``"paused"``) alongside the pre-U2 block-until-
+  ``release`` model, so both the endpoint-guard regressions AND the new
+  queue/pause/resume ACs are observable deterministically via bounded
+  ``_wait_for`` polls -- never sleep-and-hope.
 - ``app.state.probe_video`` is overridden with a fake returning a ``VideoProbe``.
 - ``RecordingStubCapture`` is a deterministic capture stand-in exposing exactly
   the recording surface the endpoints touch (``snapshot``, ``start_recording``,
   ``stop_recording``, ``frames_written``, ``pause_inference`` /
-  ``resume_inference``). AC5 (X-Frame-Number) uses a REAL ``CaptureLoop`` +
-  numbered ``FakeCapture`` because a live loop is what makes that header true.
+  ``resume_inference`` / ``inference_paused``). AC5 (X-Frame-Number) uses a
+  REAL ``CaptureLoop`` + numbered ``FakeCapture`` because a live loop is what
+  makes that header true.
+
+The REAL, byte-identical proof of "resume continues from the parked frame
+index, not 0" (INV-4) lives in ``tests/test_postpass.py``'s pause/resume unit
+tests (the real ``PostPassJob``). The REAL, single-shared-detector proof that
+the live overlay and the drain worker never call ``.predict`` concurrently
+(INV-3) lives in ``tests/test_recording_e2e.py``'s AC3/AC6 test (a real
+``CaptureLoop`` + real ``PostPassJob`` sharing one detector). This file's job
+is the HTTP/status CONTRACT: response codes, the exact `/record/status` shape,
+`drain.current`/`drain.queued` bookkeeping, `eta_seconds`, and entry_name
+matching for retry -- using the controllable fake job.
 
 Image-mode regression (AC9) is covered by the untouched ``tests/test_api.py``
 staying green; here AC9 is a single additive check (``/status`` gains
@@ -37,6 +63,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.app import create_app
@@ -74,18 +101,37 @@ def _writer_factory(model_version="rfdetr-test"):
 
 
 class _FakeJob:
-    """Controllable stand-in for TR4's ``PostPassJob``.
+    """Controllable stand-in for TR4/U2's ``PostPassJob``.
 
     Matches the frozen constructor shape (``entry_dir, entry_name, detector, *,
     keyframes, frame_count, mining_threshold, operator_threshold,
     model_version, ...``) and exposes ``run()`` + a ``status`` property whose
-    value mirrors ``PostPassStatus`` (``.state/.done/.total/.error``).
+    value mirrors ``PostPassStatus`` (``.state/.done/.total/.error``), plus
+    U2's ``pause()``/``resume()``/``cancel()`` seam.
 
-    ``run()`` blocks on ``release`` so a test can hold the machine in
-    ``processing`` and assert the transition, then release with
-    ``final_state`` = ``"done"`` (-> recording idle) or ``"failed"`` (->
-    recording failed). ``started`` is set the moment ``run()`` begins so a test
-    can confirm the worker thread actually launched.
+    Two run modes, selected by ``frame_pace`` (set by ``_make_job_factory``
+    right after construction — never through the frozen constructor's own
+    kwargs, so every existing app-driven call site is untouched):
+
+    - ``frame_pace is None`` (default) — the pre-U2 "block until released"
+      model: ``run()`` sits parked (polling, so it can still be interrupted by
+      a pause/cancel request) until a test calls ``release.set()``, at which
+      point it jumps straight to ``final_state`` (``"done"`` or ``"failed"``).
+      ``done``/``state`` may be driven directly by a test in the meantime
+      (``jobs[0]._done = 20``) exactly as before U2. On a FAILED release,
+      ``done`` is left wherever the test put it (not forced to ``total`` —
+      the frozen contract requires ``done < total`` for a failed head, §5).
+    - ``frame_pace`` set to a float (seconds/frame) — the U2 "autonomous
+      per-frame" model: ``run()`` advances ``done`` 0→``total`` on its own at
+      that pace, checking pause/cancel between every frame — this is what
+      lets a test observe genuine in-flight progress and a pause landing
+      "within one frame" (AC2 FIFO, AC3 pause/resume).
+
+    ``pause()``/``resume()``/``cancel()`` work identically in both modes:
+    ``pause()`` requests a park at the CURRENT frame (``status.state ==
+    "paused"``, ``done`` frozen); ``resume()`` un-parks it, continuing from
+    that same ``done`` (never reset to 0, INV-4); ``cancel()`` stops it
+    (``status.state == "cancelled"``) from either a running or parked state.
     """
 
     def __init__(
@@ -121,14 +167,71 @@ class _FakeJob:
         self._total = frame_count
         self._error = None
 
+        # --- U2 additions ---
+        self._cancelled = threading.Event()
+        self._pause_requested = threading.Event()
+        self._resume_requested = threading.Event()
+        self.paused_event = threading.Event()  # set exactly while parked
+        self.pause_calls = 0
+        self.resume_calls = 0
+        # Set post-construction by _make_job_factory; None => legacy mode.
+        self.frame_pace: float | None = None
+
     def run(self) -> None:
         self._state = "running"
         self.started.set()
-        self.release.wait()
+        while self._done < self._total:
+            if self._cancelled.is_set():
+                self._state = "cancelled"
+                return
+            if self._pause_requested.is_set():
+                self._enter_paused()
+                if self._cancelled.is_set():
+                    self._state = "cancelled"
+                    return
+                continue
+            if self.release.is_set():
+                if self.final_state != "failed":
+                    self._done = self._total  # a success always finishes 100%
+                break  # a failure stops wherever `done` already was (< total)
+            if self.frame_pace is None:
+                # Legacy block-until-release: poll so pause/cancel still land.
+                self._pause_requested.wait(timeout=0.02)
+                continue
+            # Autonomous per-frame mode: advance one simulated frame at a
+            # deliberate pace so a concurrent pause() reliably lands within
+            # one frame (bounded by frame_pace; every assertion built on this
+            # still polls via ``_wait_for``, never a raw sleep-and-hope).
+            time.sleep(self.frame_pace)
+            self._done += 1
+        if self._cancelled.is_set():
+            self._state = "cancelled"
+            return
         if self.final_state == "failed":
             self._error = self.error_message
-        self._done = self._total
         self._state = self.final_state
+
+    def _enter_paused(self) -> None:
+        self._state = "paused"
+        self.paused_event.set()
+        self._resume_requested.wait()
+        self._resume_requested.clear()
+        self.paused_event.clear()
+        self._pause_requested.clear()
+        if not self._cancelled.is_set():
+            self._state = "running"
+
+    def pause(self) -> None:
+        self.pause_calls += 1
+        self._pause_requested.set()
+
+    def resume(self) -> None:
+        self.resume_calls += 1
+        self._resume_requested.set()
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+        self._resume_requested.set()  # unstick a paused park
 
     @property
     def status(self):
@@ -137,11 +240,12 @@ class _FakeJob:
         )
 
 
-def _make_job_factory():
+def _make_job_factory(frame_pace: float | None = None):
     jobs: list[_FakeJob] = []
 
     def factory(entry_dir, entry_name, detector, **kwargs):
         job = _FakeJob(entry_dir, entry_name, detector, **kwargs)
+        job.frame_pace = frame_pace
         jobs.append(job)
         return job
 
@@ -152,7 +256,10 @@ class RecordingStubCapture:
     """Deterministic ``CaptureLoop`` stand-in exposing exactly the surface the
     recording endpoints touch — no background thread, so state assertions are
     race-free. ``stop_recording`` releases the encoder (mirroring the real
-    loop) so AC10 can assert the release."""
+    loop) so AC10 can assert the release. ``inference_paused`` tracks net
+    pause/resume calls (True while more pauses than resumes have landed) —
+    this stub has no live inference thread to race against; the REAL,
+    concurrency-proof INV-3 check lives in ``tests/test_recording_e2e.py``."""
 
     def __init__(self, frame=None, frames_written=42, generation=0):
         self._frame = frame
@@ -228,6 +335,10 @@ class RecordingStubCapture:
         self.resume_calls += 1
 
     @property
+    def inference_paused(self) -> bool:
+        return self.pause_calls > self.resume_calls
+
+    @property
     def is_recording(self) -> bool:
         return self._recording
 
@@ -245,10 +356,13 @@ def _build_app(
     mining_threshold=0.25,
     model_version="rfdetr-test",
     encoder=None,
+    frame_pace=None,
 ):
     """Assemble the app around ``capture`` and override every recording
     injection point with a fake. Returns (app, detector, encoder, encoder_calls,
-    jobs) so a test can inspect what the endpoints did through the seam."""
+    jobs) so a test can inspect what the endpoints did through the seam.
+    ``frame_pace`` (None by default) is forwarded to every job the factory
+    builds — see ``_FakeJob`` for the two run modes it selects between."""
     detector = detector or FakeDetector(confidence_threshold=0.5)
     app = create_app(detector, _writer_factory(model_version), capture)
     app.state.output_path = str(output_path) if output_path is not None else None
@@ -269,19 +383,29 @@ def _build_app(
     app.state.probe_video = lambda path, **kw: VideoProbe(
         fps=capture_fps, frame_count=0, width=0, height=0
     )
-    factory, jobs = _make_job_factory()
+    factory, jobs = _make_job_factory(frame_pace=frame_pace)
     app.state.post_pass_factory = factory
     return app, detector, enc, encoder_calls, jobs
 
 
 def _release_jobs(jobs) -> None:
-    """Unblock every fake job's ``run()`` so no worker thread is left parked."""
+    """Unblock every fake job's ``run()`` so no worker thread is left parked —
+    covers both the legacy block-until-release park and a pause() park."""
     for job in jobs:
         job.release.set()
+        job.resume()
+
+
+def _status(client) -> dict:
+    return client.get("/record/status").json()
+
+
+def _drain(client) -> dict:
+    return _status(client)["drain"]
 
 
 def _state(client) -> str:
-    return client.get("/record/status").json()["state"]
+    return _status(client)["state"]
 
 
 # ---------------------------------------------------------------------------
@@ -350,11 +474,10 @@ def test_ac2_start_records_and_opens_encoder_at_capture_fps_and_snapshot_size(tm
 
 
 # ---------------------------------------------------------------------------
-# AC3 — start guards: already recording / processing / failed / no output_path /
-# no frame captured -> 409; 422 on invalid entry_base (single component, no
-# leading .). U1: the folder-collision guard is gone — a repeat base
-# auto-suffixes instead (covered in depth by test_u1_storage.py AC2/AC3); this
-# file keeps a lightweight same-base-no-collision regression below.
+# AC3 — start guards: already recording -> 409; a draining/failed-head queue
+# no longer blocks a new recording (U2 inverts the pre-U2 processing/failed
+# 409s — see AC1/AC3 below); 422 on invalid entry_base. U1: the folder-
+# collision guard is gone — a repeat base auto-suffixes instead.
 # ---------------------------------------------------------------------------
 
 
@@ -380,28 +503,32 @@ def test_ac3_start_409_when_already_recording(tmp_path):
     assert client.post("/record/start", json={"entry_base": "b"}).status_code == 409
 
 
-def test_ac3_start_409_when_processing(tmp_path):
-    # An in-flight post-pass must block a new recording — otherwise a second
-    # take would run on top of the job that owns the detector. Guards against an
-    # impl that gates start on `state == "recording"` instead of `!= "idle"`.
+def test_ac3_start_200_while_draining_pauses_the_job(tmp_path):
+    # U2/AC1 inverts the pre-U2 ``test_ac3_start_409_when_processing``: a new
+    # recording is ACCEPTED even while the prior take's post-pass is mid-drain
+    # — doing so PAUSES that job rather than racing it for the shared
+    # detector. The deep pause/reclaim/resume assertions live in
+    # test_u2_ac3_* below; this is the "start guard" regression: 200, not 409.
     capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=8)
     app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
     try:
         client.post("/record/start", json={"entry_base": "take1"}).raise_for_status()
         client.post("/record/stop").raise_for_status()
-        # Job parked (blocked) so the machine stays in processing, not racing to idle.
-        assert _wait_for(lambda: _state(client) == "processing")
+        assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
+        assert _wait_for(lambda: _drain(client)["current"] is not None)
 
-        assert client.post("/record/start", json={"entry_base": "take2"}).status_code == 409
-        assert _state(client) == "processing"  # still processing, no new recording
+        resp = client.post("/record/start", json={"entry_base": "take2"})
+        assert resp.status_code == 200  # <- was 409 pre-U2
+        assert _state(client) == "recording"
     finally:
         _release_jobs(jobs)
 
 
-def test_ac3_start_409_when_failed(tmp_path):
-    # A failed take still owns its folder pending retry/discard — starting a new
-    # recording from `failed` must be rejected (only retry/discard leave failed).
+def test_ac3_start_200_while_failed_head_blocks_queue(tmp_path):
+    # U2/AC1 inverts ``test_ac3_start_409_when_failed``: a failed head halts
+    # the QUEUE (§5), but never blocks a new recording — only
+    # ``state == "recording"`` does that (endpoint contract table).
     capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=8)
     app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
@@ -411,10 +538,13 @@ def test_ac3_start_409_when_failed(tmp_path):
         assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
         jobs[0].final_state = "failed"
         jobs[0].release.set()
-        assert _wait_for(lambda: _state(client) == "failed")
+        assert _wait_for(lambda: _status(client)["error"] is not None)
 
-        assert client.post("/record/start", json={"entry_base": "take2"}).status_code == 409
-        assert _state(client) == "failed"
+        resp = client.post("/record/start", json={"entry_base": "take2"})
+        assert resp.status_code == 200  # <- was 409 pre-U2
+        assert _state(client) == "recording"
+        # The failed head is untouched by the new recording.
+        assert _status(client)["error"] is not None
     finally:
         _release_jobs(jobs)
 
@@ -555,14 +685,15 @@ def test_ac5_frame_carries_frame_number_while_recording(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# AC6 — /record/stop returns immediately with frames_written, -> processing,
-# calls pause_inference, runs the job on a worker thread; on finish -> idle
-# (success) or failed, resume_inference called in BOTH cases. 409 if not
-# recording.
+# AC6 — /record/stop returns immediately (never blocks), enqueues the job,
+# `state` goes straight to "idle", pause_inference fires, the job drains on
+# the background worker. On completion the job clears from drain.current and
+# inference resumes; on FAILURE it halts as drain.current with `error` set
+# (§5) — never a foreground "failed" state.
 # ---------------------------------------------------------------------------
 
 
-def test_ac6_stop_kicks_postpass_and_completes_to_idle(tmp_path):
+def test_ac6_stop_enqueues_and_drains_to_completion(tmp_path):
     capture = RecordingStubCapture(frame=make_fake_frame(1920, 1080), frames_written=50)
     detector = FakeDetector(confidence_threshold=0.42)
     app, _detector, _enc, _calls, jobs = _build_app(
@@ -582,10 +713,12 @@ def test_ac6_stop_kicks_postpass_and_completes_to_idle(tmp_path):
         assert resp.status_code == 200
         assert resp.json() == {"ok": True, "frames_written": 50}
 
-        # Immediately in processing, inference paused, worker launched.
-        assert _wait_for(lambda: _state(client) == "processing")
-        assert capture.pause_calls == 1
+        # Immediately idle (AC1) — never a blocking "processing" state.
+        assert _state(client) == "idle"
+
+        # The job was enqueued and picked up; inference paused; worker launched.
         assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
+        assert _wait_for(lambda: capture.pause_calls == 1)
 
         job = jobs[0]
         # The job was built from the frozen record-start state (resolved name).
@@ -597,27 +730,45 @@ def test_ac6_stop_kicks_postpass_and_completes_to_idle(tmp_path):
         assert job.model_version == "rfdetr-test"
         assert set(job.keyframes) == {5, 6}
 
-        # Let the job finish -> idle, inference resumed.
+        # Visible as drain.current while draining.
+        assert _wait_for(
+            lambda: _drain(client)["current"]
+            == {"entry_name": resolved, "done": job.status.done, "total": 50}
+        )
+
+        # Let the job finish -> drain.current clears, inference resumed.
         job.release.set()
-        assert _wait_for(lambda: _state(client) == "idle")
+        assert _wait_for(lambda: _drain(client)["current"] is None)
         assert _wait_for(lambda: capture.resume_calls == 1)
+        assert _status(client)["error"] is None
+        assert _state(client) == "idle"
     finally:
         _release_jobs(jobs)
 
 
-def test_ac6_stop_job_failure_moves_to_failed_and_resumes(tmp_path):
+def test_ac6_stop_job_failure_leaves_it_as_drain_current_with_error(tmp_path):
     capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=12)
     app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
     try:
-        client.post("/record/start", json={"entry_base": "take1"}).raise_for_status()
+        start = client.post("/record/start", json={"entry_base": "take1"})
+        start.raise_for_status()
+        resolved = start.json()["entry_name"]
         client.post("/record/stop").raise_for_status()
         assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
 
         jobs[0].final_state = "failed"
+        jobs[0].error_message = "boom: post-pass exploded"
         jobs[0].release.set()
 
-        assert _wait_for(lambda: _state(client) == "failed")
+        # Halt-on-failure (§5): stays as drain.current with done < total,
+        # top-level error set, `state` remains "idle" (NEVER "failed").
+        assert _wait_for(lambda: _status(client)["error"] is not None)
+        body = _status(client)
+        assert body["state"] == "idle"
+        assert body["drain"]["current"]["entry_name"] == resolved
+        assert body["drain"]["current"]["done"] < body["drain"]["current"]["total"]
+        assert "boom" in body["error"]
         # resume_inference must fire on the failure path too (detector released).
         assert _wait_for(lambda: capture.resume_calls == 1)
     finally:
@@ -633,13 +784,33 @@ def test_ac6_stop_409_when_not_recording(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# AC7 — /record/status reflects the live machine: state, entry_name,
-# frames_written (from capture during recording), n_keyframes, postpass
-# {done,total} (from the job during processing), error only in failed.
+# AC7 (frozen §2/§5 — "AC5" in the new U2 numbering) — /record/status returns
+# EXACTLY {state, drain:{current, queued, eta_seconds}, error}; the pre-U2
+# entry_name/frames_written/n_keyframes/postpass top-level fields are gone.
+# drain.current reports the live/failed job's {entry_name, done, total};
+# error surfaces only for a failed head.
 # ---------------------------------------------------------------------------
 
 
-def test_ac7_record_status_reflects_recording_then_processing(tmp_path):
+def test_ac7_record_status_exact_shape(tmp_path):
+    capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=42)
+    app, *_ = _build_app(capture, output_path=tmp_path)
+    client = TestClient(app)
+
+    idle_body = _status(client)
+    assert set(idle_body.keys()) == {"state", "drain", "error"}
+    assert set(idle_body["drain"].keys()) == {"current", "queued", "eta_seconds"}
+    assert idle_body["state"] == "idle"
+    assert idle_body["drain"] == {"current": None, "queued": [], "eta_seconds": 0}
+    assert idle_body["error"] is None
+
+    client.post("/record/start", json={"entry_base": "take1"}).raise_for_status()
+    recording_body = _status(client)
+    assert set(recording_body.keys()) == {"state", "drain", "error"}
+    assert recording_body["state"] == "recording"
+
+
+def test_ac7_record_status_drain_current_reports_live_progress(tmp_path):
     capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=42)
     app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
@@ -648,31 +819,21 @@ def test_ac7_record_status_reflects_recording_then_processing(tmp_path):
         start.raise_for_status()
         resolved = start.json()["entry_name"]
         client.post("/keyframe", json={"frame_number": 3}).raise_for_status()
-
-        recording = client.get("/record/status").json()
-        assert recording["state"] == "recording"
-        assert recording["entry_name"] == resolved
-        assert recording["frames_written"] == 42  # live, from capture
-        assert recording["n_keyframes"] == 1
-        assert recording["error"] is None
-
         client.post("/record/stop").raise_for_status()
         assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
 
-        # Drive the job's reported progress while it is parked in processing.
+        # Drive the job's reported progress while it is parked mid-drain.
         jobs[0]._done = 20
         assert _wait_for(
-            lambda: client.get("/record/status").json()["postpass"]
-            == {"done": 20, "total": 42}
+            lambda: _drain(client)["current"]
+            == {"entry_name": resolved, "done": 20, "total": 42}
         )
-        processing = client.get("/record/status").json()
-        assert processing["state"] == "processing"
-        assert processing["error"] is None  # error only surfaces in failed
+        assert _status(client)["error"] is None
     finally:
         _release_jobs(jobs)
 
 
-def test_ac7_record_status_surfaces_error_only_in_failed(tmp_path):
+def test_ac7_record_status_surfaces_error_only_for_failed_head(tmp_path):
     capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=8)
     app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
@@ -681,14 +842,17 @@ def test_ac7_record_status_surfaces_error_only_in_failed(tmp_path):
         client.post("/record/stop").raise_for_status()
         assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
 
+        # While draining but not yet failed, error stays null.
+        assert _status(client)["error"] is None
+
         jobs[0].final_state = "failed"
         jobs[0].error_message = "boom: post-pass exploded"
         jobs[0].release.set()
 
-        assert _wait_for(lambda: _state(client) == "failed")
-        body = client.get("/record/status").json()
-        assert body["error"] is not None
+        assert _wait_for(lambda: _status(client)["error"] is not None)
+        body = _status(client)
         assert "boom" in body["error"]
+        assert body["drain"]["current"]["entry_name"] == jobs[0].entry_name
     finally:
         _release_jobs(jobs)
 
@@ -735,9 +899,10 @@ def test_ac9_status_idle_and_flag_works_when_idle(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# AC10 — /record/discard: from recording (abort) stops+releases the encoder and
-# deletes the folder (-> idle); from failed / processing deletes the folder;
-# 409 from idle.
+# AC10 — /record/discard: from recording (abort) stops+releases the encoder
+# and deletes the folder (-> idle); from a draining/failed drain.current
+# deletes ITS folder and advances the queue; 409 from a fully idle machine
+# (nothing recording, nothing draining).
 # ---------------------------------------------------------------------------
 
 
@@ -759,7 +924,7 @@ def test_ac10_discard_from_recording_aborts_and_deletes(tmp_path):
     assert _state(client) == "idle"
 
 
-def test_ac10_discard_from_failed_deletes_folder(tmp_path):
+def test_ac10_discard_drops_the_failed_head_and_advances(tmp_path):
     capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=8)
     app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
@@ -771,17 +936,20 @@ def test_ac10_discard_from_failed_deletes_folder(tmp_path):
         assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
         jobs[0].final_state = "failed"
         jobs[0].release.set()
-        assert _wait_for(lambda: _state(client) == "failed")
+        assert _wait_for(lambda: _status(client)["error"] is not None)
 
         resp = client.post("/record/discard")
         assert resp.status_code == 200
+        # INV-5's ONLY sanctioned delete.
         assert not (tmp_path / "videos" / resolved).exists()
+        assert _wait_for(lambda: _drain(client)["current"] is None)
+        assert _status(client)["error"] is None
         assert _state(client) == "idle"
     finally:
         _release_jobs(jobs)
 
 
-def test_ac10_discard_from_processing_rejects_take(tmp_path):
+def test_ac10_discard_drops_the_draining_current_job(tmp_path):
     capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=8)
     app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
@@ -790,11 +958,13 @@ def test_ac10_discard_from_processing_rejects_take(tmp_path):
         start.raise_for_status()
         resolved = start.json()["entry_name"]
         client.post("/record/stop").raise_for_status()
-        assert _wait_for(lambda: _state(client) == "processing")
+        assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
+        assert _wait_for(lambda: _drain(client)["current"] is not None)
 
         resp = client.post("/record/discard")
         assert resp.status_code == 200
         assert not (tmp_path / "videos" / resolved).exists()
+        assert _wait_for(lambda: _drain(client)["current"] is None)
         assert _state(client) == "idle"
     finally:
         _release_jobs(jobs)
@@ -809,13 +979,14 @@ def test_ac10_discard_from_idle_returns_409(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# AC11 — /record/retry: valid only from failed; builds a fresh job from the
-# on-disk MP4 + keyframe list, re-runs on a worker thread (-> processing);
-# 409 from any other state.
+# AC11 — /record/retry {entry_name}: valid only when drain.current is a
+# failed head whose entry_name matches; clears the error and re-drains from
+# frame 0; 409 from any other state (idle/recording/draining-not-failed) or a
+# mismatched entry_name.
 # ---------------------------------------------------------------------------
 
 
-def test_ac11_retry_from_failed_reruns_postpass(tmp_path):
+def test_ac11_retry_from_failed_head_reruns_postpass(tmp_path):
     capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=9)
     app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
@@ -828,14 +999,14 @@ def test_ac11_retry_from_failed_reruns_postpass(tmp_path):
         assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
         jobs[0].final_state = "failed"
         jobs[0].release.set()
-        assert _wait_for(lambda: _state(client) == "failed")
+        assert _wait_for(lambda: _status(client)["error"] is not None)
 
-        resp = client.post("/record/retry")
+        resp = client.post("/record/retry", json={"entry_name": resolved})
         assert resp.status_code == 200
         assert resp.json() == {"ok": True}
 
-        assert _wait_for(lambda: _state(client) == "processing")
-        # A fresh job (second instance) was constructed from the same entry.
+        # Clears the error; a fresh job (second instance) re-drains from frame 0.
+        assert _wait_for(lambda: _status(client)["error"] is None)
         assert _wait_for(lambda: len(jobs) == 2 and jobs[1].started.is_set())
         retry_job = jobs[1]
         assert retry_job.entry_dir == tmp_path / "videos" / resolved
@@ -844,7 +1015,29 @@ def test_ac11_retry_from_failed_reruns_postpass(tmp_path):
         assert retry_job.frame_count == 9
 
         retry_job.release.set()
-        assert _wait_for(lambda: _state(client) == "idle")
+        assert _wait_for(lambda: _drain(client)["current"] is None)
+    finally:
+        _release_jobs(jobs)
+
+
+def test_ac11_retry_entry_name_mismatch_returns_409(tmp_path):
+    # Retry is scoped to the CURRENT failed head by name (§5) — a mismatched
+    # entry_name (stale UI, wrong queued entry, typo, ...) 409s and leaves the
+    # failed head untouched.
+    capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=8)
+    app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
+    client = TestClient(app)
+    try:
+        client.post("/record/start", json={"entry_base": "take1"}).raise_for_status()
+        client.post("/record/stop").raise_for_status()
+        assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
+        jobs[0].final_state = "failed"
+        jobs[0].release.set()
+        assert _wait_for(lambda: _status(client)["error"] is not None)
+
+        resp = client.post("/record/retry", json={"entry_name": "not-the-failed-one"})
+        assert resp.status_code == 409
+        assert _status(client)["error"] is not None  # untouched
     finally:
         _release_jobs(jobs)
 
@@ -854,21 +1047,23 @@ def test_ac11_retry_from_idle_returns_409(tmp_path):
     app, *_ = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
 
-    assert client.post("/record/retry").status_code == 409
+    assert client.post("/record/retry", json={"entry_name": "whatever"}).status_code == 409
 
 
-def test_ac11_retry_from_processing_returns_409(tmp_path):
-    # Retry is valid only from failed — never on an in-flight post-pass.
+def test_ac11_retry_while_draining_not_failed_returns_409(tmp_path):
+    # Retry is valid only against a FAILED head — never a live/in-flight drain.
     capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=8)
     app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
     try:
-        client.post("/record/start", json={"entry_base": "take1"}).raise_for_status()
+        start = client.post("/record/start", json={"entry_base": "take1"})
+        start.raise_for_status()
+        resolved = start.json()["entry_name"]
         client.post("/record/stop").raise_for_status()
-        assert _wait_for(lambda: _state(client) == "processing")
+        assert _wait_for(lambda: _drain(client)["current"] is not None)
 
-        assert client.post("/record/retry").status_code == 409
-        assert _state(client) == "processing"
+        assert client.post("/record/retry", json={"entry_name": resolved}).status_code == 409
+        assert _status(client)["error"] is None
     finally:
         _release_jobs(jobs)
 
@@ -879,7 +1074,7 @@ def test_ac11_retry_from_recording_returns_409(tmp_path):
     client = TestClient(app)
     client.post("/record/start", json={"entry_base": "take1"}).raise_for_status()
 
-    assert client.post("/record/retry").status_code == 409
+    assert client.post("/record/retry", json={"entry_name": "take1_001"}).status_code == 409
 
 
 # ---------------------------------------------------------------------------
@@ -911,3 +1106,235 @@ def test_ac12_concurrent_start_yields_exactly_one_recording(tmp_path):
     # Only the winner ever started the recording.
     assert len(capture.start_recording_calls) == 1
     assert _state(client) == "recording"
+
+
+# ---------------------------------------------------------------------------
+# U2 acceptance criteria (docs/tasks/U2-queue.md §7) — the queue/pause/resume/
+# eta behavior itself, layered on top of the endpoint-guard migrations above.
+# AC7 there ("regressions green + new concurrency tests") is the whole suite
+# staying green, not a single discrete test.
+# ---------------------------------------------------------------------------
+
+
+def test_u2_ac1_stop_response_shape_and_start_accepted_while_draining(tmp_path):
+    capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=17)
+    app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
+    client = TestClient(app)
+    try:
+        client.post("/record/start", json={"entry_base": "take1"}).raise_for_status()
+        resp = client.post("/record/stop")
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True, "frames_written": 17}
+        assert _state(client) == "idle"  # immediate, never "processing"
+
+        resp2 = client.post("/record/start", json={"entry_base": "take2"})
+        assert resp2.status_code == 200  # accepted even while take1 drains
+    finally:
+        _release_jobs(jobs)
+
+
+def test_u2_ac2_fifo_drain_two_queued_jobs_one_at_a_time(tmp_path):
+    # Two jobs queued back-to-back; the worker drains them strictly one at a
+    # time in enqueue order (INV-6): drain.current walks job1 -> job2 -> None,
+    # drain.queued shrinks front-to-back, and job2 never starts while job1 is
+    # still live. Uses the fake's autonomous per-frame pacing (frame_pace) so
+    # both jobs complete on their own — no manual release needed.
+    capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=50)
+    app, _detector, _enc, _calls, jobs = _build_app(
+        capture, output_path=tmp_path, frame_pace=0.01
+    )
+    client = TestClient(app)
+    try:
+        start1 = client.post("/record/start", json={"entry_base": "take1"})
+        start1.raise_for_status()
+        resolved1 = start1.json()["entry_name"]
+        client.post("/record/stop").raise_for_status()
+        assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
+
+        # Start+stop take2 WHILE take1 still drains (AC1) -- job2 is enqueued
+        # behind job1, not started (FIFO, one at a time).
+        start2 = client.post("/record/start", json={"entry_base": "take2"})
+        assert start2.status_code == 200
+        resolved2 = start2.json()["entry_name"]
+        client.post("/record/stop").raise_for_status()
+        assert len(jobs) == 2
+        job1, job2 = jobs
+
+        # job2 must not begin running while job1 is still the live current.
+        assert _drain(client)["current"]["entry_name"] == resolved1
+        assert _drain(client)["queued"] == [resolved2]
+        assert job2.started.is_set() is False
+
+        # Both eventually complete, strictly in order.
+        assert _wait_for(lambda: job1.status.state == "done", timeout=5.0)
+        assert _wait_for(lambda: job2.started.is_set(), timeout=5.0)
+        assert _wait_for(
+            lambda: _drain(client)["current"] is None and _drain(client)["queued"] == [],
+            timeout=5.0,
+        )
+        assert job2.status.state == "done"
+    finally:
+        _release_jobs(jobs)
+
+
+def test_u2_ac3_pause_within_one_frame_reclaims_detector_and_resumes_same_job(tmp_path):
+    """AC3 (crux). Contract-level proof using the enriched ``_FakeJob``'s
+    autonomous per-frame pacing: (a) the SAME drain job pauses shortly after
+    ``/record/start`` (``done`` stops advancing, ``status.state ==
+    "paused"``); (b) the detector was reclaimed for the live overlay BEFORE
+    recording began (``capture.resume_calls`` — INV-3's REAL, concurrent-
+    predict-proof lives in ``tests/test_recording_e2e.py``'s AC3/AC6 test,
+    since this fake capture has no live inference thread to race against);
+    (c) after ``/record/stop`` returns to idle, the IDENTICAL job (never
+    replaced) resumes from its parked frame count, not 0 (INV-4 — the strict,
+    byte-identical-output proof lives in ``tests/test_postpass.py``'s
+    pause/resume unit tests, which exercise the REAL ``PostPassJob``).
+    """
+    capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=40)
+    app, _detector, _enc, _calls, jobs = _build_app(
+        capture, output_path=tmp_path, frame_pace=0.01
+    )
+    client = TestClient(app)
+    try:
+        start1 = client.post("/record/start", json={"entry_base": "take1"})
+        start1.raise_for_status()
+        resolved1 = start1.json()["entry_name"]
+        client.post("/record/stop").raise_for_status()
+        assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
+        job1 = jobs[0]
+
+        # Let it genuinely make progress before we interrupt it.
+        assert _wait_for(lambda: job1.status.done >= 3, timeout=3.0)
+
+        resp = client.post("/record/start", json={"entry_base": "take2"})
+        assert resp.status_code == 200
+        assert _state(client) == "recording"
+
+        # (a) paused promptly: state flips to "paused", and done then stays
+        # put across a short bounded re-check window (never advances further
+        # while parked).
+        assert _wait_for(lambda: job1.status.state == "paused", timeout=3.0)
+        done_at_pause = job1.status.done
+        assert _wait_for(lambda: job1.status.done != done_at_pause, timeout=0.3) is False
+
+        # Still the SAME job reported as drain.current — never replaced.
+        current = _drain(client)["current"]
+        assert current is not None
+        assert current["entry_name"] == resolved1
+        assert current["done"] == done_at_pause
+
+        # (b) detector reclaimed before recording began.
+        assert capture.resume_calls >= 1
+
+        # (c) stop take2 -> idle; the SAME job resumes from done_at_pause (not
+        # 0) and runs to completion.
+        client.post("/record/stop").raise_for_status()
+        assert len(jobs) == 2
+        assert jobs[0] is job1  # never re-constructed
+
+        assert _wait_for(lambda: job1.status.state in ("running", "done"), timeout=3.0)
+        # Never reset to 0 -- resumed from (at least) the parked index.
+        assert job1.status.done >= done_at_pause
+
+        assert _wait_for(lambda: job1.status.state == "done", timeout=5.0)
+        assert job1.status.done == job1.status.total
+    finally:
+        _release_jobs(jobs)
+
+
+def test_u2_ac4_failed_job_folder_persists_until_discard_or_retry(tmp_path):
+    # INV-5 (hard): a failed job never deletes its Entry folder on its own —
+    # only an explicit /record/discard does. The folder (with its finalized
+    # MP4) sits there, untouched, for as long as the operator leaves it failed.
+    capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=8)
+    app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
+    client = TestClient(app)
+    try:
+        start = client.post("/record/start", json={"entry_base": "take1"})
+        start.raise_for_status()
+        resolved = start.json()["entry_name"]
+        entry_dir = tmp_path / "videos" / resolved
+        client.post("/record/stop").raise_for_status()
+        assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
+        assert entry_dir.exists()  # MP4 finalized at /record/stop, pre-enqueue
+
+        jobs[0].final_state = "failed"
+        jobs[0].release.set()
+        assert _wait_for(lambda: _status(client)["error"] is not None)
+
+        # Still there, and stays there across a bounded wait -- nothing
+        # auto-deletes a failed job's folder.
+        assert entry_dir.exists()
+        assert _wait_for(lambda: not entry_dir.exists(), timeout=0.5) is False
+
+        # Retry rebuilds it in place rather than the folder ever vanishing.
+        resp = client.post("/record/retry", json={"entry_name": resolved})
+        assert resp.status_code == 200
+        assert entry_dir.exists()
+    finally:
+        _release_jobs(jobs)
+
+
+def test_u2_ac5_eta_seconds_formula(tmp_path):
+    capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=10)
+    app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
+    client = TestClient(app)
+    try:
+        # job1: current, mid-drain (never auto-advances -- legacy block mode).
+        client.post("/record/start", json={"entry_base": "take1"}).raise_for_status()
+        client.post("/record/stop").raise_for_status()
+        assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
+
+        # job2: enqueued behind job1 while job1 is still draining (AC1).
+        capture._frames_written = 5
+        client.post("/record/start", json={"entry_base": "take2"}).raise_for_status()
+        client.post("/record/stop").raise_for_status()
+        assert len(jobs) == 2
+        job1, job2 = jobs
+
+        job1._done = 3  # 3 of 10 done -> 7 remaining
+        app.state.detect_fps = 2.0
+
+        body = _status(client)
+        assert body["drain"]["current"] == {
+            "entry_name": job1.entry_name, "done": 3, "total": 10,
+        }
+        assert body["drain"]["queued"] == [job2.entry_name]
+        # remaining_frames = (10 - 3) + 5 = 12; eta = 12 / 2.0 = 6.0
+        assert body["drain"]["eta_seconds"] == pytest.approx(6.0)
+    finally:
+        _release_jobs(jobs)
+
+
+def test_u2_ac5_eta_seconds_zero_when_nothing_queued_or_draining(tmp_path):
+    capture = RecordingStubCapture(frame=make_fake_frame(64, 48))
+    app, *_ = _build_app(capture, output_path=tmp_path)
+    client = TestClient(app)
+    app.state.detect_fps = 0.6
+
+    assert _drain(client)["eta_seconds"] == 0
+
+
+def test_u2_ac6_pause_reclaims_detector_before_recording_begins(tmp_path):
+    # Contract-level proof of INV-3 using RecordingStubCapture's counters/flag
+    # (this stub has no live inference thread to race against — the decisive
+    # "never concurrent" proof over a REAL shared detector lives in
+    # tests/test_recording_e2e.py). By the time /record/start returns 200
+    # (recording has begun), the detector must already have been reclaimed
+    # from the draining job — capture.inference_paused is False.
+    capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=8)
+    app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
+    client = TestClient(app)
+    try:
+        client.post("/record/start", json={"entry_base": "take1"}).raise_for_status()
+        client.post("/record/stop").raise_for_status()
+        assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
+        assert _wait_for(lambda: capture.inference_paused is True)  # worker owns it
+
+        resp = client.post("/record/start", json={"entry_base": "take2"})
+        assert resp.status_code == 200
+        # Recording began -> the detector must already be back with the live
+        # overlay (INV-3: no instant where both could call .predict).
+        assert capture.inference_paused is False
+    finally:
+        _release_jobs(jobs)
