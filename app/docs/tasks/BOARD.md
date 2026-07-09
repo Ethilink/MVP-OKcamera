@@ -132,3 +132,20 @@ solve it locally.
     (AC4/6/7/8), `/status` shape + 409/503 + tz-aware timestamps + stop==report,
     scenario boundary convention, and that the time-dilation finding above does
     NOT corrupt recorded report values (they're wall-clock, not scenario-frame).
+
+- **[2026-07-09] RESOLVED — Fable second review + fixes (`1fede3d`).** A Fable
+  reviewer independently re-reviewed and adjudicated the Codex findings:
+  - **Fixed** (Codex+Fable agree): (a) `stop()` force-release + `_forced_dead`
+    (AC9), (b) `start()` already-running guard, (c) `/stream` paced by `Latest`
+    identity (no dup frames, AC5). Plus Fable's own: (5) `main()` `try/finally`
+    shutdown hook releasing the camera, (6) public `CaptureLoop.set_on_frame()`
+    replacing the private `_on_frame` poke. Backend 94 passed (+3 tests); live
+    `orc-demo --fake` smoke green incl `/stream` + clean shutdown.
+  - **REJECTED as not-a-bug** (d) `session.py:183` projection: Fable reproduced
+    Codex's scenario and showed the empty report is CORRECT — one observed frame
+    is not `> on_debounce` continuous presence, and presuming continuity across
+    a capture stall would fabricate phantom pickups. Left as-is by design (AC10
+    non-mutating projection). No change.
+  - **Deferred nits** (Fable, optional): reset_tracker() on a dead thread is a
+    silent no-op (unreachable via UI); `ScenarioTracker(confidence=)` param
+    stored but unused. Bram's call, cosmetic.
