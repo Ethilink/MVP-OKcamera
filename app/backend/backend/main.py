@@ -82,22 +82,22 @@ class ReportResponse(BaseModel):
 
 
 async def _mjpeg_stream(capture: CaptureLoop):
-    """Yield one multipart JPEG part per new `Latest`, paced by
-    `capture.generation` — no duplicate parts, no busy loop (AC5)."""
-    last_generation = -1
+    """Yield one multipart JPEG part per new `Latest`, paced by SNAPSHOT
+    IDENTITY — T03 AC4 guarantees each publish rebinds a NEW `Latest` object,
+    so `latest is not last_sent` advances exactly once per published frame:
+    no duplicate parts, no busy loop (AC5)."""
+    last_sent = None
     while True:
-        generation = capture.generation
-        if generation != last_generation:
-            latest = capture.snapshot()
-            if latest is not None:
-                last_generation = generation
-                jpeg = latest.overlay_jpeg
-                yield (
-                    b"--" + _STREAM_BOUNDARY.encode() + b"\r\n"
-                    b"Content-Type: image/jpeg\r\n"
-                    b"Content-Length: " + str(len(jpeg)).encode() + b"\r\n\r\n"
-                    + jpeg + b"\r\n"
-                )
+        latest = capture.snapshot()
+        if latest is not None and latest is not last_sent:
+            last_sent = latest
+            jpeg = latest.overlay_jpeg
+            yield (
+                b"--" + _STREAM_BOUNDARY.encode() + b"\r\n"
+                b"Content-Type: image/jpeg\r\n"
+                b"Content-Length: " + str(len(jpeg)).encode() + b"\r\n\r\n"
+                + jpeg + b"\r\n"
+            )
         await asyncio.sleep(_STREAM_POLL_S)
 
 
@@ -127,7 +127,7 @@ def create_app(
         with lock:
             session.observe(t, present_ids)
 
-    capture._on_frame = _on_frame
+    capture.set_on_frame(_on_frame)
 
     def _report_response(report) -> ReportResponse:
         return ReportResponse(
@@ -263,7 +263,12 @@ def main(argv: list[str] | None = None) -> None:
 
     app = create_app(capture, session, tracker.model_version)
     capture.start()
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=8000)
+    finally:
+        # Always release the camera on exit (Ctrl-C, error, or normal return);
+        # without this the capture thread + device leak past process teardown.
+        capture.stop()
 
 
 if __name__ == "__main__":

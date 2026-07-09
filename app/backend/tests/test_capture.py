@@ -704,6 +704,58 @@ class TestAC9StopJoinsReleasesAndReportsDead:
         assert cap.isOpened() is False
 
 
+class TestStartRejectsASecondStart:
+    """DESIGN "exactly one capture thread": start() on an already-running loop
+    raises rather than spawning a second thread that races on the capture."""
+
+    def test_second_start_while_running_raises_runtime_error(self) -> None:
+        cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
+        counter = _Counter()
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids: counter.hit())
+
+        loop.start()
+        try:
+            assert counter.wait_for(1)
+            with pytest.raises(RuntimeError):
+                loop.start()
+        finally:
+            loop.stop()
+
+
+class TestStopForcesDeadWhenThreadWontJoin:
+    """AC9 hardening: if the capture thread is wedged in a blocking read() past
+    stop()'s 2s join deadline, stop() still returns promptly, releases the
+    capture from the caller thread (which unblocks the stuck read), and leaves
+    health == "dead" — the strongest achievable, since a Python thread can't be
+    killed."""
+
+    def test_stop_releases_and_reports_dead_when_read_blocks_past_join(
+        self,
+    ) -> None:
+        cap = _BlockingReadCapture()  # read() blocks until release() (AC11 pattern)
+        released: list[bool] = []
+        original_release = cap.release
+
+        def spy_release() -> None:
+            released.append(True)
+            original_release()
+
+        cap.release = spy_release  # type: ignore[method-assign]
+        loop = _make_loop(ScenarioTracker(), cap)
+
+        loop.start()
+        try:
+            start = time.monotonic()
+            loop.stop()
+            elapsed = time.monotonic() - start
+
+            assert elapsed <= 2.5
+            assert loop.health == "dead"
+            assert released  # stop() released the capture from the caller thread
+        finally:
+            cap.release()  # ensure the stuck read is unblocked so nothing leaks
+
+
 class TestAC11ResetTracker:
     """AC11: reset_tracker() invokes tracker.reset() exactly once, on the
     capture thread, and returns only after it's applied; a no-op before

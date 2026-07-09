@@ -75,8 +75,16 @@ class CaptureLoop:
         self._generation = 0
         self._start_time = 0.0
         self._last_publish: float | None = None
+        self._forced_dead = False
+
+    def set_on_frame(self, cb: OnFrame | None) -> None:
+        """Register (or clear) the per-publication callback. Public so wiring
+        code (T04's `create_app`) never has to poke the private attribute."""
+        self._on_frame = cb
 
     def start(self) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            raise RuntimeError("capture already running")
         cap = self._cap_factory(self._camera_index)
         if not cap.isOpened():
             raise RuntimeError(f"capture {self._camera_index} would not open")
@@ -86,6 +94,7 @@ class CaptureLoop:
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         self._cap = cap
+        self._forced_dead = False
         self._start_time = time.monotonic()
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -95,6 +104,19 @@ class CaptureLoop:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
+            if self._thread.is_alive():
+                # The thread outran the join deadline — almost always wedged in
+                # a blocking cv2 read(). A Python thread can't be killed, so do
+                # the strongest achievable: mark the loop dead (AC9's observable
+                # contract) and release the capture from HERE. Releasing the
+                # device typically unblocks the stuck read so the thread can
+                # then exit on its own. A release exception must not propagate.
+                self._forced_dead = True
+                if self._cap is not None:
+                    try:
+                        self._cap.release()
+                    except Exception:
+                        logger.exception("capture release during stop() failed")
 
     def reset_tracker(self, timeout_s: float = 2.0) -> None:
         if self._thread is None or not self._thread.is_alive():
@@ -110,6 +132,8 @@ class CaptureLoop:
 
     @property
     def health(self) -> str:
+        if self._forced_dead:
+            return "dead"
         thread = self._thread
         if thread is None or not thread.is_alive():
             return "dead"

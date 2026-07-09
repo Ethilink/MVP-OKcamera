@@ -71,18 +71,24 @@ class FakeCapture:
         self.health = "ok"
         self.generation = 0
         self.calls: list[str] = calls if calls is not None else []
-        self._frames: dict[int, bytes] = {}
+        self._frames: dict[int, Latest] = {}
         self._reset_error: BaseException | None = None
+        self.on_frame = None
+
+    def set_on_frame(self, cb) -> None:
+        self.on_frame = cb
 
     def set_frame(self, generation: int, jpeg: bytes) -> None:
+        # Mirror the real `CaptureLoop`: each publish rebinds a NEW `Latest`
+        # (stored once here), and `snapshot()` returns that SAME object until
+        # the next publish — the identity `/stream` paces on (T03 AC4).
         self.generation = generation
-        self._frames[generation] = jpeg
+        self._frames[generation] = Latest(
+            overlay_jpeg=jpeg, present_ids=frozenset(), count=0, t=0.0
+        )
 
     def snapshot(self) -> Latest | None:
-        jpeg = self._frames.get(self.generation)
-        if jpeg is None:
-            return None
-        return Latest(overlay_jpeg=jpeg, present_ids=frozenset(), count=0, t=0.0)
+        return self._frames.get(self.generation)
 
     def fail_reset_with(self, exc: BaseException) -> None:
         self._reset_error = exc
@@ -414,6 +420,76 @@ class TestAC5MjpegStreamPacedByGeneration:
         assert second is not None and b"JPEG-FRAME-TWO" in second
         assert first != second
         assert third is None  # stalled: no third part shows up
+
+
+async def _drive_stream_collect_bodies(app, capture, frames, drain_timeout: float = 0.2):
+    """Issue a raw ASGI GET /stream, then walk through `frames`: publish each
+    one and drain every body chunk that appears before `drain_timeout` of
+    silence. The drain window spans many `_STREAM_POLL_S` cycles, so a broken
+    dedup (emitting on every poll) would surface as duplicate bodies; correct
+    snapshot-identity pacing yields exactly one body per distinct frame."""
+    messages: asyncio.Queue = asyncio.Queue()
+
+    async def receive():
+        await asyncio.Event().wait()  # a client that never disconnects
+
+    async def send(message: dict) -> None:
+        await messages.put(message)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": "GET",
+        "path": "/stream",
+        "raw_path": b"/stream",
+        "headers": [],
+        "query_string": b"",
+        "server": ("test", 80),
+        "client": ("test", 123),
+        "scheme": "http",
+        "root_path": "",
+    }
+
+    async def _drain() -> list[bytes]:
+        bodies: list[bytes] = []
+        while True:
+            try:
+                msg = await asyncio.wait_for(messages.get(), drain_timeout)
+            except asyncio.TimeoutError:
+                return bodies
+            if msg.get("type") == "http.response.body":
+                bodies.append(msg.get("body"))
+
+    task = asyncio.create_task(app(scope, receive, send))
+    try:
+        collected: list[bytes] = []
+        collected += await _drain()  # first frame (already published) + idle polls
+        for jpeg in frames[1:]:
+            capture.set_frame(capture.generation + 1, jpeg)
+            collected += await _drain()
+        return collected
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+class TestStreamHasNoDuplicateParts:
+    """T04: `/stream` sends a part only when generation advances. Publishing N
+    distinct frames — each held across many poll cycles — yields <= N parts."""
+
+    def test_n_distinct_frames_yield_at_most_n_parts(self) -> None:
+        frames = [b"JPEG-A", b"JPEG-B", b"JPEG-C"]
+        capture = FakeCapture()
+        capture.set_frame(1, frames[0])
+        app = create_app(capture, Session(), "test-model")
+
+        bodies = asyncio.run(_drive_stream_collect_bodies(app, capture, frames))
+
+        assert 0 < len(bodies) <= len(frames)  # no duplicate parts
+        for i, jpeg in enumerate(frames[: len(bodies)]):
+            assert jpeg in bodies[i]
 
 
 class TestAC6CaptureHealthMapping:
