@@ -6,6 +6,15 @@ this folder is a **self-contained brief**: an agent gets ONE task file (plus its
 spec) and has everything needed — goal, frozen interface, scope, numbered
 acceptance criteria. No GitHub issues; this folder is the tracker.
 
+> **2026-07-09 — the tool was unified (U1–U4) then simplified (SIMPLIFY /
+> ADR-0002).** The image and recording modes became one tool with a mode toggle
+> (U1–U4), and the all-frames offline post-pass + idle-draining queue were then
+> **removed** in favour of keyframe-only synchronous stop
+> ([`../adr/0002-keyframe-only-synchronous-stop.md`](../adr/0002-keyframe-only-synchronous-stop.md)).
+> **TR4 (the post-pass job runner) and its `backend/postpass.py` no longer
+> exist** — see the U/SIMPLIFY rows below. The T##/TR## rows are kept as the
+> build history.
+
 ## Rules for agents
 
 1. **Claim before you touch code.** Set `status: in-progress (<agent-name>)` in
@@ -50,14 +59,19 @@ of truth**; update both when they touch your task.
 | T04 | [Overlay renderer](T04-overlay-render.md)         | T01             | done   | claude |
 | T05 | [FastAPI layer](T05-api.md)                       | T02, T03, T04   | done   | claude |
 | T06 | [Frontend (static UI)](T06-frontend.md)           | T01 (API contract only) | done | claude |
-| T07 | [Hardware integration runbook](T07-integration.md)| T05, T06        | in-progress | claude |
+| T07 | [Hardware integration runbook](T07-integration.md)| T05, T06        | done (image-mode flow verified live; real-instrument capture is an "aim the camera" step, see DASHBOARD.md §Open items) | claude |
 | TR1 | [Reader/encoder split + `Latest.frame_number`](TR1-capture-recording.md) | — | done | orchestrator (blind-tdd) |
 | TR2 | [H.264 encoder wrapper + probe](TR2-encoder.md)   | —               | done   | orchestrator (blind-tdd) |
 | TR3 | [Shared COCO helper + `VideoEntryWriter`](TR3-video-writer.md) | —  | done   | orchestrator (blind-tdd) |
-| TR4 | [Post-pass job runner](TR4-postpass.md)           | TR1 (test fakes), TR2, TR3 | done | orchestrator (blind-tdd) |
-| TR5 | [Recording API + state machine](TR5-api.md)       | TR1, TR2, TR3, TR4 | done | orchestrator (blind-tdd) |
+| TR4 | Post-pass job runner                              | TR1 (test fakes), TR2, TR3 | **removed** (ADR-0002 — `backend/postpass.py` deleted; brief retired) | orchestrator (blind-tdd) |
+| TR5 | [Recording API + state machine](TR5-api.md)       | TR1, TR2, TR3   | done (later reduced to `idle ↔ recording` by SIMPLIFY) | orchestrator (blind-tdd) |
 | TR6 | [Recording frontend](TR6-frontend.md)             | TR5 (endpoint contract only) | done (R4 manual pass green; 1 CSS fix; 2 findings → TR5/TR1) | claude |
 | TR7 | [Recording integration + 60fps spike](TR7-integration.md) | TR5, TR6 | done (ACs 1–9 ✓; spike: Camo=30fps@1080p60; entry opens headlessly via annotation-tool Project.from_directory; 1 file_name spec-nit → TR3) | claude |
+| U1  | [Storage split `images/`+`videos/`](U1-storage.md)| TR7             | done (blind-tdd) | orchestrator |
+| U2  | Idle-draining queue + pause/resume                | U1              | **superseded** (built, then removed by SIMPLIFY/ADR-0002; brief deleted) | orchestrator |
+| U3  | Unified capture UI (mode toggle, unified SPACE)   | U1              | done (commit `f83124a`) | claude |
+| U4  | Unified docs + live verification                  | U2, U3          | done (commit `3986428`; drain-queue notes since retired, see DASHBOARD.md §Open items) | claude |
+| SIM | [Keyframe-only synchronous stop](SIMPLIFY-keyframe-only.md) | U4     | done (commit `470ea05`; ADR-0002 — drops post-pass + queue) | claude |
 
 ## Phases / parallelism
 
@@ -109,7 +123,7 @@ flowchart LR
 | `scripts/find_camera.py`, runbook results | T07 |
 | `backend/encoder.py` + `tests/test_encoder.py` | TR2 |
 | `backend/coco.py`, `backend/video_writer.py` + their tests | TR3 |
-| `backend/postpass.py` + `tests/test_postpass.py` | TR4 |
+| ~~`backend/postpass.py` + `tests/test_postpass.py` (TR4)~~ | removed by ADR-0002 |
 | `tests/recording_fakes.py`, `tests/test_capture_recording.py` | TR1 |
 | `tests/test_recording_api.py`             | TR5 |
 | `tests/test_recording_e2e.py`, `scripts/spike_fps.py` | TR7 |
