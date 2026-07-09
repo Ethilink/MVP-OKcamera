@@ -150,7 +150,9 @@ def test_ac2_concurrent_flags_yield_sequential_ids(tmp_path):
     image_ids = sorted(r.json()["image_id"] for r in responses)
     assert image_ids == list(range(1, n + 1))  # N sequential, no duplicates
 
-    data = json.loads((tmp_path / "ds" / "annotations" / "annotations.json").read_text())
+    data = json.loads(
+        (tmp_path / "images" / "ds" / "annotations" / "annotations.json").read_text()
+    )
     assert len(data["images"]) == n
     ann_ids = [a["id"] for a in data["annotations"]]
     assert ann_ids == sorted(ann_ids)
@@ -197,8 +199,10 @@ def test_ac4_settings_collision_invalid_and_swap(tmp_path):
     ).raise_for_status()
     assert client.get("/status").json()["n_flagged"] == 0  # fresh writer, reset
 
-    # collision: an existing folder is rejected with 409
-    (tmp_path / "taken").mkdir()
+    # collision: an existing NESTED Dataset folder (images/<name>/) is rejected
+    # with 409 (U1: a bare images/ parent alone does not collide — see
+    # test_u1_storage.py AC5).
+    (tmp_path / "images" / "taken").mkdir(parents=True)
     resp = client.post(
         "/settings", json={"output_path": str(tmp_path), "dataset_name": "taken"}
     )
@@ -378,7 +382,7 @@ def test_ac8_validate_is_in_process_no_subprocess(tmp_path, monkeypatch):
     body = client.post("/validate").json()
     assert body == {"errors": ["synthetic error"], "warnings": ["synthetic warning"]}
     assert len(calls) == 1  # called once, in-process, with the active dataset dir
-    assert calls[0] == (tmp_path / "ds")
+    assert calls[0] == (tmp_path / "images" / "ds")
 
 
 # --- AC9: provenance uses the snapshot threshold, not the live slider --------
@@ -400,7 +404,9 @@ def test_ac9_flag_records_snapshot_threshold(tmp_path):
 
     client.post("/flag").raise_for_status()
 
-    data = json.loads((tmp_path / "ds" / "annotations" / "annotations.json").read_text())
+    data = json.loads(
+        (tmp_path / "images" / "ds" / "annotations" / "annotations.json").read_text()
+    )
     assert data["annotations"], "expected annotations from non-empty dets"
     for ann in data["annotations"]:
         # The frozen snapshot value survives — not the live 0.8 slider.
@@ -501,7 +507,7 @@ def test_discard_removes_last_capture(tmp_path):
     assert r.status_code == 200
     assert r.json()["discarded_image_id"] == 1
     assert r.json()["n_flagged"] == 0
-    assert not (tmp_path / "ds" / "images" / "frame_00001.jpg").exists()
+    assert not (tmp_path / "images" / "ds" / "images" / "frame_00001.jpg").exists()
 
     # Nothing left to discard -> 409, not a crash.
     assert client.post("/discard").status_code == 409

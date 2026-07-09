@@ -325,11 +325,11 @@ def test_ac2_start_records_and_opens_encoder_at_capture_fps_and_snapshot_size(tm
     )
     client = TestClient(app)
 
-    resp = client.post("/record/start", json={"entry_name": "take1"})
+    resp = client.post("/record/start", json={"entry_base": "take1"})
     assert resp.status_code == 200
     body = resp.json()
     assert body["ok"] is True
-    assert body["entry_name"] == "take1"
+    assert body["entry_name"] == "take1_001"  # resolved base_NNN (U1)
     assert body["operator_threshold"] == 0.42  # frozen = detector threshold NOW
 
     # Encoder opened once, at capture_fps, with frame_size from the snapshot.
@@ -337,11 +337,11 @@ def test_ac2_start_records_and_opens_encoder_at_capture_fps_and_snapshot_size(tm
     call = encoder_calls[0]
     assert call["fps"] == 24.0
     assert call["frame_size"] == (1920, 1080)
-    expected_mp4 = tmp_path / "take1" / "video" / "take1.mp4"
+    expected_mp4 = tmp_path / "videos" / "take1_001" / "video" / "take1_001.mp4"
     assert call["path"] == expected_mp4
 
     # The entry's video dir was minted, and capture.start_recording got the enc.
-    assert (tmp_path / "take1" / "video").is_dir()
+    assert (tmp_path / "videos" / "take1_001" / "video").is_dir()
     assert capture.start_recording_calls == [enc]
 
     # State advanced to recording.
@@ -350,18 +350,25 @@ def test_ac2_start_records_and_opens_encoder_at_capture_fps_and_snapshot_size(tm
 
 
 # ---------------------------------------------------------------------------
-# AC3 — start guards: 409 on collision / already recording / no output_path /
-# no frame captured; 422 on invalid entry_name (single component, no leading .).
+# AC3 — start guards: already recording / processing / failed / no output_path /
+# no frame captured -> 409; 422 on invalid entry_base (single component, no
+# leading .). U1: the folder-collision guard is gone — a repeat base
+# auto-suffixes instead (covered in depth by test_u1_storage.py AC2/AC3); this
+# file keeps a lightweight same-base-no-collision regression below.
 # ---------------------------------------------------------------------------
 
 
-def test_ac3_start_409_on_existing_entry_folder(tmp_path):
-    (tmp_path / "taken").mkdir()
+def test_ac3_start_same_base_auto_suffixes_no_folder_collision(tmp_path):
+    # A pre-existing videos/taken_001/ must NOT 409 a start with base "taken" —
+    # U1 replaces the old folder-collision guard with counter auto-suffix.
+    (tmp_path / "videos" / "taken_001").mkdir(parents=True)
     capture = RecordingStubCapture(frame=make_fake_frame(64, 48))
     app, *_ = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
 
-    assert client.post("/record/start", json={"entry_name": "taken"}).status_code == 409
+    resp = client.post("/record/start", json={"entry_base": "taken"})
+    assert resp.status_code == 200
+    assert resp.json()["entry_name"] == "taken_002"
 
 
 def test_ac3_start_409_when_already_recording(tmp_path):
@@ -369,8 +376,8 @@ def test_ac3_start_409_when_already_recording(tmp_path):
     app, *_ = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
 
-    assert client.post("/record/start", json={"entry_name": "a"}).status_code == 200
-    assert client.post("/record/start", json={"entry_name": "b"}).status_code == 409
+    assert client.post("/record/start", json={"entry_base": "a"}).status_code == 200
+    assert client.post("/record/start", json={"entry_base": "b"}).status_code == 409
 
 
 def test_ac3_start_409_when_processing(tmp_path):
@@ -381,12 +388,12 @@ def test_ac3_start_409_when_processing(tmp_path):
     app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
     try:
-        client.post("/record/start", json={"entry_name": "take1"}).raise_for_status()
+        client.post("/record/start", json={"entry_base": "take1"}).raise_for_status()
         client.post("/record/stop").raise_for_status()
         # Job parked (blocked) so the machine stays in processing, not racing to idle.
         assert _wait_for(lambda: _state(client) == "processing")
 
-        assert client.post("/record/start", json={"entry_name": "take2"}).status_code == 409
+        assert client.post("/record/start", json={"entry_base": "take2"}).status_code == 409
         assert _state(client) == "processing"  # still processing, no new recording
     finally:
         _release_jobs(jobs)
@@ -399,14 +406,14 @@ def test_ac3_start_409_when_failed(tmp_path):
     app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
     try:
-        client.post("/record/start", json={"entry_name": "take1"}).raise_for_status()
+        client.post("/record/start", json={"entry_base": "take1"}).raise_for_status()
         client.post("/record/stop").raise_for_status()
         assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
         jobs[0].final_state = "failed"
         jobs[0].release.set()
         assert _wait_for(lambda: _state(client) == "failed")
 
-        assert client.post("/record/start", json={"entry_name": "take2"}).status_code == 409
+        assert client.post("/record/start", json={"entry_base": "take2"}).status_code == 409
         assert _state(client) == "failed"
     finally:
         _release_jobs(jobs)
@@ -417,7 +424,7 @@ def test_ac3_start_409_when_no_output_path(tmp_path):
     app, *_ = _build_app(capture, output_path=None)
     client = TestClient(app)
 
-    assert client.post("/record/start", json={"entry_name": "a"}).status_code == 409
+    assert client.post("/record/start", json={"entry_base": "a"}).status_code == 409
 
 
 def test_ac3_start_409_when_no_frame_captured_yet(tmp_path):
@@ -427,17 +434,17 @@ def test_ac3_start_409_when_no_frame_captured_yet(tmp_path):
     app, *_ = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
 
-    assert client.post("/record/start", json={"entry_name": "a"}).status_code == 409
+    assert client.post("/record/start", json={"entry_base": "a"}).status_code == 409
 
 
-def test_ac3_start_422_on_invalid_entry_name(tmp_path):
+def test_ac3_start_422_on_invalid_entry_base(tmp_path):
     capture = RecordingStubCapture(frame=make_fake_frame(64, 48))
     app, *_ = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
 
-    assert client.post("/record/start", json={"entry_name": "bad/name"}).status_code == 422
-    assert client.post("/record/start", json={"entry_name": ".hidden"}).status_code == 422
-    assert client.post("/record/start", json={"entry_name": ""}).status_code == 422
+    assert client.post("/record/start", json={"entry_base": "bad/name"}).status_code == 422
+    assert client.post("/record/start", json={"entry_base": ".hidden"}).status_code == 422
+    assert client.post("/record/start", json={"entry_base": ""}).status_code == 422
 
 
 # ---------------------------------------------------------------------------
@@ -450,7 +457,7 @@ def test_ac4_keyframe_dedups_and_counts_while_recording(tmp_path):
     capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=100)
     app, *_ = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
-    client.post("/record/start", json={"entry_name": "a"}).raise_for_status()
+    client.post("/record/start", json={"entry_base": "a"}).raise_for_status()
 
     assert client.post("/keyframe", json={"frame_number": 5}).json()["n_keyframes"] == 1
     # A repeat of the same frame does NOT grow the set.
@@ -470,7 +477,7 @@ def test_ac4_keyframe_422_out_of_range(tmp_path):
     capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=100)
     app, *_ = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
-    client.post("/record/start", json={"entry_name": "a"}).raise_for_status()
+    client.post("/record/start", json={"entry_base": "a"}).raise_for_status()
 
     assert client.post("/keyframe", json={"frame_number": -1}).status_code == 422
     # >= frames_written (beyond frames written) is rejected; the last valid is 99.
@@ -511,7 +518,7 @@ def test_ac5_frame_carries_frame_number_while_recording(tmp_path):
         assert r_idle.status_code == 200
         assert "x-frame-number" not in r_idle.headers
 
-        client.post("/record/start", json={"entry_name": "take1"}).raise_for_status()
+        client.post("/record/start", json={"entry_base": "take1"}).raise_for_status()
 
         # Wait until a real recording tick has actually published a
         # recording-stamped Latest — i.e. an on-screen snapshot whose
@@ -563,7 +570,9 @@ def test_ac6_stop_kicks_postpass_and_completes_to_idle(tmp_path):
     )
     client = TestClient(app)
     try:
-        client.post("/record/start", json={"entry_name": "take1"}).raise_for_status()
+        start = client.post("/record/start", json={"entry_base": "take1"})
+        start.raise_for_status()
+        resolved = start.json()["entry_name"]
         client.post("/keyframe", json={"frame_number": 5}).raise_for_status()
         client.post("/keyframe", json={"frame_number": 6}).raise_for_status()
         # Freeze must not follow the live slider after start.
@@ -579,9 +588,9 @@ def test_ac6_stop_kicks_postpass_and_completes_to_idle(tmp_path):
         assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
 
         job = jobs[0]
-        # The job was built from the frozen record-start state.
-        assert job.entry_dir == tmp_path / "take1"
-        assert job.entry_name == "take1"
+        # The job was built from the frozen record-start state (resolved name).
+        assert job.entry_dir == tmp_path / "videos" / resolved
+        assert job.entry_name == resolved
         assert job.frame_count == 50
         assert job.operator_threshold == 0.42
         assert job.mining_threshold == 0.25
@@ -601,7 +610,7 @@ def test_ac6_stop_job_failure_moves_to_failed_and_resumes(tmp_path):
     app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
     try:
-        client.post("/record/start", json={"entry_name": "take1"}).raise_for_status()
+        client.post("/record/start", json={"entry_base": "take1"}).raise_for_status()
         client.post("/record/stop").raise_for_status()
         assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
 
@@ -635,12 +644,14 @@ def test_ac7_record_status_reflects_recording_then_processing(tmp_path):
     app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
     try:
-        client.post("/record/start", json={"entry_name": "take1"}).raise_for_status()
+        start = client.post("/record/start", json={"entry_base": "take1"})
+        start.raise_for_status()
+        resolved = start.json()["entry_name"]
         client.post("/keyframe", json={"frame_number": 3}).raise_for_status()
 
         recording = client.get("/record/status").json()
         assert recording["state"] == "recording"
-        assert recording["entry_name"] == "take1"
+        assert recording["entry_name"] == resolved
         assert recording["frames_written"] == 42  # live, from capture
         assert recording["n_keyframes"] == 1
         assert recording["error"] is None
@@ -666,7 +677,7 @@ def test_ac7_record_status_surfaces_error_only_in_failed(tmp_path):
     app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
     try:
-        client.post("/record/start", json={"entry_name": "take1"}).raise_for_status()
+        client.post("/record/start", json={"entry_base": "take1"}).raise_for_status()
         client.post("/record/stop").raise_for_status()
         assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
 
@@ -692,7 +703,7 @@ def test_ac8_flag_blocked_while_recording(tmp_path):
     capture = RecordingStubCapture(frame=make_fake_frame(64, 48))
     app, *_ = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
-    client.post("/record/start", json={"entry_name": "take1"}).raise_for_status()
+    client.post("/record/start", json={"entry_base": "take1"}).raise_for_status()
 
     resp = client.post("/flag")
     assert resp.status_code == 409
@@ -734,15 +745,17 @@ def test_ac10_discard_from_recording_aborts_and_deletes(tmp_path):
     capture = RecordingStubCapture(frame=make_fake_frame(64, 48))
     app, _detector, enc, _calls, _jobs = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
-    client.post("/record/start", json={"entry_name": "take1"}).raise_for_status()
-    assert (tmp_path / "take1").exists()
+    start = client.post("/record/start", json={"entry_base": "take1"})
+    start.raise_for_status()
+    resolved = start.json()["entry_name"]
+    assert (tmp_path / "videos" / resolved).exists()
 
     resp = client.post("/record/discard")
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
     assert capture.stop_recording_calls == 1
     assert enc.is_open is False  # encoder released
-    assert not (tmp_path / "take1").exists()  # folder removed
+    assert not (tmp_path / "videos" / resolved).exists()  # folder removed
     assert _state(client) == "idle"
 
 
@@ -751,7 +764,9 @@ def test_ac10_discard_from_failed_deletes_folder(tmp_path):
     app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
     try:
-        client.post("/record/start", json={"entry_name": "take1"}).raise_for_status()
+        start = client.post("/record/start", json={"entry_base": "take1"})
+        start.raise_for_status()
+        resolved = start.json()["entry_name"]
         client.post("/record/stop").raise_for_status()
         assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
         jobs[0].final_state = "failed"
@@ -760,7 +775,7 @@ def test_ac10_discard_from_failed_deletes_folder(tmp_path):
 
         resp = client.post("/record/discard")
         assert resp.status_code == 200
-        assert not (tmp_path / "take1").exists()
+        assert not (tmp_path / "videos" / resolved).exists()
         assert _state(client) == "idle"
     finally:
         _release_jobs(jobs)
@@ -771,13 +786,15 @@ def test_ac10_discard_from_processing_rejects_take(tmp_path):
     app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
     try:
-        client.post("/record/start", json={"entry_name": "take1"}).raise_for_status()
+        start = client.post("/record/start", json={"entry_base": "take1"})
+        start.raise_for_status()
+        resolved = start.json()["entry_name"]
         client.post("/record/stop").raise_for_status()
         assert _wait_for(lambda: _state(client) == "processing")
 
         resp = client.post("/record/discard")
         assert resp.status_code == 200
-        assert not (tmp_path / "take1").exists()
+        assert not (tmp_path / "videos" / resolved).exists()
         assert _state(client) == "idle"
     finally:
         _release_jobs(jobs)
@@ -803,7 +820,9 @@ def test_ac11_retry_from_failed_reruns_postpass(tmp_path):
     app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
     try:
-        client.post("/record/start", json={"entry_name": "take1"}).raise_for_status()
+        start = client.post("/record/start", json={"entry_base": "take1"})
+        start.raise_for_status()
+        resolved = start.json()["entry_name"]
         client.post("/keyframe", json={"frame_number": 2}).raise_for_status()
         client.post("/record/stop").raise_for_status()
         assert _wait_for(lambda: len(jobs) == 1 and jobs[0].started.is_set())
@@ -819,8 +838,8 @@ def test_ac11_retry_from_failed_reruns_postpass(tmp_path):
         # A fresh job (second instance) was constructed from the same entry.
         assert _wait_for(lambda: len(jobs) == 2 and jobs[1].started.is_set())
         retry_job = jobs[1]
-        assert retry_job.entry_dir == tmp_path / "take1"
-        assert retry_job.entry_name == "take1"
+        assert retry_job.entry_dir == tmp_path / "videos" / resolved
+        assert retry_job.entry_name == resolved
         assert set(retry_job.keyframes) == {2}
         assert retry_job.frame_count == 9
 
@@ -844,7 +863,7 @@ def test_ac11_retry_from_processing_returns_409(tmp_path):
     app, _detector, _enc, _calls, jobs = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
     try:
-        client.post("/record/start", json={"entry_name": "take1"}).raise_for_status()
+        client.post("/record/start", json={"entry_base": "take1"}).raise_for_status()
         client.post("/record/stop").raise_for_status()
         assert _wait_for(lambda: _state(client) == "processing")
 
@@ -858,7 +877,7 @@ def test_ac11_retry_from_recording_returns_409(tmp_path):
     capture = RecordingStubCapture(frame=make_fake_frame(64, 48))
     app, *_ = _build_app(capture, output_path=tmp_path)
     client = TestClient(app)
-    client.post("/record/start", json={"entry_name": "take1"}).raise_for_status()
+    client.post("/record/start", json={"entry_base": "take1"}).raise_for_status()
 
     assert client.post("/record/retry").status_code == 409
 
@@ -879,7 +898,7 @@ def test_ac12_concurrent_start_yields_exactly_one_recording(tmp_path):
 
     def worker(name):
         barrier.wait()  # fire both starts as simultaneously as possible
-        results.append(client.post("/record/start", json={"entry_name": name}))
+        results.append(client.post("/record/start", json={"entry_base": name}))
 
     threads = [threading.Thread(target=worker, args=(n,)) for n in ("a", "b")]
     for t in threads:

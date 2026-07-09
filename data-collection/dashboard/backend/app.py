@@ -21,6 +21,7 @@ The threading rules that bite (spec §Threading rules) are load-bearing here:
 from __future__ import annotations
 
 import asyncio
+import re
 import shutil
 import threading
 from pathlib import Path
@@ -62,9 +63,10 @@ class FlagIn(BaseModel):
 
 
 class RecordStartIn(BaseModel):
-    """`/record/start` body (TR5)."""
+    """`/record/start` body (TR5). ``entry_base`` is auto-suffixed with a
+    zero-padded counter to mint the resolved ``entry_name`` (U1)."""
 
-    entry_name: str
+    entry_base: str
 
 
 class KeyframeIn(BaseModel):
@@ -227,7 +229,7 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
                 # (image_id / ann_id / n_flagged). Held under dataset_lock so an
                 # in-flight flag can't land on a half-swapped writer.
                 app.state.writer = app.state.writer_factory(
-                    body.output_path, body.dataset_name
+                    str(Path(body.output_path) / "images"), body.dataset_name
                 )
         except FileExistsError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -335,7 +337,10 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
             "count": snap.count if snap is not None else 0,
             "confidence": app.state.detector.confidence_threshold,
             "dataset_name": writer.dataset_name if writer is not None else None,
-            "output_path": str(writer.output_path) if writer is not None else None,
+            # Report the operator's base Output path, not the writer's dataset dir
+            # — U1 nests the writer under images/, so reporting writer.output_path
+            # here would leak the nesting and change the value the frontend shows.
+            "output_path": app.state.output_path,
             "n_flagged": writer.n_flagged if writer is not None else 0,
             "capture_health": capture.health if capture is not None else "dead",
             "camera_index": capture.camera_index if capture is not None else None,
@@ -382,7 +387,7 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
     def record_start(body: RecordStartIn) -> dict:
         rec = app.state.recording
         capture = app.state.capture
-        name = body.entry_name
+        entry_base = body.entry_base
         with app.state.recording_lock:
             # Start is valid ONLY from idle; the lock serializes concurrent
             # starts so exactly one wins the transition (AC12).
@@ -391,16 +396,44 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
                     status_code=409, detail=f"cannot start recording from {rec.state!r}"
                 )
             # Same rule as dataset_name: single path component, no leading dot.
-            if not name or "/" in name or "\\" in name or name.startswith("."):
-                raise HTTPException(status_code=422, detail=f"invalid entry_name: {name!r}")
+            bad_base = (
+                not entry_base
+                or "/" in entry_base
+                or "\\" in entry_base
+                or entry_base.startswith(".")
+            )
+            if bad_base:
+                raise HTTPException(
+                    status_code=422, detail=f"invalid entry_base: {entry_base!r}"
+                )
             if app.state.output_path is None:
                 raise HTTPException(
                     status_code=409,
                     detail="No output path configured — set one in Settings first.",
                 )
-            entry_dir = Path(app.state.output_path) / name
-            if entry_dir.exists():
-                raise HTTPException(status_code=409, detail=f"entry already exists: {name!r}")
+            # Auto-suffix (U1): scan videos/ for existing "<base>_NNN" siblings
+            # and mint the next counter (max+1, never first-free — a gap like
+            # _001/_003 still yields _004), so this never collides with an
+            # existing Entry.
+            videos_dir = Path(app.state.output_path) / "videos"
+            pattern = re.compile(rf"^{re.escape(entry_base)}_(\d+)$")
+            counters = []
+            try:
+                if videos_dir.is_dir():
+                    for child in videos_dir.iterdir():
+                        match = pattern.match(child.name)
+                        if child.is_dir() and match:
+                            counters.append(int(match.group(1)))
+            except OSError:
+                # An unreadable videos/ dir is an unusable Output path — same
+                # friendly 400 as an unwritable one below, never a bare 500.
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"cannot read output folder {videos_dir} — check that the Output path is a readable, writable location you own",
+                )
+            n = max(counters) + 1 if counters else 1
+            name = f"{entry_base}_{n:03d}"
+            entry_dir = videos_dir / name
             # The encoder frame_size comes from the current on-screen frame — no
             # snapshot yet means no dims, so no start (never an AttributeError).
             snap = capture.snapshot() if capture is not None else None
@@ -414,13 +447,19 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
             # value the operator saw at start, not a later slider move (§Thresholds).
             operator_threshold = app.state.detector.confidence_threshold
             # Mint the video-project layout ourselves (AC2): open_encoder is
-            # injectable and a fake won't mkdir. The collision guard above proved
+            # injectable and a fake won't mkdir. The counter scan above proved
             # entry_dir does not pre-exist, so a plain mkdir(parents=True) is safe.
             # TR4's PostPassJob.run reopens exactly <entry>/video/<entry>.mp4.
             video_dir = entry_dir / "video"
-            video_dir.mkdir(parents=True)
             mp4_path = video_dir / f"{name}.mp4"
-            encoder = app.state.open_encoder(mp4_path, app.state.capture_fps, frame_size)
+            try:
+                video_dir.mkdir(parents=True)
+                encoder = app.state.open_encoder(mp4_path, app.state.capture_fps, frame_size)
+            except OSError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"cannot create output folder {entry_dir} — check that the Output path is a writable location you own",
+                )
             capture.start_recording(encoder)
             rec.state = "recording"
             rec.entry_name = name

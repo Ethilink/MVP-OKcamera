@@ -280,7 +280,7 @@ def _mark_keyframe(client, capture):
     return fn, disp_index, resp.json()["n_keyframes"]
 
 
-def _run_recording(tmp_path, entry_name, *, n_keyframes=2, job_hook=None):
+def _run_recording(tmp_path, entry_base, *, n_keyframes=2, job_hook=None):
     """Full record → keyframe(s) → stop drive. Returns a dict of everything the
     assertions need. Leaves the machine wherever the post-pass ended (idle on
     success / failed on a killed run)."""
@@ -293,7 +293,9 @@ def _run_recording(tmp_path, entry_name, *, n_keyframes=2, job_hook=None):
     kf: list = []
     try:
         assert _wait_for(lambda: capture.snapshot() is not None)
-        client.post("/record/start", json={"entry_name": entry_name}).raise_for_status()
+        start_resp = client.post("/record/start", json={"entry_base": entry_base})
+        start_resp.raise_for_status()
+        entry_name = start_resp.json()["entry_name"]  # resolved <base>_NNN (U1)
         # Wait for a recording-stamped snapshot (frame_number not None).
         assert _wait_for(
             lambda: capture.snapshot() is not None
@@ -325,7 +327,7 @@ def _run_recording(tmp_path, entry_name, *, n_keyframes=2, job_hook=None):
             "client": client,
             "capture": capture,
             "app": app,
-            "entry_dir": Path(tmp_path) / entry_name,
+            "entry_dir": Path(tmp_path) / "videos" / entry_name,
             "entry_name": entry_name,
             "encoder": holder["enc"],
             "written": holder["enc"].written,
@@ -360,6 +362,7 @@ def test_ac1_completed_run_is_a_video_project(tmp_path):
 def test_ac2_keyframe_fidelity_and_displayed_frame_identity(tmp_path):
     res = _run_recording(tmp_path, "take2", n_keyframes=3)
     entry = res["entry_dir"]
+    resolved = res["entry_name"]  # resolved <base>_NNN (U1) — names artifacts
     written = res["written"]
     keyframes = res["keyframes"]
     frames_written = res["frames_written"]
@@ -373,7 +376,7 @@ def test_ac2_keyframe_fidelity_and_displayed_frame_identity(tmp_path):
     assert sorted(im["frame_number"] for im in anns["images"]) == marked
     jpg_dir = entry / "images"
     assert sorted(p.name for p in jpg_dir.glob("*.jpg")) == [
-        f"take2_f{fn:06d}.jpg" for fn in marked
+        f"{resolved}_f{fn:06d}.jpg" for fn in marked
     ]
 
     # JPEG's BGR->YCbCr->BGR conversion perturbs each channel by ~+-1-2 even on a
@@ -390,7 +393,7 @@ def test_ac2_keyframe_fidelity_and_displayed_frame_identity(tmp_path):
         assert decode_frame_index(written[fn]) == disp_index
         # (b) the keyframe JPEG's pixels equal the video decoded at fn (both are
         #     written[fn]) within JPEG re-encode tolerance.
-        jpg = cv2.imread(str(jpg_dir / f"take2_f{fn:06d}.jpg"))
+        jpg = cv2.imread(str(jpg_dir / f"{resolved}_f{fn:06d}.jpg"))
         assert jpg is not None
         assert jpg.shape == written[fn].shape
         assert int(np.abs(jpg.astype(int) - written[fn].astype(int)).max()) <= _JPEG_TOL
@@ -405,6 +408,7 @@ def test_ac2_keyframe_fidelity_and_displayed_frame_identity(tmp_path):
 def test_ac3_sidecar_has_every_frame_with_stream_dims(tmp_path):
     res = _run_recording(tmp_path, "take3")
     entry = res["entry_dir"]
+    resolved = res["entry_name"]  # resolved <base>_NNN (U1) — names the mp4
     frames_written = res["frames_written"]
     sidecar = _load(entry, "annotations/metadata/full_frame_detections.json")
 
@@ -413,12 +417,12 @@ def test_ac3_sidecar_has_every_frame_with_stream_dims(tmp_path):
     assert sidecar["video"]["width"] == _W and sidecar["video"]["height"] == _H
     assert sidecar["video"]["frame_count"] == frames_written
     # file_name = basename inside video/ (IMPORT_FORMAT_VIDEO.md §2/§5).
-    assert sidecar["video"]["file_name"] == "take3.mp4"
+    assert sidecar["video"]["file_name"] == f"{resolved}.mp4"
 
     anns = _load(entry, "annotations/annotations.json")
     assert anns["video"]["width"] == _W and anns["video"]["height"] == _H
     assert anns["video"]["frame_count"] == frames_written
-    assert anns["video"]["file_name"] == "take3.mp4"
+    assert anns["video"]["file_name"] == f"{resolved}.mp4"
     for im in anns["images"]:
         assert im["width"] == _W and im["height"] == _H
     # coords in original pixel space: every sidecar bbox fits inside the frame.
@@ -472,6 +476,7 @@ def test_ac5_kill_partial_then_retry_is_identical(tmp_path):
 
     res = _run_recording(tmp_path, "take5", n_keyframes=2, job_hook=job_hook)
     entry = res["entry_dir"]
+    resolved = res["entry_name"]  # resolved <base>_NNN (U1) — names the mp4
     client = res["client"]
 
     # Killed: failed state, valid partial project on disk.
@@ -491,10 +496,10 @@ def test_ac5_kill_partial_then_retry_is_identical(tmp_path):
     # deterministic — fixed timestamps, running ids), then diff the JSONs.
     ref_dir = tmp_path / "reference"
     (ref_dir / "video").mkdir(parents=True)
-    (ref_dir / "video" / "take5.mp4").write_bytes(b"\x00")
+    (ref_dir / "video" / f"{resolved}.mp4").write_bytes(b"\x00")
     written = res["written"]
     ref_job = PostPassJob(
-        ref_dir, "take5", _OneBoxDetector(),
+        ref_dir, resolved, _OneBoxDetector(),
         keyframes=sorted(fn for fn, _ in res["keyframes"]),
         frame_count=res["frames_written"],
         mining_threshold=0.25,

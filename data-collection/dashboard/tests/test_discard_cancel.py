@@ -166,7 +166,9 @@ def test_discard_during_processing_cancels_worker_and_leaves_no_stray(tmp_path):
     app, jobs, writers = _build_app_with_real_postpass(tmp_path, capture, detector)
     client = TestClient(app)
 
-    client.post("/record/start", json={"entry_name": "take1"}).raise_for_status()
+    start = client.post("/record/start", json={"entry_base": "take1"})
+    start.raise_for_status()
+    resolved = start.json()["entry_name"]  # auto-suffixed "take1_001" (U1)
     client.post("/record/stop").raise_for_status()
 
     # The post-pass is live mid-loop: at least one frame fully processed
@@ -174,7 +176,7 @@ def test_discard_during_processing_cancels_worker_and_leaves_no_stray(tmp_path):
     assert _wait_for(lambda: writers and writers[0].add_frame_calls >= 1)
     worker = app.state.recording.worker
     assert worker is not None and worker.is_alive()
-    entry_dir = tmp_path / "take1"
+    entry_dir = tmp_path / "videos" / resolved
     assert entry_dir.exists()
 
     resp = client.post("/record/discard")
@@ -208,7 +210,7 @@ def test_discard_during_processing_cancels_worker_and_leaves_no_stray(tmp_path):
 
     # The cancelled prior job doesn't interfere with a fresh take (AC-shaped
     # sanity: the machine is fully reusable after a cancel-discard).
-    assert client.post("/record/start", json={"entry_name": "take2"}).status_code == 200
+    assert client.post("/record/start", json={"entry_base": "take2"}).status_code == 200
     assert capture.resume_calls == 1  # still exactly once
 
 

@@ -13,8 +13,6 @@ const els = {
   confidence: $("confidence"),
   confidenceValue: $("confidence-value"),
   settings: $("settings"),
-  validate: $("validate"),
-  validateResults: $("validate-results"),
   error: $("error"),
   toast: $("toast"),
   health: $("health"),
@@ -357,43 +355,6 @@ els.settings.addEventListener("submit", async (e) => {
     clearError();
   } catch (err) {
     showError(`Settings: ${err.message}`);
-  }
-});
-
-// --- validate (AC6) ---------------------------------------------------------
-
-function renderList(title, items, cls) {
-  if (!items || items.length === 0) return "";
-  const lis = items.map((i) => `<li>${escapeHtml(String(i))}</li>`).join("");
-  return `<h3>${title}</h3><ul class="${cls}">${lis}</ul>`;
-}
-
-function escapeHtml(s) {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-els.validate.addEventListener("click", async () => {
-  els.validateResults.hidden = true;
-  try {
-    const body = await readJson(await fetch("/validate", { method: "POST" }));
-    const errors = body.errors || [];
-    const warnings = body.warnings || [];
-    let html = "";
-    if (errors.length === 0 && warnings.length === 0) {
-      html = '<p class="clean">✓ import-ready — no errors or warnings</p>';
-    } else {
-      html =
-        renderList("Errors", errors, "errors") +
-        renderList("Warnings", warnings, "warnings");
-    }
-    els.validateResults.innerHTML = html;
-    els.validateResults.hidden = false;
-    clearError();
-  } catch (e) {
-    showError(`Validate: ${e.message}`);
   }
 });
 
