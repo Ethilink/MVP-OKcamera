@@ -1,16 +1,29 @@
 # Data-collection dashboard — technical spec
 
-The capture tool: stream Camo → run the **detector** live → operator **snapshots**
-bad frames → save each as a still into a COCO-VID dataset (`review_status
-"pending"`) for correction in the **separate** annotation dashboard. This tool
-never edits anything; it captures stills. It consumes the model only via the
-`Detector` (`model/src/orc_model/components/detector/detector.py`; design in
+The **📷 Image** side of the unified capture tool (the **🎬 Video** side is
+[`RECORDING.md`](RECORDING.md) — one tool, one mode toggle, see below): stream
+Camo → run the **detector** live → operator **snapshots** bad frames → save
+each as a still into a COCO-VID dataset (`review_status "pending"`) for
+correction in the **separate** annotation dashboard. This tool never edits
+anything; it captures stills. It consumes the model only via the `Detector`
+(`model/src/orc_model/components/detector/detector.py`; design in
 [`plan-first-detections.md`](../../model/docs/plan-first-detections.md)) and
 emits datasets per [`IMPORT_FORMAT.md`](IMPORT_FORMAT.md).
 
-> **It is not a video recorder.** SPACE saves **one still frame** (the current
-> detector output) into the active dataset folder. There is no start/stop
-> recording, no clip, no `track_id` — just "snap this frame, it looks wrong."
+> **2026-07-09 redesign.** This doc and `RECORDING.md` describe one tool now,
+> not two — a segmented mode toggle switches the control set, and **SPACE
+> always marks** (a still here, a keyframe there). See
+> [`tasks/REDESIGN.md`](tasks/REDESIGN.md) for the full plan and
+> [`../CONTEXT.md`](../CONTEXT.md) for the vocabulary (**Dataset**, **Entry**,
+> **Base name**, ...) this doc uses precisely. The two modes still write to
+> disjoint storage under the same Output path — see §Dataset layout & config.
+
+> **Image mode is not a video recorder.** In this mode, SPACE saves **one
+> still frame** (the current detector output) into the active Dataset folder
+> — no start/stop, no clip, no `track_id`, just "snap this frame, it looks
+> wrong." (Toggling to Video mode hands control to `RECORDING.md`'s Record
+> button and keyframe model — a different mode of the same tool, not a
+> separate app.)
 
 > **Detector-only, for this first version.** It runs the RF-DETR `Detector`
 > directly — boxes + masks per frame, **no tracking, no `track_id`**. A tracker is
@@ -25,10 +38,15 @@ emits datasets per [`IMPORT_FORMAT.md`](IMPORT_FORMAT.md).
   **confidence slider**.
 - **Snapshot:** `space` (or a button) saves the current frame + the detector's
   annotations for that frame into the active dataset.
-- **Settings:** camera index, output path, **dataset name**, confidence. Nothing
-  else. (`dataset name` joined Settings when the tool went stateless — see
-  *Dataset layout & config*; it is not a separate "start recording" step.)
-- **Not here:** any correction/editing — that's the separate annotation dashboard.
+- **Settings:** camera index, output path, **dataset name** (relabels to
+  "Recording session name" in Video mode — same field, same **Base name**;
+  see [`../CONTEXT.md`](../CONTEXT.md)), confidence. Nothing else. (`dataset
+  name` joined Settings when the tool went stateless — see *Dataset layout &
+  config*; it is not a separate "start recording" step in Image mode.)
+- **Not here:** any correction/editing — that's the separate annotation
+  dashboard. Video recording is a different **mode** of this same tool,
+  behind the mode toggle — see [`RECORDING.md`](RECORDING.md) — not a
+  separate app.
 
 ## Stack (settled)
 
@@ -43,7 +61,8 @@ emits datasets per [`IMPORT_FORMAT.md`](IMPORT_FORMAT.md).
 - **Frontend:** **plain HTML + vanilla JS** served by FastAPI (slider, buttons,
   `keydown` space → `/flag`). No build step, one process — `<img>` + slider +
   keydown + status poll is no state model to justify a toolchain.
-- **Lives in:** `data-collection/dashboard/` (`backend/` + `static/`).
+- **Lives in:** `data-collection/dashboard/` (`backend/` + `static/`) — shared
+  with `RECORDING.md`'s Video mode; one app, one process, one mode toggle.
 
 ## Runtime
 
@@ -64,8 +83,12 @@ GET  /frame?after=N -> newest overlay jpeg + `X-Frame-Generation` header; 204 if
                        gen==N (client already has it). The UI paints this so it
                        knows the generation of the frame on screen (freeze-capture).
 POST /confidence    -> detector.confidence_threshold = value        (live, Pydantic)
-POST /settings      -> {camera_index?, output_path, dataset_name}   set capture target
-                       -> REJECT if <output_path>/<dataset_name> already exists (collision)
+POST /settings      -> {camera_index?, output_path, dataset_name}   set capture target;
+                       dataset_name is the shared Base name (CONTEXT.md) — Image
+                       mode resolves it to the Dataset at output_path/images/<dataset_name>/
+                       -> REJECT (409) if that exact images/<dataset_name>/ folder
+                       already exists on disk (collision) — not merely because the
+                       shared images/ parent exists from a different Dataset
 POST /flag          -> {generation?}: serialize the frame at that generation (the
                        EXACT frame the operator froze on) into the active dataset;
                        falls back to newest latest if omitted. 409 if no valid
@@ -76,9 +99,11 @@ POST /validate      -> validate(<active dataset>) in-process -> advisory (errors
 GET  /status        -> {count, confidence, dataset_name, output_path, n_flagged, capture_health, camera_index}
 ```
 
-There is **no `/recording/start` / `/recording/stop`.** The tool is stateless: the
-target folder lives in Settings, every SPACE appends a still, and `/validate` runs
-the advisory on demand (typically once you think a dataset is done).
+There is **no separate start/stop step for Image-mode capture.** The tool is
+stateless in this mode: the target folder lives in Settings, every SPACE
+appends a still, and `/validate` runs the advisory on demand (typically once
+you think a dataset is done). (Video mode — a different mode of the same
+tool — does have `/record/start` / `/record/stop`; see `RECORDING.md`.)
 
 The live overlay draws boxes **and** masks — the detector already hands us
 full-frame masks, and showing them lets the operator judge **mask quality**, not
@@ -144,6 +169,22 @@ never per stream frame.
   `latest` (generation counter + short async sleep, or a Condition) — a naive
   `while True: yield jpeg` busy-spins the event loop and floods the socket with
   duplicate frames.
+- **Shared detector with the video post-pass queue (new, 2026-07-09).** The
+  `detector.predict()` call in the capture-infer loop above and the video
+  post-pass drain worker are the **same single detector instance** — never
+  two (see
+  [`adr/0001-idle-draining-postpass-queue.md`](adr/0001-idle-draining-postpass-queue.md)).
+  Whenever the tool is **idle** — regardless of which mode is selected on the
+  toggle — *and* a video Entry is draining in the background queue, the
+  drain worker temporarily owns the detector between frames; this loop's
+  `predict()` is skipped and `latest` publishes the **raw** frame (no
+  boxes/masks) for that stretch (`RECORDING.md` §Queue model). A SPACE press
+  during that window still flags successfully, just with an empty detection
+  list — a "the detector didn't run on this one" gap, not a genuine
+  empty-frame result. **Flagged for the post-U2/U3 e2e/hardware pass:** the
+  exact UI treatment of this window (e.g. a badge on the Image-mode stream
+  while the queue chip is active) is a U3 frontend detail not settled by this
+  doc — verify against the built UI.
 
 ## `sv.Detections → COCO-VID` mapping (the crux — our side, not the model's)
 
@@ -230,21 +271,34 @@ else:
 
 ## Dataset layout & config
 
-Stateless — the target folder lives in **Settings**, not a recording session. One
-dataset = one folder. (No tracker → no `reset()`, no `track_id` namespace.)
+Stateless — the target folder lives in **Settings**, not a recording session.
+One **Dataset** = one folder, nested under `images/` since the 2026-07-09
+storage split — this is what keeps a Dataset and a video **Entry** of the
+same **Base name** always disjoint (vocabulary + relationships:
+[`../CONTEXT.md`](../CONTEXT.md); the Entry side lives at
+`output_path/videos/<base>_NNN/`, see `RECORDING.md` §Storage layout). (No
+tracker → no `reset()`, no `track_id` namespace.)
 ```
-<output_path>/<dataset_name>/
-├── images/frame_00001.jpg ...
-└── annotations/annotations.json
+output_path/
+└── images/<dataset_name>/
+    ├── images/frame_00001.jpg ...
+    └── annotations/annotations.json
 ```
-- `output_path` + `dataset_name` are set via `/settings`. `dataset_name` is a
-  single path component, no leading `.` (validator enforces both).
-- **Collision → reject.** If `<output_path>/<dataset_name>` already exists,
-  `/settings` rejects and the operator picks a new name. We never append into an
-  existing folder: that would need ID counters to resume from the on-disk max, and
-  a wrong resume produces duplicate ids that corrupt editing. **A dataset is
-  therefore single-session — there is no resume-after-restart in v1** (documented
-  limitation, not an oversight).
+- `output_path` + `dataset_name` are set via `/settings`; `dataset_name` is a
+  single path component, no leading `.` (validator enforces both) and **is**
+  the **Base name** in CONTEXT.md's vocabulary — Image mode resolves it
+  straight to the Dataset name.
+- **Collision → reject.** If `output_path/images/<dataset_name>/` already
+  exists on disk, `/settings` rejects (409) and the operator picks a new name
+  — this does **not** fire merely because the shared `images/` parent already
+  holds a *different* Dataset (the nesting itself is never a collision). We
+  never append into an existing folder: that would need ID counters to
+  resume from the on-disk max, and a wrong resume produces duplicate ids
+  that corrupt editing. **A dataset is therefore single-session — there is
+  no resume-after-restart in v1** (documented limitation, not an oversight).
+  Toggling between Image/Video mode mid-session does **not** trip this
+  check — the writer state persists in memory for the running session and is
+  reused rather than re-created (`tasks/REDESIGN.md` §"Session").
 - The folder + `images/` are created lazily on the **first** flag; in-memory
   counters (`image_id`, `ann_id`, `n`, `n_flagged`) reset when `dataset_name` changes.
 - **`/validate` is advisory, not a gate.** It `import`s `validate()` from
