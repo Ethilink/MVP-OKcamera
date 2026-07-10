@@ -18,8 +18,8 @@ and data testing.** Any drift between the two sets corrupts the evaluation.
 | **Tint** | +4 | As set in Camo. |
 | **Focus** | **MANUAL, locked** | Lock to mid-working-height (a bit above the tray surface) so lifted instruments stay sharp. Never autofocus. |
 | **Image adjustments** | **all OFF** | Brightness, Hue, Saturation, Vibrance, Contrast, Gamma, **Sharpness**, Flash — all toggles off. Rawest neutral image; do any sharpening in the training pipeline, not the sensor. |
-| **Frame rate** | 60 fps (target) | Higher fps = easier frame-to-frame tracking. Confirm phone/Camo supports it at chosen resolution. |
-| **Resolution** | highest that holds 60 fps | For tracking, fps > pixels if forced to choose. |
+| **Frame rate** | 30 fps (measured) | Camo delivers 1080p**30** in practice (measured — see [`dashboard/README.md`](dashboard/README.md) §Recording mode). 60 fps is not achieved at 1080p on the current rig; higher fps eases frame-to-frame tracking, so raise it only if a probe (`dashboard/scripts/spike_fps`) confirms the device sustains it. |
+| **Resolution** | 1080p | Full-HD at 30 fps is the working point. For tracking, fps > pixels if ever forced to choose. |
 
 > ISO 54 + 1/500 s only expose correctly under the **specific lighting** these
 > were tuned in. If the lighting changes, re-tune and log which config each
@@ -81,7 +81,7 @@ That parallax/scale variation confuses matching and tracking. Mitigate:
 
 | Mode | Shutter | FPS | ISO | Use |
 |---|---|---|---|---|
-| **Tracking** (current) | 1/500 s | 60 | base (~54) | Instruments in motion. |
+| **Tracking** (current) | 1/500 s | 30 (60 not achieved on Camo) | base (~54) | Instruments in motion. |
 | **Static census** | 1/100 s | 30 | base | Frozen tray snapshot; trade fps for max resolution. |
 
 ---

@@ -537,7 +537,19 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
             jpeg, dets, threshold = keyframes[fn]
             writer.add_keyframe(fn, jpeg, dets, threshold)
         writer.finalize()
-        return {"ok": True, "frames_written": frames_written}
+
+        # An encoder.write exception mid-take stops the reader and freezes the
+        # frame count (capture.recording_error — AC8). The MP4 + the keyframes
+        # marked before the failure are still finalized above (INV-5: no captured
+        # data is thrown away), but the recording is TRUNCATED — report that
+        # instead of a clean success, so the operator knows the saved clip is
+        # incomplete and re-records rather than trusting it.
+        error = getattr(capture, "recording_error", None)
+        return {
+            "ok": error is None,
+            "frames_written": frames_written,
+            "error": None if error is None else str(error),
+        }
 
     @app.post("/record/discard")
     def record_discard() -> dict:
@@ -561,6 +573,17 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
 
     @app.get("/record/status")
     def record_status() -> dict:
-        return {"state": app.state.recording.state}
+        rec = app.state.recording
+        # Surface an encoder failure that struck mid-take (AC8) while it still
+        # matters: during recording a non-None recording_error means the reader
+        # has stopped writing frames and the take is doomed — the operator should
+        # Discard and restart without waiting for Stop. Idle always reports
+        # error=None so a finished take's error can't linger past the next start.
+        error = None
+        if rec.state == "recording":
+            err = getattr(app.state.capture, "recording_error", None)
+            if err is not None:
+                error = str(err)
+        return {"state": rec.state, "error": error}
 
     return app

@@ -4,17 +4,18 @@ The 2026-07-09 simplification dropped the all-frames post-pass and the
 idle-draining drain queue: ``/record/stop`` now writes the reviewed
 video-project artifacts synchronously (from keyframes captured live at
 SPACE-press time) and returns to idle. So there is no ``/record/retry``, no
-``drain`` block, no pause/resume, no ``eta_seconds`` — ``/record/status`` is
-just ``{"state": "idle" | "recording"}``.
+``drain`` block, no pause/resume, no ``eta_seconds``. Both recording endpoints
+carry an ``error`` field surfacing a mid-take encoder failure (AC8): ``null``
+on a clean take, the ``recording_error`` message on a truncated one.
 
 The endpoint contract exercised here via ``fastapi.testclient.TestClient``
 against the frozen ``create_app`` seam:
 
-    POST /record/start  {entry_base}  -> {ok, entry_name}          (mint, encode, record)
-    POST /keyframe       {generation} -> {generation, n_keyframes}  (mark on-screen frame)
-    POST /record/stop                 -> {ok, frames_written}       (write artifacts sync)
-    POST /record/discard              -> {ok}                       (recording -> abort+delete)
-    GET  /record/status               -> {state}
+    POST /record/start  {entry_base}  -> {ok, entry_name}              (mint, encode, record)
+    POST /keyframe       {generation} -> {generation, n_keyframes}     (mark on-screen frame)
+    POST /record/stop                 -> {ok, frames_written, error}   (write artifacts sync)
+    POST /record/discard              -> {ok}                          (recording -> abort+delete)
+    GET  /record/status               -> {state, error}
 
 Everything is camera-free / ffmpeg-free / onnx-free:
 
@@ -115,6 +116,10 @@ class RecordingStubCapture:
         self.start_recording_calls: list = []
         self.stop_recording_calls = 0
         self.aged_out: set[int] = set()  # generations snapshot_at reports as evicted
+        # Mirror CaptureLoop.recording_error: a mid-take encoder.write failure,
+        # reset at start_recording, left intact by stop_recording. Tests set it
+        # directly to drive the truncated-recording path.
+        self.recording_error: BaseException | None = None
 
     # --- snapshot surface ---
     def snapshot(self):
@@ -151,6 +156,7 @@ class RecordingStubCapture:
             raise RuntimeError("already recording")
         self.encoder = encoder
         self._recording = True
+        self.recording_error = None  # fresh take clears any prior error (real loop parity)
         self.start_recording_calls.append(encoder)
 
     def stop_recording(self) -> int:
@@ -393,9 +399,10 @@ def test_keyframe_resolves_generation_over_a_real_capture_loop(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# /record/stop: returns {ok, frames_written} immediately (state -> idle), and
-# synchronously writes the reviewed video project (annotations.json,
-# selected_frames.json, one JPEG per keyframe, non-empty video/).
+# /record/stop: returns {ok, frames_written, error} immediately (state -> idle),
+# and synchronously writes the reviewed video project (annotations.json,
+# selected_frames.json, one JPEG per keyframe, non-empty video/). `error` is
+# non-null (and ok=False) when a mid-take encoder failure truncated the take.
 # ---------------------------------------------------------------------------
 
 
@@ -412,7 +419,7 @@ def test_stop_writes_video_project_synchronously(tmp_path):
 
     resp = client.post("/record/stop")
     assert resp.status_code == 200
-    assert resp.json() == {"ok": True, "frames_written": 50}
+    assert resp.json() == {"ok": True, "frames_written": 50, "error": None}
     assert _state(client) == "idle"
 
     entry = tmp_path / "videos" / resolved
@@ -445,7 +452,7 @@ def test_stop_with_no_keyframes_writes_empty_project(tmp_path):
 
     resp = client.post("/record/stop")
     assert resp.status_code == 200
-    assert resp.json() == {"ok": True, "frames_written": 30}
+    assert resp.json() == {"ok": True, "frames_written": 30, "error": None}
 
     entry = tmp_path / "videos" / resolved
     anns = json.loads((entry / "annotations" / "annotations.json").read_text())
@@ -498,6 +505,38 @@ def test_stop_partial_write_leaves_valid_partial_entry(tmp_path):
     assert _state(client) == "idle"
 
 
+def test_stop_surfaces_encoder_error_and_still_writes_partial(tmp_path):
+    # AC8: an encoder.write failure mid-take freezes the frame count and sets
+    # capture.recording_error. /record/stop must STILL finalize the MP4 + the
+    # keyframes marked before the failure (INV-5 — no captured data lost), but
+    # report the truncation (ok=False + the message) instead of a clean success,
+    # so the operator learns the saved clip is incomplete and re-records.
+    capture = RecordingStubCapture(frame=make_fake_frame(64, 48), frames_written=12)
+    app, *_ = _build_app(capture, output_path=tmp_path)
+    client = TestClient(app)
+
+    start = client.post("/record/start", json={"entry_base": "take1"})
+    start.raise_for_status()
+    resolved = start.json()["entry_name"]
+    client.post("/keyframe", json={"generation": 3}).raise_for_status()
+    capture.recording_error = RuntimeError("encoder write failed: disk full")
+
+    resp = client.post("/record/stop")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is False
+    assert body["frames_written"] == 12
+    assert "disk full" in body["error"]
+    assert _state(client) == "idle"
+
+    # Data captured before the failure is preserved, not discarded.
+    entry = tmp_path / "videos" / resolved
+    assert (entry / "annotations" / "annotations.json").is_file()
+    assert list((entry / "video").iterdir())
+    sel = json.loads((entry / "annotations" / "metadata" / "selected_frames.json").read_text())
+    assert sel["selected_frames"] == [3]
+
+
 def test_stop_409_when_not_recording(tmp_path):
     capture = RecordingStubCapture(frame=make_fake_frame(64, 48))
     app, *_ = _build_app(capture, output_path=tmp_path)
@@ -507,7 +546,7 @@ def test_stop_409_when_not_recording(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# /record/status: exactly {state}; idle | recording.
+# /record/status: {state, error}; idle | recording.
 # ---------------------------------------------------------------------------
 
 
@@ -517,11 +556,34 @@ def test_record_status_exact_shape(tmp_path):
     client = TestClient(app)
 
     idle_body = _status(client)
-    assert set(idle_body.keys()) == {"state"}
+    assert set(idle_body.keys()) == {"state", "error"}
     assert idle_body["state"] == "idle"
+    assert idle_body["error"] is None
 
     client.post("/record/start", json={"entry_base": "take1"}).raise_for_status()
     assert _status(client)["state"] == "recording"
+
+
+def test_status_surfaces_encoder_error_only_while_recording(tmp_path):
+    # A mid-take encoder failure is visible on /record/status while recording, so
+    # the UI can prompt Discard/restart without waiting for Stop. Idle never
+    # surfaces it — a finished (or not-yet-started) take's error can't linger.
+    capture = RecordingStubCapture(frame=make_fake_frame(64, 48))
+    app, *_ = _build_app(capture, output_path=tmp_path)
+    client = TestClient(app)
+
+    # Idle: even a lingering capture error stays hidden.
+    capture.recording_error = RuntimeError("stale from a past take")
+    assert _status(client) == {"state": "idle", "error": None}
+
+    # Recording: start clears the stale error (real-loop parity), a fresh
+    # encoder failure IS surfaced live.
+    client.post("/record/start", json={"entry_base": "take1"}).raise_for_status()
+    assert _status(client)["error"] is None
+    capture.recording_error = RuntimeError("encoder write failed")
+    body = _status(client)
+    assert body["state"] == "recording"
+    assert body["error"] == "encoder write failed"
 
 
 # ---------------------------------------------------------------------------

@@ -8,8 +8,14 @@ and the corrected keyframes are exported for training.
 
 Companion to [IMPORT_FORMAT.md](IMPORT_FORMAT.md) (independent images). The
 image doc's rules for categories, masks (§3), `review_status` (§4), and EXIF
-still apply; this doc covers only what video adds on top — plus the sidecar for
-**all-frames detections** that the dashboard must NOT display.
+still apply; this doc covers only what video adds on top.
+
+> **This repo's collection tool no longer emits the all-frames sidecar
+> `full_frame_detections.json` (§5).** Since the keyframe-only simplification
+> (ADR-0002) a recording saves only the marked keyframes, each carrying the live
+> detection captured at SPACE-press time — there is no offline pass over every
+> frame. §5 is kept as an OPTIONAL input the annotation dashboard still tolerates
+> (it never reads the sidecar), for any external pipeline that produces one.
 
 ---
 
@@ -26,7 +32,7 @@ data/processed/<entry>/
     ├── annotations.json                     # COCO-VID — KEYFRAMES ONLY (see §2)
     └── metadata/
         ├── selected_frames.json             # which frames are keyframes (see §4)
-        └── full_frame_detections.json       # raw model output for ALL frames (see §5)
+        └── full_frame_detections.json       # OPTIONAL, external pipelines only — not emitted by this repo (§5)
 ```
 
 - `<entry>` — single path component, becomes the project name. The video file
@@ -150,11 +156,17 @@ and it is what surfaces a not-yet-annotated entry as a partial project. Emit it:
 
 ---
 
-## 5. All-frames detections — `full_frame_detections.json`
+## 5. All-frames detections — `full_frame_detections.json` (optional, external only)
 
-The collection dashboard runs the model on (near-)every frame, but only
-keyframes are reviewed. The raw per-frame output goes in a **sidecar** the
-dashboard never reads:
+> **Not produced by this repo (ADR-0002).** The keyframe-only collection tool
+> saves only marked keyframes with their live detections; it never runs an
+> all-frames pass. This section documents an OPTIONAL sidecar the annotation
+> dashboard still tolerates for external pipelines that do run one — the
+> dashboard never reads it.
+
+An external pipeline that runs the model on (near-)every frame, but reviews only
+keyframes, can park the raw per-frame output in a **sidecar** the dashboard
+never reads:
 
 ```
 annotations/metadata/full_frame_detections.json

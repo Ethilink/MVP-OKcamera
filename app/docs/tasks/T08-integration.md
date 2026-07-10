@@ -33,7 +33,7 @@ fix the code, not `api-contract.md`; if truly impossible, `blocked` + Bram).
    demo: setup (gate waits for stability) → Start → watch scripted instrument 1
    go OFF TABLE (~t=20s) and return (~t=35s), instrument 3 go off (~t=50s) →
    Stop → report shows instrument 1 present with one closed window, instrument
-   3 LOST with an open bar. Screenshot every phase.
+   3 missing with an open bar. Screenshot every phase.
 3. **RUNBOOK.md:** demo-day sheet — hardware checklist (tripod, lighting,
    Camo/camera index), exact commands for fake and real mode, the weights
    handoff from Constantijn (`--weights` path), pre-demo rehearsal script

@@ -1,9 +1,10 @@
 # Data-collection dashboard
 
 The capture tool: stream the camera, run the detector live, and let the operator
-save training material — either individual still frames or full recordings that a
-later post-pass detects over. Feeds the separate annotation dashboard; never
-edits anything itself.
+save training material — either individual still frames or full recordings from
+which the operator marks keyframes live (each keyframe keeps the detection shown
+at mark time; no offline post-pass — ADR-0002). Feeds the separate annotation
+dashboard; never edits anything itself.
 
 ## Language
 
@@ -27,10 +28,11 @@ _Avoid_: dataset (for video), clip, project.
 **Take**:
 One act of recording, start to stop — produces exactly one Entry.
 
-**Post-pass**:
-The offline job that reopens a finished recording and runs the detector over
-every frame, producing the all-frames sidecar and the keyframe annotations. The
-authoritative detections (live overlay is UX only).
+**Keyframe**:
+A frame the operator marks (SPACE) during a take. Only keyframes are saved from
+a recording — each keeps the live detection shown at mark time (the frame, its
+boxes, and the threshold), and those detections are exactly what gets written.
+There is no offline post-pass over every frame (ADR-0002).
 
 **Base name**:
 The single name in Settings. In image mode it *is* the Dataset name; in video
@@ -45,8 +47,8 @@ mode it seeds Entry names, auto-suffixed per take (`<base>_001`, `<base>_002`…
 - A **Base name** maps to at most one **Dataset** (`images/<base>/`) and any number
   of **Entries** (`videos/<base>_NNN/`) — the same name in the operator's head,
   split cleanly on disk.
-- A **Take** produces one **Entry**; its **Post-pass** is enqueued and drains when
-  the tool is idle.
+- A **Take** produces one **Entry** at Stop — the finished MP4 plus one JPEG and
+  its live detections per marked **Keyframe**, written synchronously (no queue).
 
 ## Example dialogue
 

@@ -22,8 +22,8 @@ uv run python -m backend.main \
 ```
 
 Both `--weights` and `--model-version` are required (no silent default tag).
-Open http://127.0.0.1:8000/. Recording mode adds `--capture-fps` (default 30)
-and `--mining-threshold` (default 0.25) — see below before touching them.
+Open http://127.0.0.1:8000/. Recording mode adds `--capture-fps` (default 30) —
+see below before touching it.
 
 ### Finding the camera index (Camo)
 
@@ -49,13 +49,13 @@ uv run python -m backend.main \
     --camera-index <n>            # from find_camera above
 ```
 
-Record → name the entry → SPACE marks keyframes → Stop → a post-pass detects
-over every frame and writes a video-project entry under the Settings output
-path. **Timing on CPU:** capture is camera-limited to **30 fps** (Camo does not
-deliver 1080p60 — measured; see `docs/RECORDING.md` §FPS), and the post-pass
-runs at **~0.6 fps** (RF-DETR ONNX on CPU), so post-pass time ≈ **50× the record
-duration** (a 1-min clip ≈ ~50 min). Keep clips short, or wire a CoreML/GPU
-execution provider for the detector.
+Record → name the entry → SPACE marks keyframes (each keeps the live detection
+shown at mark time) → Stop → the finished MP4 plus one JPEG + annotations per
+marked keyframe are written **synchronously** to a video-project entry under the
+Settings output path. No offline post-pass over every frame (ADR-0002), so Stop
+returns in well under a second regardless of clip length. **Capture rate:**
+camera-limited to **30 fps** (Camo does not deliver 1080p60 — measured; see
+[`../docs/RECORDING.md`](../docs/RECORDING.md) §FPS).
 
 ### FPS spike
 

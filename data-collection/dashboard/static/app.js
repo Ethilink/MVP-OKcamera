@@ -475,9 +475,16 @@ if (els.record) {
       recordBusy = true;
       renderRecordingUI();
       try {
-        await readJson(await fetch("/record/stop", { method: "POST" }));
+        const stop = await readJson(await fetch("/record/stop", { method: "POST" }));
         recState = "idle"; // annotations written synchronously by /record/stop
-        clearError();
+        if (stop && stop.error) {
+          // The encoder died mid-take: the clip was still saved (whatever frames
+          // + keyframes landed before the failure) but it is TRUNCATED — don't
+          // let it look like a clean recording.
+          showError(`Recording incomplete — encoder failed mid-take (${stop.error}). The saved clip is truncated; re-record.`);
+        } else {
+          clearError();
+        }
       } catch (e) {
         showError(`Record: ${e.message}`);
       } finally {
@@ -506,13 +513,19 @@ if (els.recordDiscard) {
   els.recordDiscard.addEventListener("click", () => discardRecording("Recording discarded"));
 }
 
-// Polled alongside /status (same 1 s cadence). The shape is now just
-// {state: "idle" | "recording"} (ADR-0002 dropped the drain block). Keeps the
-// last known state on a transient failure.
+// Polled alongside /status (same 1 s cadence). Shape: {state: "idle" |
+// "recording", error: string | null} (ADR-0002 dropped the drain block; error
+// carries a mid-take encoder failure). Keeps the last known state on a transient
+// failure.
 async function pollRecordStatus() {
   try {
     const s = await readJson(await fetch("/record/status"));
     if (typeof s.state === "string") recState = s.state;
+    // A live encoder failure while recording: surface it now so the operator can
+    // Discard and restart instead of recording into a dead encoder until Stop.
+    if (s.error) {
+      showError(`Recording failing — encoder error (${s.error}). Discard and restart.`);
+    }
   } catch (_) {
     /* transient — keep the last known state */
   } finally {

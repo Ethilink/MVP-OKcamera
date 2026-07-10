@@ -186,7 +186,8 @@ def test_ac6_no_queue_chip_or_veil(index_html, app_js, style_css):
 
 
 def test_ac6_record_status_parsed_as_state_only(app_js):
-    # pollRecordStatus now reads just {state: "idle" | "recording"}.
+    # pollRecordStatus reads {state: "idle" | "recording", error: string | null}
+    # — no drain block. `error` surfaces a mid-take encoder failure (AC8).
     assert "/record/status" in app_js
     assert "s.state" in app_js
     # The superseded drain block + retry endpoint are gone.
