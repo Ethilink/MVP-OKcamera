@@ -1,0 +1,7 @@
+[mcp_servers.company-brain]
+command = "npx"
+args = [
+    "-y",
+    "@modelcontextprotocol/server-filesystem",
+    "/Users/bramdecraeke/Documents/Obsidian/company-brain/root",
+]

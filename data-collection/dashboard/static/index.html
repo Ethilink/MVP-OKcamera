@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ORC data-collection dashboard</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <!-- inline bird's-eye glyph: a bird seen from above, wings swept out
+               (no external assets, AC7) -->
+          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
+            <path d="M12 3l1.5 5L21 11l-8 1-1 9-1-9-8-1 7.5-3L12 3z"></path>
+          </svg>
+        </span>
+        <div class="brand-text">
+          <h1>ORC</h1>
+          <span class="brand-sub">data collection</span>
+        </div>
+      </div>
+
+      <div class="status" id="status">
+        <span class="chip health" id="health" data-health="unknown">
+          <span class="dot"></span><span id="health-text">connecting…</span>
+        </span>
+        <span class="chip stat"><b id="count">–</b> instruments</span>
+        <span class="chip stat"><b id="n-flagged">0</b> flagged</span>
+        <span class="chip dataset" id="dataset-chip">no dataset</span>
+      </div>
+    </header>
+
+    <!-- Error / toast region: role=alert so it is announced, never swallowed. -->
+    <div id="error" class="banner error" role="alert" hidden></div>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <main>
+      <section class="stage">
+        <!-- Mode toggle (AC1): segmented Image / Video control at the top of the
+             stage. Switching flips the control set (FLAG vs Record) and the
+             SPACE behavior (flag a still vs mark a keyframe). Greyed while
+             recording. Toggling when idle is purely client-side — it never
+             re-fires /settings (AC7). -->
+        <div class="mode-toggle" id="mode-toggle" role="tablist" aria-label="Capture mode">
+          <button type="button" class="mode-btn active" id="mode-image" data-mode="image"
+                  role="tab" aria-selected="true">
+            <span aria-hidden="true">📷</span> Image
+          </button>
+          <button type="button" class="mode-btn" id="mode-video" data-mode="video"
+                  role="tab" aria-selected="false">
+            <span aria-hidden="true">🎬</span> Video
+          </button>
+        </div>
+
+        <div class="stage-frame" id="stage-frame">
+          <!-- Client-driven: app.js polls /frame and swaps this img's blob src,
+               tracking each frame's generation so SPACE captures the EXACT frame
+               shown, not the newest. (No MJPEG src — /stream still exists.) -->
+          <img id="stream" alt="live detector overlay" />
+
+          <div class="hud hud-tl">
+            <span class="hud-pill live-badge" id="live-badge" data-health="unknown">
+              <span class="dot"></span>LIVE
+            </span>
+          </div>
+          <div class="hud hud-tr">
+            <span class="hud-pill"><b id="hud-count">0</b>&nbsp;instruments</span>
+            <span class="hud-pill rec-badge" id="rec-badge" hidden>
+              <span class="dot"></span><span id="rec-badge-text">REC</span>
+            </span>
+            <span class="hud-pill keyframe-pill" id="keyframe-pill" hidden>
+              <b id="n-keyframes">0</b>&nbsp;keyframes
+            </span>
+          </div>
+
+          <div class="no-signal" id="no-signal" hidden>
+            <div>
+              <div class="ns-icon" aria-hidden="true">⚠</div>
+              <p class="ns-title">No signal</p>
+              <p class="ns-sub">waiting for the camera to recover…</p>
+            </div>
+          </div>
+
+          <!-- Capture confirmation: shown while the frame is frozen after a flag,
+               so the operator sees exactly what was saved and can undo it. -->
+          <div class="saved-chip" id="saved-chip" role="status" aria-live="polite" hidden>
+            <span class="saved-tick" aria-hidden="true">✓</span>
+            <span class="saved-text" id="saved-text">Saved</span>
+            <button type="button" class="discard-btn" id="discard">Discard</button>
+          </div>
+
+          <!-- Keyframe mark confirmation: a brief pulse, no freeze (recording mode). -->
+          <div class="saved-chip keyframe-chip" id="keyframe-chip" role="status" aria-live="polite" hidden>
+            <span class="saved-tick" aria-hidden="true">✓</span>
+            <span class="saved-text" id="keyframe-chip-text">Keyframe marked</span>
+          </div>
+
+          <!-- No processing veil and no drain-queue chip (ADR-0002): /record/stop
+               writes the keyframe annotations synchronously and returns to idle,
+               so there is no background job to report. -->
+
+          <div class="capture-flash" id="capture-flash" aria-hidden="true"></div>
+        </div>
+
+        <div class="stage-controls">
+          <button id="flag" class="flag-btn" type="button">
+            <span id="flag-label">FLAG</span> <kbd>space</kbd>
+          </button>
+          <div class="record-controls" id="record-controls" hidden>
+            <button id="record" class="record-btn" type="button">
+              <span class="record-dot" aria-hidden="true"></span>
+              <span id="record-label">Record</span>
+            </button>
+            <button id="record-discard" class="secondary" type="button" hidden>
+              Discard recording
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="card">
+          <div class="conf-row">
+            <label class="conf-label" for="confidence">Confidence</label>
+            <output id="confidence-value" for="confidence">–</output>
+          </div>
+          <input
+            id="confidence"
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value="0.5"
+          />
+        </div>
+
+        <form id="settings" class="card settings">
+          <h2 class="card-head">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            Settings
+          </h2>
+          <label>Camera index
+            <input id="camera_index" name="camera_index" type="number" min="0" step="1" placeholder="0" />
+          </label>
+          <label>Output path
+            <input id="output_path" name="output_path" type="text" placeholder="./captures" />
+          </label>
+          <label><span id="name-field-label">Dataset name</span>
+            <input id="dataset_name" name="dataset_name" type="text" placeholder="or-2026-07-07" />
+          </label>
+          <button type="submit" class="block">Apply settings</button>
+        </form>
+      </aside>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,30 @@
+[project]
+name = "orc-model"
+version = "0.1.0"
+description = "ORC detection/tracking — wraps pre-trained models into components, produces the artifact app/backend consumes."
+readme = "README.md"
+authors = [
+    { name = "Constantijn", email = "constantijn.coppers@ethilink.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "onnxruntime>=1.26.0",
+    "supervision>=0.26.1",
+    "pycocotools>=2.0.11",
+    "trackers",
+    "pyorbbecsdk2>=2.1.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.10.10,<0.11.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.3.0",
+    "jupyterlab>=4.6.1",
+    "pytest>=9.1.1",
+]
+
+[tool.uv.sources]
+trackers = { git = "https://github.com/roboflow/trackers.git", rev = "2.5.0" }
