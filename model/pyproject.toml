@@ -12,6 +12,7 @@ dependencies = [
     "supervision>=0.26.1",
     "pycocotools>=2.0.11",
     "trackers",
+    "pyorbbecsdk2>=2.1.1",
 ]
 
 [build-system]
