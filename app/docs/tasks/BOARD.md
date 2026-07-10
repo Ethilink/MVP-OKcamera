@@ -51,14 +51,21 @@ The task file header is the source of truth; the table below is a mirror.
 
 | id  | task                                             | depends on               | status | owner |
 |-----|--------------------------------------------------|--------------------------|--------|-------|
-| T01 | [Scaffold backend + frontend](T01-scaffold.md)   | —                        | todo   | —     |
-| T02 | [Session state machine + report](T02-session.md) | T01                      | todo   | —     |
-| T03 | [Capture-infer loop + overlay](T03-capture.md)   | T01                      | todo   | —     |
-| T04 | [FastAPI layer](T04-api.md)                      | T02, T03                 | todo   | —     |
-| T05 | [Frontend API client + polling](T05-fe-client.md)| T01 (contract only)      | todo   | —     |
-| T06 | [Setup + Recording screens](T06-fe-live.md)      | T05                      | todo   | —     |
-| T07 | [Report screen + Usage timeline](T07-fe-report.md)| T05                     | todo   | —     |
-| T08 | [Integration + demo runbook](T08-integration.md) | T04, T06, T07            | todo   | —     |
+| T01 | [Scaffold backend + frontend](T01-scaffold.md)   | —                        | done   | claude |
+| T02 | [Session state machine + report](T02-session.md) | T01                      | review | claude |
+| T03 | [Capture-infer loop + overlay](T03-capture.md)   | T01                      | review | claude |
+| T04 | [FastAPI layer](T04-api.md)                      | T02, T03                 | review | claude |
+| T05 | [Frontend API client + polling](T05-fe-client.md)| T01 (contract only)      | review | claude |
+| T06 | [Setup + Recording screens](T06-fe-live.md)      | T05                      | review | claude |
+| T07 | [Report screen + Usage timeline](T07-fe-report.md)| T05                     | review | claude |
+| T08 | [Integration + demo runbook](T08-integration.md) | T04, T06, T07            | review | claude |
+
+> Backend T01–T04 built via the `orc-backend-nightly` workflow (blind-TDD +
+> dual-Opus review + adversarial verify on T02/T03) and committed
+> (`2c8eb11`→`19cf144`); T08 integration committed (`8920359`). Backend suite
+> 91 passed; frontend 42 passed; `orc-demo --fake` e2e smoke green. `review`
+> (not `done`) because the Codex sign-off (Bram's dual-review rule) and T08's
+> visual Chrome pass are still pending.
 
 ## Phases / parallelism
 
@@ -78,3 +85,67 @@ The task file header is the source of truth; the table below is a mirror.
 Anything ambiguous → Bram decides. The re-identification risk (DESIGN D8) is
 Constantijn's; if a task discovers a NEW cross-seam problem, log it here, don't
 solve it locally.
+
+### Open findings
+
+- **[2026-07-09] Scenario→wall-clock time dilation (~1.37×) — T01/T03 seam,
+  demo-timing only.** `FakeCaptureSource.read()` (T01) sleeps `1/fps` *before*
+  yielding a frame, but T03's capture loop adds ~40 ms/frame (1080p mask-render
+  + JPEG-encode), so effective throughput is ~7.3 fps, not 10. Scenario time
+  (tracker `frame_count/fps`) runs slower than the wall-clock `t` the `Session`
+  stamps windows with, so scripted events at t=20/35/50 s surface at wall
+  ≈28/48/68 s. **Not a correctness bug:** events fire in the right order and
+  recorded report values are correct (Session stamps from the wall `t` passed
+  in); only *when* they appear drifts. Surfaced by T08's e2e smoke; RUNBOOK
+  rehearsal timings were corrected to wall-clock. Fix option (for the T01/T03
+  owner): make `read()` a rate-limiter that subtracts elapsed loop time instead
+  of a fixed pre-sleep, so scenario-seconds ≈ wall-seconds as the docstring
+  claims. Bram to decide whether the demo needs true-time or the caveat suffices.
+
+- **[2026-07-09] Codex post-build review — 4 edge-case bugs (none on the demo
+  happy-path; full suite + adversarial verify + e2e `--fake` smoke all pass).**
+  Codex session `019f43fa-40b6-7ca0-9006-b40691b9c518`. Bram to triage/assign:
+  - **CONFIRMED ❌ `capture.py:94` `stop()` doesn't guarantee release/dead on a
+    hung read.** Only sets `_stop` + `join(timeout=2.0)`; `cap.release()` is only
+    in the thread's `finally` (:150). A real camera blocked in `read()` >2 s →
+    `stop()` returns with thread alive, capture unreleased, `health != "dead"`
+    (T03 AC9 gap). Fake returns promptly, so demo unaffected; matters for
+    real-camera + the crash playbook. Fix: release + mark dead even on join
+    timeout. Small, but wants a test — do supervised, not blind at night.
+  - **CONFIRMED ❌ `capture.py:79` `start()` has no already-running guard.**
+    Double-`start()` spawns two daemon threads on one tracker (violates "exactly
+    one thread"). Low real-world risk (app starts once); add a guard + test.
+  - **NEEDS ADJUDICATION ❌ `main.py:89` `/stream` reads `generation` then
+    `snapshot()` as two ops** → a publish landing between them can re-yield a
+    frame while recording the stale generation (T04 AC5 "no duplicate frames").
+    Real TOCTOU on the stream path; cosmetic-ish (video feed). Fix = snapshot +
+    generation under one lock read.
+  - **NEEDS ADJUDICATION ❌ `session.py:183` projected debounce transition not
+    committed if the next observe contradicts it.** Codex scenario: `start(0)`,
+    `observe(0.1,{9})`, then `observe(2.0,∅)`, `stop(3.0)` → instrument 9 absent
+    from report though `recording_status(1.2)` had projected it confirmed. MAY
+    be a misread of the intentionally NON-mutating projection (AC10) rather than
+    a bug, and the scenario (one sparse observe, no ~10 fps stream between) is
+    unrealistic. Bram/spec call — this is the correctness heart, do NOT patch
+    blindly.
+  - ✅ Codex confirmed: publish path lock-correct, exception isolation/rate-limit
+    (AC4/6/7/8), `/status` shape + 409/503 + tz-aware timestamps + stop==report,
+    scenario boundary convention, and that the time-dilation finding above does
+    NOT corrupt recorded report values (they're wall-clock, not scenario-frame).
+
+- **[2026-07-09] RESOLVED — Fable second review + fixes (`1fede3d`).** A Fable
+  reviewer independently re-reviewed and adjudicated the Codex findings:
+  - **Fixed** (Codex+Fable agree): (a) `stop()` force-release + `_forced_dead`
+    (AC9), (b) `start()` already-running guard, (c) `/stream` paced by `Latest`
+    identity (no dup frames, AC5). Plus Fable's own: (5) `main()` `try/finally`
+    shutdown hook releasing the camera, (6) public `CaptureLoop.set_on_frame()`
+    replacing the private `_on_frame` poke. Backend 94 passed (+3 tests); live
+    `orc-demo --fake` smoke green incl `/stream` + clean shutdown.
+  - **REJECTED as not-a-bug** (d) `session.py:183` projection: Fable reproduced
+    Codex's scenario and showed the empty report is CORRECT — one observed frame
+    is not `> on_debounce` continuous presence, and presuming continuity across
+    a capture stall would fabricate phantom pickups. Left as-is by design (AC10
+    non-mutating projection). No change.
+  - **Deferred nits** (Fable, optional): reset_tracker() on a dead thread is a
+    silent no-op (unreachable via UI); `ScenarioTracker(confidence=)` param
+    stored but unused. Bram's call, cosmetic.

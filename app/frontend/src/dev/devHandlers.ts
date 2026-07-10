@@ -1,0 +1,114 @@
+import { http, HttpResponse } from "msw"
+import { BASE } from "@/api/client"
+import type { InstrumentReport, Report, Status } from "@/api/types"
+
+// Interactive dev backend for `npm run dev:msw` (and Chrome verification): a
+// stateful stand-in that actually responds to Start/Stop, so the real App can be
+// driven setup → recording → report before the backend exists. Unlike the
+// component-test fixtures (deterministic, no clock) this one uses the wall clock
+// so timers tick and the Start gate becomes stable after ~2 s. Dev-only.
+
+const MODEL = "scenario-0.1"
+
+// Scripted choreography (seconds into the recording): instrument 1 is picked up
+// and returned (present, closed window); instrument 3 leaves and never returns
+// (missing, open window); the rest stay on the table.
+const SCRIPT: Record<number, { off: number; on: number | null }[]> = {
+  1: [{ off: 5, on: 12 }],
+  2: [],
+  3: [{ off: 8, on: null }],
+  4: [],
+  5: [],
+}
+const IDS = [1, 2, 3, 4, 5]
+
+let phase: Status["phase"] = "setup"
+let setupStart = Date.now()
+let recStart = 0
+let frozenReport: Report | null = null
+
+const nowS = (from: number) => (Date.now() - from) / 1000
+
+function liveInstrument(id: number, t: number) {
+  // The currently-open off window, if any, at time t.
+  const open = SCRIPT[id].find((w) => t >= w.off && (w.on === null || t < w.on))
+  const pickups = SCRIPT[id].filter((w) => t >= w.off).length
+  return {
+    tracker_id: id,
+    label: `Instrument ${id}`,
+    on_table: !open,
+    off_since_s: open ? t - open.off : null,
+    pickup_count: pickups,
+  }
+}
+
+function buildReport(duration: number): Report {
+  const instruments: InstrumentReport[] = IDS.map((id) => {
+    const usage = SCRIPT[id]
+      .filter((w) => w.off < duration)
+      .map((w) => ({
+        off_s: w.off,
+        on_s: w.on !== null && w.on <= duration ? w.on : null,
+      }))
+    const last = usage[usage.length - 1]
+    return {
+      tracker_id: id,
+      label: `Instrument ${id}`,
+      completeness: last && last.on_s === null ? "missing" : "present",
+      usage,
+    }
+  })
+  return {
+    started_at: new Date(recStart).toISOString(),
+    stopped_at: new Date().toISOString(),
+    duration_s: duration,
+    model_version: MODEL,
+    instruments,
+  }
+}
+
+export const devHandlers = [
+  http.get(`${BASE}/status`, () => {
+    if (phase === "recording") {
+      const t = nowS(recStart)
+      const instruments = IDS.map((id) => liveInstrument(id, t))
+      return HttpResponse.json<Status>({
+        phase,
+        capture_health: "ok",
+        model_version: MODEL,
+        setup: null,
+        recording: {
+          started_at: new Date(recStart).toISOString(),
+          elapsed_s: t,
+          on_table_count: instruments.filter((i) => i.on_table).length,
+          instruments,
+        },
+      })
+    }
+    // setup / finished: the id-set is "stable" once 2 s have passed here.
+    return HttpResponse.json<Status>({
+      phase,
+      capture_health: "ok",
+      model_version: MODEL,
+      setup: { detected_count: 5, stable_for_s: nowS(setupStart) },
+      recording: null,
+    })
+  }),
+  http.post(`${BASE}/recording/start`, () => {
+    phase = "recording"
+    recStart = Date.now()
+    frozenReport = null
+    return HttpResponse.json({ started_at: new Date(recStart).toISOString() })
+  }),
+  http.post(`${BASE}/recording/stop`, () => {
+    frozenReport = buildReport(nowS(recStart))
+    phase = "finished"
+    setupStart = Date.now() // re-arm the gate for run 2
+    return HttpResponse.json(frozenReport)
+  }),
+  http.get(`${BASE}/report`, () =>
+    frozenReport
+      ? HttpResponse.json(frozenReport)
+      : HttpResponse.json({ detail: "no finished recording" }, { status: 409 })
+  ),
+]
