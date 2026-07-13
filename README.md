@@ -10,7 +10,7 @@ Built for a demo at **UZ Leuven** (2026-07-20) with the hospital's Central Steri
 2. **Start** is pressed — recording and live tracking begin.
 3. Any instrument can be picked up, carried out of frame, and brought back, in any order, any number of times.
 4. **Stop** is pressed — recording ends.
-5. A dashboard shows, per instrument: **Usage** (when it was off the table) and **Completeness** (present or lost).
+5. A dashboard shows, per instrument: **Usage** (when it was off the table) and **Completeness** (present or missing).
 
 This is a demo/PoC, not a product: a controlled, in-vitro setup with our own instruments, not the client's.
 
@@ -19,6 +19,7 @@ This is a demo/PoC, not a product: a controlled, in-vitro setup with our own ins
 ```
 MVP-OKcamera/
 ├── model/              # offline: detection/tracking, produces the artifact app/backend consumes
+├── data-collection/    # capture tool: stream the camera, save stills + recordings as training material
 └── app/
     ├── backend/        # live runtime: stream ingestion, phase state, reports — talks to model/ only via its artifact
     └── frontend/        # control screen (Start/Stop), live view, results dashboard — talks only to app/backend's API
@@ -28,7 +29,7 @@ MVP-OKcamera/
 - `app/frontend` only talks to `app/backend`'s API, never to `model/` directly.
 - `model/` has no dependency on `app/` at all — training runs and finishes before the app ever touches the artifact.
 
-Each folder is a placeholder for now (see its own `README.md`) — internals (language, framework, packaging) aren't scaffolded yet.
+See each folder's own `README.md` for internals. `app/` (backend + frontend) and `data-collection/` are built and tested; the remaining piece is `model/`'s real tracker (`load_tracker` with appearance-based re-identification), which `app/backend` consumes for real-camera mode.
 
 ## Agent setup
 

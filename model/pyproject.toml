@@ -13,6 +13,7 @@ dependencies = [
     "pycocotools>=2.0.11",
     "trackers",
     "plotly>=6.8.0",
+    "pyorbbecsdk2>=2.1.1",
 ]
 
 [build-system]

@@ -1,0 +1,1802 @@
+[07/09 16:34:23.294485][info][189486][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/09 16:34:23.294503][info][189486][DeviceManager.cpp:25] Current found device(s): (1)
+[07/09 16:34:23.294504][info][189486][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 16:34:23.294505][info][189486][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/09 16:34:24.311106][info][189486][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/09 16:34:24.311118][info][189486][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 16:34:24.311912][warning][189486][ObLibuvcDevicePort.cpp:71] uvc_open failed: [Path: 2-2.1-4.0, Return Code: -3]
+[07/09 16:34:24.311958][warning][189486][ObException.cpp:32] A unrecoverable_exception has occurred!
+ - where: ObLibuvcDevicePort.cpp(72)
+ - msg: uvc_open failed: [Path: 2-2.1-4.0, Return Code: -3]
+ - type: IO
+ - status: 115
+[07/09 16:34:24.312164][warning][189486][DeviceBase.cpp:357] Execute failure! A libobsensor_exception has occurred!
+ - where: DeviceBase.cpp(357):getComponent
+ - msg: uvc_open failed: [Path: 2-2.1-4.0, Return Code: -3]
+ - type: N11libobsensor23unrecoverable_exceptionE
+ - status: 115
+[07/09 16:34:24.312773][warning][189486][ObLibuvcDevicePort.cpp:71] uvc_open failed: [Path: 2-2.1-4.0, Return Code: -3]
+[07/09 16:34:24.312793][warning][189486][ObException.cpp:32] A unrecoverable_exception has occurred!
+ - where: ObLibuvcDevicePort.cpp(72)
+ - msg: uvc_open failed: [Path: 2-2.1-4.0, Return Code: -3]
+ - type: IO
+ - status: 115
+[07/09 16:34:24.312855][warning][189486][DeviceBase.cpp:357] Execute failure! A libobsensor_exception has occurred!
+ - where: DeviceBase.cpp(357):getComponent
+ - msg: uvc_open failed: [Path: 2-2.1-4.0, Return Code: -3]
+ - type: N11libobsensor23unrecoverable_exceptionE
+ - status: 115
+[07/09 17:40:48.593862][info][139719][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/09 17:40:48.593874][info][139719][DeviceManager.cpp:25] Current found device(s): (1)
+[07/09 17:40:48.593875][info][139719][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 17:40:48.593876][info][139719][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/09 17:40:49.617381][info][139719][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/09 17:40:49.617414][info][139719][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 17:40:49.621352][warning][139719][ObLibuvcDevicePort.cpp:71] uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+[07/09 17:40:49.621452][warning][139719][ObException.cpp:32] A unrecoverable_exception has occurred!
+ - where: ObLibuvcDevicePort.cpp(72)
+ - msg: uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+ - type: IO
+ - status: 115
+[07/09 17:40:49.623355][warning][139719][DeviceBase.cpp:357] Execute failure! A libobsensor_exception has occurred!
+ - where: DeviceBase.cpp(357):getComponent
+ - msg: uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+ - type: N11libobsensor23unrecoverable_exceptionE
+ - status: 115
+[07/09 17:40:49.624937][warning][139719][ObLibuvcDevicePort.cpp:71] uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+[07/09 17:40:49.625012][warning][139719][ObException.cpp:32] A unrecoverable_exception has occurred!
+ - where: ObLibuvcDevicePort.cpp(72)
+ - msg: uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+ - type: IO
+ - status: 115
+[07/09 17:40:49.625233][warning][139719][DeviceBase.cpp:357] Execute failure! A libobsensor_exception has occurred!
+ - where: DeviceBase.cpp(357):getComponent
+ - msg: uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+ - type: N11libobsensor23unrecoverable_exceptionE
+ - status: 115
+[07/09 17:42:08.883618][info][146418][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/09 17:42:08.883635][info][146418][DeviceManager.cpp:25] Current found device(s): (1)
+[07/09 17:42:08.883636][info][146418][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 17:42:08.883637][info][146418][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/09 17:42:09.907793][info][146418][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/09 17:42:09.907810][info][146418][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 17:42:09.908824][warning][146418][ObLibuvcDevicePort.cpp:71] uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+[07/09 17:42:09.908874][warning][146418][ObException.cpp:32] A unrecoverable_exception has occurred!
+ - where: ObLibuvcDevicePort.cpp(72)
+ - msg: uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+ - type: IO
+ - status: 115
+[07/09 17:42:09.909017][warning][146418][DeviceBase.cpp:357] Execute failure! A libobsensor_exception has occurred!
+ - where: DeviceBase.cpp(357):getComponent
+ - msg: uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+ - type: N11libobsensor23unrecoverable_exceptionE
+ - status: 115
+[07/09 17:42:09.909803][warning][146418][ObLibuvcDevicePort.cpp:71] uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+[07/09 17:42:09.909814][warning][146418][ObException.cpp:32] A unrecoverable_exception has occurred!
+ - where: ObLibuvcDevicePort.cpp(72)
+ - msg: uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+ - type: IO
+ - status: 115
+[07/09 17:42:09.909888][warning][146418][DeviceBase.cpp:357] Execute failure! A libobsensor_exception has occurred!
+ - where: DeviceBase.cpp(357):getComponent
+ - msg: uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+ - type: N11libobsensor23unrecoverable_exceptionE
+ - status: 115
+[07/09 17:43:36.090276][info][152760][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/09 17:43:36.090290][info][152760][DeviceManager.cpp:25] Current found device(s): (1)
+[07/09 17:43:36.090291][info][152760][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 17:43:36.090292][info][152760][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/09 17:43:37.111812][info][152760][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/09 17:43:37.111834][info][152760][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 17:43:37.113103][warning][152760][ObLibuvcDevicePort.cpp:71] uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+[07/09 17:43:37.113195][warning][152760][ObException.cpp:32] A unrecoverable_exception has occurred!
+ - where: ObLibuvcDevicePort.cpp(72)
+ - msg: uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+ - type: IO
+ - status: 115
+[07/09 17:43:37.113360][warning][152760][DeviceBase.cpp:357] Execute failure! A libobsensor_exception has occurred!
+ - where: DeviceBase.cpp(357):getComponent
+ - msg: uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+ - type: N11libobsensor23unrecoverable_exceptionE
+ - status: 115
+[07/09 17:43:37.114264][warning][152760][ObLibuvcDevicePort.cpp:71] uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+[07/09 17:43:37.114295][warning][152760][ObException.cpp:32] A unrecoverable_exception has occurred!
+ - where: ObLibuvcDevicePort.cpp(72)
+ - msg: uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+ - type: IO
+ - status: 115
+[07/09 17:43:37.114396][warning][152760][DeviceBase.cpp:357] Execute failure! A libobsensor_exception has occurred!
+ - where: DeviceBase.cpp(357):getComponent
+ - msg: uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+ - type: N11libobsensor23unrecoverable_exceptionE
+ - status: 115
+[07/09 17:45:08.051155][info][160060][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/09 17:45:08.051168][info][160060][DeviceManager.cpp:25] Current found device(s): (1)
+[07/09 17:45:08.051169][info][160060][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 17:45:08.051170][info][160060][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/09 17:45:09.056858][info][160060][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/09 17:45:09.056904][info][160060][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 17:45:09.060105][warning][160060][ObLibuvcDevicePort.cpp:71] uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+[07/09 17:45:09.060285][warning][160060][ObException.cpp:32] A unrecoverable_exception has occurred!
+ - where: ObLibuvcDevicePort.cpp(72)
+ - msg: uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+ - type: IO
+ - status: 115
+[07/09 17:45:09.060756][warning][160060][DeviceBase.cpp:357] Execute failure! A libobsensor_exception has occurred!
+ - where: DeviceBase.cpp(357):getComponent
+ - msg: uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+ - type: N11libobsensor23unrecoverable_exceptionE
+ - status: 115
+[07/09 17:45:09.062794][warning][160060][ObLibuvcDevicePort.cpp:71] uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+[07/09 17:45:09.062886][warning][160060][ObException.cpp:32] A unrecoverable_exception has occurred!
+ - where: ObLibuvcDevicePort.cpp(72)
+ - msg: uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+ - type: IO
+ - status: 115
+[07/09 17:45:09.063173][warning][160060][DeviceBase.cpp:357] Execute failure! A libobsensor_exception has occurred!
+ - where: DeviceBase.cpp(357):getComponent
+ - msg: uvc_open failed: [Path: 2-2.4-4.0, Return Code: -3]
+ - type: N11libobsensor23unrecoverable_exceptionE
+ - status: 115
+[07/09 17:48:12.109604][info][172575][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/09 17:48:12.109621][info][172575][DeviceManager.cpp:25] Current found device(s): (1)
+[07/09 17:48:12.109622][info][172575][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 17:48:12.109623][info][172575][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/09 17:48:13.122102][info][172575][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/09 17:48:13.122112][info][172575][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 17:48:13.125646][info][172575][G330Device.cpp:566] UVCAutoRebootOnFault=true for device: Gemini 335L
+[07/09 17:48:13.127625][info][172575][DeviceBase.cpp:665] key: AppSlot,value:2
+[07/09 17:48:13.127627][info][172575][DeviceBase.cpp:665] key: HwType,value:L2
+[07/09 17:48:13.127627][info][172575][DeviceBase.cpp:665] key: HwVer,value:V1.1
+[07/09 17:48:13.127628][info][172575][DeviceBase.cpp:665] key: IspFwVer,value:20241125
+[07/09 17:48:13.127629][info][172575][DeviceBase.cpp:665] key: IspNeedVer,value:20241125
+[07/09 17:48:13.127630][info][172575][DeviceBase.cpp:665] key: PresetVer,value:1.2.2
+[07/09 17:48:13.306900][info][172575][DeviceManager.cpp:199] Device created successfully! Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S FW: 1.4.60
+[07/09 17:48:13.306950][info][172575][Pipeline.cpp:54] [CP263630007S] Pipeline created with device: {name: Gemini 335L, sn: CP263630007S}, @0x600003479A18
+[07/09 17:48:13.313864][warning][172575][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: StreamProfile.cpp(349)
+ - msg: Invalid input, No matched video stream profile found!
+ - type: INVALID_VALUE
+ - status: 100
+[07/09 17:48:13.314190][info][172575][Pipeline.cpp:228] [CP263630007S] Check and set config done!
+[07/09 17:48:13.314532][info][172575][Pipeline.cpp:266] [CP263630007S] Try to start streams!
+[07/09 17:48:13.314541][info][172575][VideoSensor.cpp:58] [CP263630007S] Try to start stream: {type: Color, format: MJPG, width: 1280, height: 720, fps: 30}
+[07/09 17:48:13.314547][info][172575][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPED to STARTING@Color
+[07/09 17:48:13.314550][info][172575][VideoSensor.cpp:127] [CP263630007S] Start backend stream: {type: Color, format: MJPG, width: 1280, height: 720, fps: 30}
+[07/09 17:48:13.316615][info][172575][Pipeline.cpp:293] [CP263630007S] Start streams done!
+[07/09 17:48:13.316616][info][172575][Pipeline.cpp:250] [CP263630007S] Pipeline start done!
+[07/09 17:48:13.433636][warning][172575][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100
+[07/09 17:48:13.746572][info][172666][SensorBase.cpp:210] [CP263630007S] Stream state changed from STARTING to STREAMING@Color
+[07/09 17:48:14.587991][info][172575][Pipeline.cpp:367] [CP263630007S] Try to stop pipeline!
+[07/09 17:48:14.588005][info][172575][Pipeline.cpp:343] [CP263630007S] Try to stop streams!
+[07/09 17:48:14.588020][info][172575][SensorBase.cpp:210] [CP263630007S] Stream state changed from STREAMING to STOPPING@Color
+[07/09 17:48:14.625710][info][172575][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPING to STOPPED@Color
+[07/09 17:48:14.625749][info][172575][Pipeline.cpp:357] [CP263630007S] Sensor stream stopped, sensorType=Color
+[07/09 17:48:14.625751][info][172575][Pipeline.cpp:363] [CP263630007S] Stop streams done!
+[07/09 17:48:14.626120][info][172575][Pipeline.cpp:392] [CP263630007S] Stop pipeline done!
+[07/09 17:48:14.626140][info][172575][Pipeline.cpp:65] [CP263630007S] Pipeline destroyed! @0x600003479A18
+[07/09 17:48:14.626284][info][172575][SensorBase.cpp:47] [CP263630007S] SensorBase is destroyed
+[07/09 17:48:14.626746][info][172575][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/09 17:48:14.626747][info][172575][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[07/09 17:48:14.676164][info][172575][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/09 17:48:14.676169][info][172575][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[07/09 17:48:14.688793][warning][172670][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100 [**3 logs in 1255ms, last: 17:48:13.743102**]
+[07/09 17:52:01.504329][info][189185][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/09 17:52:01.504342][info][189185][DeviceManager.cpp:25] Current found device(s): (1)
+[07/09 17:52:01.504343][info][189185][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 17:52:01.504344][info][189185][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/09 17:52:02.520086][info][189185][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/09 17:52:02.520117][info][189185][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 17:52:02.529610][info][189185][G330Device.cpp:566] UVCAutoRebootOnFault=true for device: Gemini 335L
+[07/09 17:52:02.533684][info][189185][DeviceBase.cpp:665] key: AppSlot,value:2
+[07/09 17:52:02.533690][info][189185][DeviceBase.cpp:665] key: HwType,value:L2
+[07/09 17:52:02.533691][info][189185][DeviceBase.cpp:665] key: HwVer,value:V1.1
+[07/09 17:52:02.533692][info][189185][DeviceBase.cpp:665] key: IspFwVer,value:20241125
+[07/09 17:52:02.533693][info][189185][DeviceBase.cpp:665] key: IspNeedVer,value:20241125
+[07/09 17:52:02.533694][info][189185][DeviceBase.cpp:665] key: PresetVer,value:1.2.2
+[07/09 17:52:02.717652][info][189185][DeviceManager.cpp:199] Device created successfully! Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S FW: 1.4.60
+[07/09 17:52:02.717685][info][189185][Pipeline.cpp:54] [CP263630007S] Pipeline created with device: {name: Gemini 335L, sn: CP263630007S}, @0x600003AFD718
+[07/09 17:52:02.729296][info][189185][Pipeline.cpp:65] [CP263630007S] Pipeline destroyed! @0x600003AFD718
+[07/09 17:52:02.729356][info][189185][SensorBase.cpp:47] [CP263630007S] SensorBase is destroyed
+[07/09 17:52:02.730153][info][189185][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/09 17:52:02.730154][info][189185][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[07/09 17:52:02.775853][info][189185][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/09 17:52:02.775855][info][189185][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[07/09 17:52:32.486608][info][190769][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/09 17:52:32.486622][info][190769][DeviceManager.cpp:25] Current found device(s): (1)
+[07/09 17:52:32.486623][info][190769][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 17:52:32.486624][info][190769][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/09 17:52:33.508658][info][190769][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/09 17:52:33.508705][info][190769][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 17:52:33.514950][info][190769][G330Device.cpp:566] UVCAutoRebootOnFault=true for device: Gemini 335L
+[07/09 17:52:33.516822][info][190769][DeviceBase.cpp:665] key: AppSlot,value:2
+[07/09 17:52:33.516826][info][190769][DeviceBase.cpp:665] key: HwType,value:L2
+[07/09 17:52:33.516827][info][190769][DeviceBase.cpp:665] key: HwVer,value:V1.1
+[07/09 17:52:33.516828][info][190769][DeviceBase.cpp:665] key: IspFwVer,value:20241125
+[07/09 17:52:33.516829][info][190769][DeviceBase.cpp:665] key: IspNeedVer,value:20241125
+[07/09 17:52:33.516830][info][190769][DeviceBase.cpp:665] key: PresetVer,value:1.2.2
+[07/09 17:52:33.692529][info][190769][DeviceManager.cpp:199] Device created successfully! Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S FW: 1.4.60
+[07/09 17:52:33.692581][info][190769][Pipeline.cpp:54] [CP263630007S] Pipeline created with device: {name: Gemini 335L, sn: CP263630007S}, @0x600002B41E18
+[07/09 17:52:33.700724][warning][190769][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: StreamProfile.cpp(349)
+ - msg: Invalid input, No matched video stream profile found!
+ - type: INVALID_VALUE
+ - status: 100
+[07/09 17:52:33.701280][info][190769][Pipeline.cpp:228] [CP263630007S] Check and set config done!
+[07/09 17:52:33.701684][info][190769][Pipeline.cpp:266] [CP263630007S] Try to start streams!
+[07/09 17:52:33.701693][info][190769][VideoSensor.cpp:58] [CP263630007S] Try to start stream: {type: Color, format: MJPG, width: 1280, height: 720, fps: 30}
+[07/09 17:52:33.701702][info][190769][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPED to STARTING@Color
+[07/09 17:52:33.701705][info][190769][VideoSensor.cpp:127] [CP263630007S] Start backend stream: {type: Color, format: MJPG, width: 1280, height: 720, fps: 30}
+[07/09 17:52:33.704563][info][190769][Pipeline.cpp:293] [CP263630007S] Start streams done!
+[07/09 17:52:33.704564][info][190769][Pipeline.cpp:250] [CP263630007S] Pipeline start done!
+[07/09 17:52:33.810231][warning][190769][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100
+[07/09 17:52:34.154104][info][190849][SensorBase.cpp:210] [CP263630007S] Stream state changed from STARTING to STREAMING@Color
+[07/09 17:52:36.939052][warning][190851][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100 [**2 logs in 3128ms, last: 17:52:34.045451**]
+[07/09 17:52:39.158817][info][190849][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=30.169830fps
+[07/09 17:52:39.158853][info][190856][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=30.175858fps
+[07/09 17:52:44.164771][info][190849][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:52:44.164805][info][190856][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:52:49.170678][info][190849][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:52:49.170705][info][190856][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:52:54.176563][info][190849][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:52:54.176595][info][190856][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:52:59.182567][info][190849][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:52:59.182602][info][190856][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:53:04.188389][info][190849][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 17:53:04.188419][info][190856][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:53:09.194347][info][190849][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:53:09.194378][info][190856][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 17:53:14.200234][info][190849][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:53:14.200275][info][190856][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:53:19.206176][info][190849][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:53:19.206248][info][190856][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:53:24.212084][info][190849][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:53:24.212110][info][190856][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:53:29.218004][info][190849][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:53:29.218036][info][190856][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:53:34.223953][info][190849][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:53:34.223990][info][190856][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:53:39.229872][info][190849][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:53:39.229904][info][190856][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:53:44.235742][info][190849][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:53:44.235772][info][190856][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:53:49.241712][info][190849][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:53:49.241740][info][190856][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:53:54.247576][info][190849][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:53:54.247599][info][190856][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:53:59.253489][info][190849][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:53:59.253518][info][190856][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:54:04.259422][info][190849][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 17:54:04.259444][info][190856][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:54:09.265382][info][190849][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:54:09.265420][info][190856][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 17:54:10.519689][info][194385][DeviceManager.cpp:332] Device changed! removed: 1, added: 0
+[07/09 17:54:10.519717][warning][194385][DeviceBase.cpp:207] Device is deactivated or disconnected while there are still sensors streaming!
+[07/09 17:54:10.520431][info][194385][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/09 17:54:10.520434][info][194385][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[07/09 17:54:10.520621][info][194385][DeviceManager.cpp:25] Removed device(s) list: (1)
+[07/09 17:54:10.520624][info][194385][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 17:54:10.520627][info][194385][DeviceManager.cpp:25] Current device(s) list: (0)
+[07/09 17:54:10.589085][warning][190769][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100
+[07/09 17:54:13.614204][warning][190769][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100 [**27 logs in 3025ms**]
+[07/09 17:54:14.772816][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:14.829652][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:14.882766][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:14.938016][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:14.989407][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:15.044659][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:19.663639][warning][190769][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100 [**54 logs in 6049ms**]
+[07/09 17:54:25.049862][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:25.102755][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:25.154942][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:25.210159][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:25.262722][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:25.317940][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:31.760471][warning][190769][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100 [**108 logs in 12096ms**]
+[07/09 17:54:35.323135][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:35.378335][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:35.433499][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:35.487568][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:35.542814][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:35.594861][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:45.596756][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:45.651403][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:45.701999][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:45.757160][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:45.812316][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:45.867488][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:55.849275][warning][190769][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100 [**215 logs in 24088ms**]
+[07/09 17:54:55.872715][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:55.928010][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:55.983268][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:56.038519][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:56.093768][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:54:56.149009][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:06.150737][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:06.206089][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:06.261454][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:06.316711][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:06.371943][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:06.424186][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:16.429434][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:16.484720][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:16.539995][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:16.592559][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:16.647808][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:16.703031][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:26.708276][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:26.762629][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:26.817884][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:26.870898][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:26.922632][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:26.977966][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:36.983190][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:37.040143][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:37.092027][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:37.142590][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:37.194127][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:37.244910][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:43.911674][warning][190769][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100 [**429 logs in 48062ms**]
+[07/09 17:55:47.246675][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:47.301805][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:47.352485][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:47.407649][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:47.461838][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:47.512552][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:57.517761][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:57.570206][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:57.622453][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:57.677704][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:57.730393][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:55:57.782549][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:07.787827][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:07.842950][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:07.898226][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:07.949665][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:08.004878][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:08.060089][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:18.065320][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:18.119293][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:18.171596][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:18.222028][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:18.277282][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:18.327525][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:28.332756][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:28.388063][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:28.443331][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:28.494439][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:28.545774][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:28.600981][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:38.601827][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:38.652531][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:38.707692][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:38.762930][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:38.818169][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:38.871836][warning][190821][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:43.957406][warning][190769][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100 [**536 logs in 60045ms**]
+[07/09 17:56:46.640766][info][200456][DeviceManager.cpp:332] Device changed! removed: 0, added: 1
+[07/09 17:56:46.640795][info][200456][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/09 17:56:46.640799][info][200456][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB2.1
+[07/09 17:56:47.113213][info][190769][Pipeline.cpp:367] [CP263630007S] Try to stop pipeline!
+[07/09 17:56:47.113224][info][190769][Pipeline.cpp:343] [CP263630007S] Try to stop streams!
+[07/09 17:56:47.113234][warning][190769][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:6
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:47.113791][info][190769][Pipeline.cpp:367] [CP263630007S] Try to stop pipeline!
+[07/09 17:56:47.113792][info][190769][Pipeline.cpp:343] [CP263630007S] Try to stop streams!
+[07/09 17:56:47.113796][warning][190769][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:6
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:47.113849][info][190769][Pipeline.cpp:367] [CP263630007S] Try to stop pipeline!
+[07/09 17:56:47.113850][info][190769][Pipeline.cpp:343] [CP263630007S] Try to stop streams!
+[07/09 17:56:47.113853][warning][190769][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:6
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:47.113881][warning][190769][Pipeline.cpp:61] [CP263630007S] Execute failure! A libobsensor_exception has occurred!
+ - where: Pipeline.cpp(61):~Pipeline
+ - msg: Device is deactivated/disconnected! DeviceComponentId:6
+ - type: N11libobsensor21recoverable_exceptionE
+ - status: 108
+[07/09 17:56:47.113889][info][190769][Pipeline.cpp:65] [CP263630007S] Pipeline destroyed! @0x600002B41E18
+[07/09 17:56:47.113894][info][190769][SensorBase.cpp:210] [CP263630007S] Stream state changed from STREAMING to STOPPING@Color
+[07/09 17:56:47.113992][warning][190769][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 17:56:47.114057][warning][190769][VideoSensor.cpp:251] [CP263630007S] Failed to send stop stream vendor command: Device is deactivated/disconnected! DeviceComponentId:0
+[07/09 17:56:47.114066][info][190769][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPING to STOPPED@Color
+[07/09 17:56:47.114143][info][190769][SensorBase.cpp:47] [CP263630007S] SensorBase is destroyed
+[07/09 17:56:47.114328][info][190769][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/09 17:56:47.114331][info][190769][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[07/09 17:56:47.645474][warning][200373][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100 [**28 logs in 3688ms, last: 17:56:47.101382**]
+[07/09 17:56:50.624412][info][200713][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/09 17:56:50.624427][info][200713][DeviceManager.cpp:25] Current found device(s): (1)
+[07/09 17:56:50.624428][info][200713][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB2.1
+[07/09 17:56:50.624430][info][200713][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/09 17:56:51.647382][info][200713][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/09 17:56:51.647414][info][200713][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB2.1
+[07/09 17:56:51.656518][info][200713][G330Device.cpp:566] UVCAutoRebootOnFault=true for device: Gemini 335L
+[07/09 17:56:51.661849][info][200713][DeviceBase.cpp:665] key: AppSlot,value:2
+[07/09 17:56:51.661856][info][200713][DeviceBase.cpp:665] key: HwType,value:L2
+[07/09 17:56:51.661858][info][200713][DeviceBase.cpp:665] key: HwVer,value:V1.1
+[07/09 17:56:51.661860][info][200713][DeviceBase.cpp:665] key: IspFwVer,value:20241125
+[07/09 17:56:51.661862][info][200713][DeviceBase.cpp:665] key: IspNeedVer,value:20241125
+[07/09 17:56:51.661864][info][200713][DeviceBase.cpp:665] key: PresetVer,value:1.2.2
+[07/09 17:56:51.882595][info][200713][DeviceManager.cpp:199] Device created successfully! Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S FW: 1.4.60
+[07/09 17:56:51.882670][info][200713][Pipeline.cpp:54] [CP263630007S] Pipeline created with device: {name: Gemini 335L, sn: CP263630007S}, @0x600002971818
+[07/09 17:56:51.888204][warning][200713][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: StreamProfile.cpp(349)
+ - msg: Invalid input, No matched video stream profile found!
+ - type: INVALID_VALUE
+ - status: 100
+[07/09 17:56:51.889120][info][200713][Pipeline.cpp:228] [CP263630007S] Check and set config done!
+[07/09 17:56:51.890599][info][200713][Pipeline.cpp:266] [CP263630007S] Try to start streams!
+[07/09 17:56:51.890612][info][200713][VideoSensor.cpp:58] [CP263630007S] Try to start stream: {type: Color, format: MJPG, width: 1280, height: 720, fps: 10}
+[07/09 17:56:51.890628][info][200713][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPED to STARTING@Color
+[07/09 17:56:51.890632][info][200713][VideoSensor.cpp:127] [CP263630007S] Start backend stream: {type: Color, format: MJPG, width: 1280, height: 720, fps: 10}
+[07/09 17:56:51.896845][info][200713][Pipeline.cpp:293] [CP263630007S] Start streams done!
+[07/09 17:56:51.896848][info][200713][Pipeline.cpp:250] [CP263630007S] Pipeline start done!
+[07/09 17:56:52.001518][warning][200713][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100
+[07/09 17:56:52.473152][info][200785][SensorBase.cpp:210] [CP263630007S] Stream state changed from STARTING to STREAMING@Color
+[07/09 17:56:55.127652][warning][200815][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100 [**3 logs in 3126ms, last: 17:56:52.357349**]
+[07/09 17:56:57.539519][info][200785][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=10.262483fps
+[07/09 17:56:57.539683][info][200819][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=10.264508fps
+[07/09 17:57:02.606555][info][200785][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=10.065127fps
+[07/09 17:57:02.606704][info][200819][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=10.065127fps
+[07/09 17:57:05.597085][info][200713][Pipeline.cpp:367] [CP263630007S] Try to stop pipeline!
+[07/09 17:57:05.597099][info][200713][Pipeline.cpp:343] [CP263630007S] Try to stop streams!
+[07/09 17:57:05.597111][info][200713][SensorBase.cpp:210] [CP263630007S] Stream state changed from STREAMING to STOPPING@Color
+[07/09 17:57:05.704088][info][200713][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPING to STOPPED@Color
+[07/09 17:57:05.704215][info][200713][Pipeline.cpp:357] [CP263630007S] Sensor stream stopped, sensorType=Color
+[07/09 17:57:05.704221][info][200713][Pipeline.cpp:363] [CP263630007S] Stop streams done!
+[07/09 17:57:05.705294][info][200713][Pipeline.cpp:392] [CP263630007S] Stop pipeline done!
+[07/09 17:57:05.705305][info][200713][Pipeline.cpp:65] [CP263630007S] Pipeline destroyed! @0x600002971818
+[07/09 17:57:05.705475][info][200713][SensorBase.cpp:47] [CP263630007S] SensorBase is destroyed
+[07/09 17:57:05.706686][info][200713][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/09 17:57:05.706689][info][200713][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[07/09 17:57:05.826258][info][200713][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/09 17:57:05.826265][info][200713][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[07/09 17:57:35.351205][info][202642][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/09 17:57:35.351215][info][202642][DeviceManager.cpp:25] Current found device(s): (0)
+[07/09 17:57:35.351216][info][202642][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/09 17:57:36.358170][info][202642][DeviceManager.cpp:25] Current device(s) list: (0)
+[07/09 17:57:36.358223][warning][202642][ObException.cpp:32] A unrecoverable_exception has occurred!
+ - where: Pipeline.cpp(22)
+ - msg: No device found
+ - type: CAMERA_DISCONNECTED
+ - status: 112
+[07/09 17:57:40.585445][info][202905][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/09 17:57:40.585457][info][202905][DeviceManager.cpp:25] Current found device(s): (1)
+[07/09 17:57:40.585458][info][202905][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 17:57:40.585460][info][202905][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/09 17:57:41.592313][info][202905][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/09 17:57:41.592345][info][202905][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 17:57:41.600499][info][202905][G330Device.cpp:566] UVCAutoRebootOnFault=true for device: Gemini 335L
+[07/09 17:57:41.602868][info][202905][DeviceBase.cpp:665] key: AppSlot,value:2
+[07/09 17:57:41.602873][info][202905][DeviceBase.cpp:665] key: HwType,value:L2
+[07/09 17:57:41.602874][info][202905][DeviceBase.cpp:665] key: HwVer,value:V1.1
+[07/09 17:57:41.602875][info][202905][DeviceBase.cpp:665] key: IspFwVer,value:20241125
+[07/09 17:57:41.602877][info][202905][DeviceBase.cpp:665] key: IspNeedVer,value:20241125
+[07/09 17:57:41.602878][info][202905][DeviceBase.cpp:665] key: PresetVer,value:1.2.2
+[07/09 17:57:41.780570][info][202905][DeviceManager.cpp:199] Device created successfully! Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S FW: 1.4.60
+[07/09 17:57:41.780598][info][202905][Pipeline.cpp:54] [CP263630007S] Pipeline created with device: {name: Gemini 335L, sn: CP263630007S}, @0x600002B9C218
+[07/09 17:57:41.789139][warning][202905][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: StreamProfile.cpp(349)
+ - msg: Invalid input, No matched video stream profile found!
+ - type: INVALID_VALUE
+ - status: 100
+[07/09 17:57:41.789509][info][202905][Pipeline.cpp:228] [CP263630007S] Check and set config done!
+[07/09 17:57:41.789897][info][202905][Pipeline.cpp:266] [CP263630007S] Try to start streams!
+[07/09 17:57:41.789907][info][202905][VideoSensor.cpp:58] [CP263630007S] Try to start stream: {type: Color, format: MJPG, width: 1280, height: 720, fps: 30}
+[07/09 17:57:41.789915][info][202905][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPED to STARTING@Color
+[07/09 17:57:41.789918][info][202905][VideoSensor.cpp:127] [CP263630007S] Start backend stream: {type: Color, format: MJPG, width: 1280, height: 720, fps: 30}
+[07/09 17:57:41.792756][info][202905][Pipeline.cpp:293] [CP263630007S] Start streams done!
+[07/09 17:57:41.792758][info][202905][Pipeline.cpp:250] [CP263630007S] Pipeline start done!
+[07/09 17:57:41.907014][warning][202905][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100
+[07/09 17:57:42.225246][info][202957][SensorBase.cpp:210] [CP263630007S] Stream state changed from STARTING to STREAMING@Color
+[07/09 17:57:45.028370][warning][202958][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100 [**2 logs in 3121ms, last: 17:57:42.145012**]
+[07/09 17:57:47.230297][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=30.169830fps
+[07/09 17:57:47.230333][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=30.175858fps
+[07/09 17:57:52.236230][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:57:52.236287][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:57:57.242181][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:57:57.242227][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:58:02.247880][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:58:02.247918][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:58:07.254069][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:58:07.254164][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:58:12.262708][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.946098fps
+[07/09 17:58:12.263712][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.940119fps
+[07/09 17:58:17.265879][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.982012fps
+[07/09 17:58:17.265946][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.988007fps
+[07/09 17:58:22.272084][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:58:22.272200][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:58:27.277909][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:58:27.278183][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:58:32.283566][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:58:32.283615][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:58:37.289472][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 17:58:37.289545][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:58:42.295709][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.958059fps
+[07/09 17:58:42.295936][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:58:45.633280][warning][202966][Pipeline.cpp:324] [CP263630007S] Output frameset queue is full, drop oldest frameset!
+[07/09 17:58:47.301321][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 17:58:47.301367][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 17:58:48.671098][warning][208520][Pipeline.cpp:324] [CP263630007S] Output frameset queue is full, drop oldest frameset! [**38 logs in 3037ms, last: 17:58:46.901362**]
+[07/09 17:58:52.307194][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:58:52.307223][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:58:57.313182][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:58:57.313245][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:59:02.319412][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:59:02.319522][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.958059fps
+[07/09 17:59:07.325396][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:59:07.325530][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:59:12.330932][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:59:12.330964][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 17:59:17.337269][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:59:17.337404][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:59:22.342764][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:59:22.342814][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:59:27.349218][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:59:27.349353][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:59:32.354912][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:59:32.355045][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:59:37.360631][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:59:37.360709][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:59:42.366493][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 17:59:42.366567][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:59:47.372486][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:59:47.372561][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:59:52.378505][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:59:52.378643][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 17:59:57.384208][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 17:59:57.384270][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:00:02.390104][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:00:02.390203][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:00:07.396129][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:00:07.396196][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:00:12.401940][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:00:12.401989][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:00:17.408974][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:00:17.409036][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:00:22.420401][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:00:22.420460][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:00:27.430461][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:00:27.430516][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:00:32.439296][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:00:32.439355][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:00:37.447633][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:00:37.447759][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:00:42.455155][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:00:42.455250][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:00:47.462308][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:00:47.462419][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:00:52.468662][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 18:00:52.468711][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:00:57.475316][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:00:57.475420][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:01:02.482080][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.958059fps
+[07/09 18:01:02.482217][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.958059fps
+[07/09 18:01:07.488268][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:01:07.488385][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:01:12.494202][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 18:01:12.494329][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:01:17.500391][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:01:17.500500][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:01:22.506611][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:01:22.506723][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:01:27.512235][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:01:27.512282][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:01:32.518489][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:01:32.518602][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:01:37.524630][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:01:37.524786][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:01:42.530222][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 18:01:42.530265][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:01:47.536217][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:01:47.536257][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:01:52.542167][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:01:52.542241][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:01:57.548159][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:01:57.548205][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:02:02.554189][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:02:02.554279][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:02:07.560078][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:02:07.560137][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:02:12.566286][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:02:12.566399][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:02:17.572143][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:02:17.572275][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:02:22.578764][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.958059fps
+[07/09 18:02:22.578865][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.958059fps
+[07/09 18:02:27.584115][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 18:02:27.584247][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:02:32.589920][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:02:32.590111][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:02:37.595870][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:02:37.595957][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:02:42.601895][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:02:42.602002][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:02:47.608077][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:02:47.608193][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:02:52.613906][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:02:52.614028][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:02:57.620040][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:02:57.620183][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:03:02.625792][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 18:03:02.625908][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:03:07.631551][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:03:07.631595][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:03:12.637612][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:03:12.637717][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:03:17.643442][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:03:17.643479][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:03:22.649442][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:03:22.649488][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:03:27.655296][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:03:27.655380][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:03:32.661337][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:03:32.661383][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:03:37.667409][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:03:37.667504][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:03:42.673240][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:03:42.673299][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:03:47.679199][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 18:03:47.679265][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:03:52.685491][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.958059fps
+[07/09 18:03:52.685637][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:03:57.691155][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 18:03:57.691200][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:04:02.697084][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:04:02.697140][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:04:07.703009][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:04:07.703057][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:04:12.709338][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:04:12.709455][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.958059fps
+[07/09 18:04:17.715152][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:04:17.715271][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:04:22.721168][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:04:22.721311][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:04:27.726887][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:04:27.727068][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:04:32.733401][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:04:32.733516][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:04:37.738697][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:04:37.738736][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:04:42.744702][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:04:42.744759][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:04:47.750991][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:04:47.751106][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:04:52.756672][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 18:04:52.756741][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:04:57.762891][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.958059fps
+[07/09 18:04:57.763005][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:05:02.769128][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:05:02.769288][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:05:07.774417][info][202957][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 18:05:07.774454][info][202966][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:05:09.117382][info][202905][Pipeline.cpp:367] [CP263630007S] Try to stop pipeline!
+[07/09 18:05:09.117389][info][202905][Pipeline.cpp:343] [CP263630007S] Try to stop streams!
+[07/09 18:05:09.117396][info][202905][SensorBase.cpp:210] [CP263630007S] Stream state changed from STREAMING to STOPPING@Color
+[07/09 18:05:09.154432][info][202905][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPING to STOPPED@Color
+[07/09 18:05:09.154480][info][202905][Pipeline.cpp:357] [CP263630007S] Sensor stream stopped, sensorType=Color
+[07/09 18:05:09.154482][info][202905][Pipeline.cpp:363] [CP263630007S] Stop streams done!
+[07/09 18:05:09.154731][info][202905][Pipeline.cpp:392] [CP263630007S] Stop pipeline done!
+[07/09 18:05:09.154736][info][202905][Pipeline.cpp:65] [CP263630007S] Pipeline destroyed! @0x600002B9C218
+[07/09 18:05:09.154912][info][202905][SensorBase.cpp:47] [CP263630007S] SensorBase is destroyed
+[07/09 18:05:09.155663][info][202905][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/09 18:05:09.155665][info][202905][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[07/09 18:05:09.201613][info][202905][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/09 18:05:09.201617][info][202905][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[07/09 18:05:15.022102][info][236220][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/09 18:05:15.022115][info][236220][DeviceManager.cpp:25] Current found device(s): (1)
+[07/09 18:05:15.022116][info][236220][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 18:05:15.022117][info][236220][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/09 18:05:16.027628][info][236220][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/09 18:05:16.027660][info][236220][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 18:05:16.034121][info][236220][G330Device.cpp:566] UVCAutoRebootOnFault=true for device: Gemini 335L
+[07/09 18:05:16.036196][info][236220][DeviceBase.cpp:665] key: AppSlot,value:2
+[07/09 18:05:16.036200][info][236220][DeviceBase.cpp:665] key: HwType,value:L2
+[07/09 18:05:16.036201][info][236220][DeviceBase.cpp:665] key: HwVer,value:V1.1
+[07/09 18:05:16.036202][info][236220][DeviceBase.cpp:665] key: IspFwVer,value:20241125
+[07/09 18:05:16.036203][info][236220][DeviceBase.cpp:665] key: IspNeedVer,value:20241125
+[07/09 18:05:16.036203][info][236220][DeviceBase.cpp:665] key: PresetVer,value:1.2.2
+[07/09 18:05:16.216097][info][236220][DeviceManager.cpp:199] Device created successfully! Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S FW: 1.4.60
+[07/09 18:05:16.216140][info][236220][Pipeline.cpp:54] [CP263630007S] Pipeline created with device: {name: Gemini 335L, sn: CP263630007S}, @0x600002C31718
+[07/09 18:05:16.225074][info][236220][Pipeline.cpp:228] [CP263630007S] Check and set config done!
+[07/09 18:05:16.225509][info][236220][Pipeline.cpp:266] [CP263630007S] Try to start streams!
+[07/09 18:05:16.225516][info][236220][VideoSensor.cpp:58] [CP263630007S] Try to start stream: {type: Color, format: BGR, width: 1280, height: 800, fps: 30}
+[07/09 18:05:16.225526][info][236220][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPED to STARTING@Color
+[07/09 18:05:16.225530][info][236220][VideoSensor.cpp:127] [CP263630007S] Start backend stream: {type: Color, format: YUYV, width: 1280, height: 800, fps: 30}
+[07/09 18:05:16.228624][info][236220][Pipeline.cpp:293] [CP263630007S] Start streams done!
+[07/09 18:05:16.228627][info][236220][Pipeline.cpp:250] [CP263630007S] Pipeline start done!
+[07/09 18:05:16.444874][warning][236220][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100
+[07/09 18:05:16.687837][info][236276][SensorBase.cpp:210] [CP263630007S] Stream state changed from STARTING to STREAMING@Color
+[07/09 18:05:19.587304][warning][236362][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100 [**1 logs in 3142ms, last: 18:05:16.582205**]
+[07/09 18:05:21.692120][info][236276][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=30.169830fps
+[07/09 18:05:21.692636][info][236364][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=30.187925fps
+[07/09 18:05:26.698496][info][236276][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:05:26.698966][info][236364][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.958059fps
+[07/09 18:05:31.704439][info][236276][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:05:31.704960][info][236364][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:05:36.710420][info][236276][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:05:36.711096][info][236364][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.958059fps
+[07/09 18:05:41.716394][info][236276][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:05:41.717163][info][236364][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:05:46.722261][info][236276][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:05:46.722897][info][236364][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:05:51.728306][info][236276][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:05:51.729085][info][236364][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:05:56.734298][info][236276][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:05:56.735066][info][236364][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:06:01.740245][info][236276][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:06:01.741279][info][236364][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.958059fps
+[07/09 18:06:06.746171][info][236276][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 18:06:06.746836][info][236364][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:06:11.752112][info][236276][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:06:11.752859][info][236364][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:06:16.758045][info][236276][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:06:16.758813][info][236364][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:06:21.764043][info][236276][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:06:21.764692][info][236364][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:06:26.770024][info][236276][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:06:26.770781][info][236364][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:06:31.775870][info][236276][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:06:31.776502][info][236364][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:06:36.781900][info][236276][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:06:36.782677][info][236364][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:06:41.787858][info][236276][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:06:41.788675][info][236364][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:06:46.793835][info][236276][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:06:46.794592][info][236364][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:06:51.799775][info][236276][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:06:51.800541][info][236364][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:06:56.414773][info][242422][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/09 18:06:56.414784][info][242422][DeviceManager.cpp:25] Current found device(s): (1)
+[07/09 18:06:56.414785][info][242422][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 18:06:56.414786][info][242422][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/09 18:06:57.422472][info][242422][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/09 18:06:57.422502][info][242422][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 18:06:57.425055][info][242422][G330Device.cpp:566] UVCAutoRebootOnFault=true for device: Gemini 335L
+[07/09 18:06:57.426583][info][242422][DeviceBase.cpp:665] key: AppSlot,value:2
+[07/09 18:06:57.426588][info][242422][DeviceBase.cpp:665] key: HwType,value:L2
+[07/09 18:06:57.426589][info][242422][DeviceBase.cpp:665] key: HwVer,value:V1.1
+[07/09 18:06:57.426590][info][242422][DeviceBase.cpp:665] key: IspFwVer,value:20241125
+[07/09 18:06:57.426591][info][242422][DeviceBase.cpp:665] key: IspNeedVer,value:20241125
+[07/09 18:06:57.426593][info][242422][DeviceBase.cpp:665] key: PresetVer,value:1.2.2
+[07/09 18:06:57.601572][info][242422][DeviceManager.cpp:199] Device created successfully! Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S FW: 1.4.60
+[07/09 18:06:57.601607][info][242422][Pipeline.cpp:54] [CP263630007S] Pipeline created with device: {name: Gemini 335L, sn: CP263630007S}, @0x600002FB9718
+[07/09 18:06:57.609704][info][242422][Pipeline.cpp:228] [CP263630007S] Check and set config done!
+[07/09 18:06:57.610072][info][242422][Pipeline.cpp:266] [CP263630007S] Try to start streams!
+[07/09 18:06:57.610079][info][242422][VideoSensor.cpp:58] [CP263630007S] Try to start stream: {type: Color, format: BGR, width: 1280, height: 800, fps: 30}
+[07/09 18:06:57.610088][info][242422][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPED to STARTING@Color
+[07/09 18:06:57.610093][info][242422][VideoSensor.cpp:127] [CP263630007S] Start backend stream: {type: Color, format: YUYV, width: 1280, height: 800, fps: 30}
+[07/09 18:06:57.612450][warning][242536][VideoSensor.cpp:199] [CP263630007S] This frame will be dropped because the data size does not match the expectation! size=163780, expected=2048000 @Color
+[07/09 18:06:57.613757][info][242422][Pipeline.cpp:293] [CP263630007S] Start streams done!
+[07/09 18:06:57.613760][info][242422][Pipeline.cpp:250] [CP263630007S] Pipeline start done!
+[07/09 18:06:57.722277][warning][242422][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100
+[07/09 18:07:00.645544][warning][242537][VideoSensor.cpp:199] [CP263630007S] This frame will be dropped because the data size does not match the expectation! size=1949828, expected=2048000 @Color [**1 logs in 3032ms, last: 18:06:57.640301**]
+[07/09 18:07:00.729857][warning][242422][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100 [**29 logs in 3007ms**]
+[07/09 18:07:00.731953][info][242422][Pipeline.cpp:367] [CP263630007S] Try to stop pipeline!
+[07/09 18:07:00.731960][info][242422][Pipeline.cpp:343] [CP263630007S] Try to stop streams!
+[07/09 18:07:00.732010][info][242422][SensorBase.cpp:210] [CP263630007S] Stream state changed from STARTING to STOPPING@Color
+[07/09 18:07:00.773336][info][242422][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPING to STOPPED@Color
+[07/09 18:07:00.773349][info][242422][Pipeline.cpp:357] [CP263630007S] Sensor stream stopped, sensorType=Color
+[07/09 18:07:00.773351][info][242422][Pipeline.cpp:363] [CP263630007S] Stop streams done!
+[07/09 18:07:00.773893][info][242422][Pipeline.cpp:392] [CP263630007S] Stop pipeline done!
+[07/09 18:07:00.773929][info][242422][Pipeline.cpp:65] [CP263630007S] Pipeline destroyed! @0x600002FB9718
+[07/09 18:07:00.774182][info][242422][SensorBase.cpp:47] [CP263630007S] SensorBase is destroyed
+[07/09 18:07:00.775161][info][242422][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/09 18:07:00.775165][info][242422][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[07/09 18:07:00.822277][info][242422][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/09 18:07:00.822281][info][242422][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[07/09 18:07:07.474382][info][242917][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/09 18:07:07.474394][info][242917][DeviceManager.cpp:25] Current found device(s): (1)
+[07/09 18:07:07.474395][info][242917][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 18:07:07.474396][info][242917][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/09 18:07:08.501887][info][242917][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/09 18:07:08.501908][info][242917][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 18:07:08.507042][info][242917][G330Device.cpp:566] UVCAutoRebootOnFault=true for device: Gemini 335L
+[07/09 18:07:08.508326][info][242917][DeviceBase.cpp:665] key: AppSlot,value:2
+[07/09 18:07:08.508328][info][242917][DeviceBase.cpp:665] key: HwType,value:L2
+[07/09 18:07:08.508330][info][242917][DeviceBase.cpp:665] key: HwVer,value:V1.1
+[07/09 18:07:08.508330][info][242917][DeviceBase.cpp:665] key: IspFwVer,value:20241125
+[07/09 18:07:08.508331][info][242917][DeviceBase.cpp:665] key: IspNeedVer,value:20241125
+[07/09 18:07:08.508332][info][242917][DeviceBase.cpp:665] key: PresetVer,value:1.2.2
+[07/09 18:07:08.686906][info][242917][DeviceManager.cpp:199] Device created successfully! Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S FW: 1.4.60
+[07/09 18:07:08.686976][info][242917][Pipeline.cpp:54] [CP263630007S] Pipeline created with device: {name: Gemini 335L, sn: CP263630007S}, @0x600003C69818
+[07/09 18:07:08.695563][info][242917][Pipeline.cpp:228] [CP263630007S] Check and set config done!
+[07/09 18:07:08.696033][info][242917][Pipeline.cpp:266] [CP263630007S] Try to start streams!
+[07/09 18:07:08.696039][info][242917][VideoSensor.cpp:58] [CP263630007S] Try to start stream: {type: Color, format: BGR, width: 1280, height: 800, fps: 30}
+[07/09 18:07:08.696049][info][242917][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPED to STARTING@Color
+[07/09 18:07:08.696053][info][242917][VideoSensor.cpp:127] [CP263630007S] Start backend stream: {type: Color, format: YUYV, width: 1280, height: 800, fps: 30}
+[07/09 18:07:08.698904][info][242917][Pipeline.cpp:293] [CP263630007S] Start streams done!
+[07/09 18:07:08.698906][info][242917][Pipeline.cpp:250] [CP263630007S] Pipeline start done!
+[07/09 18:07:08.922250][warning][242917][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100
+[07/09 18:07:09.154635][info][243018][SensorBase.cpp:210] [CP263630007S] Stream state changed from STARTING to STREAMING@Color
+[07/09 18:07:12.060299][warning][243084][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=100 [**1 logs in 3138ms, last: 18:07:09.055193**]
+[07/09 18:07:14.159688][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=30.169830fps
+[07/09 18:07:14.160138][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=30.181892fps
+[07/09 18:07:19.165701][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:07:19.166188][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:07:24.171642][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:07:24.172117][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:07:29.177619][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:07:29.178120][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:07:34.183559][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:07:34.184071][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:07:39.189521][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:07:39.189996][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:07:44.195492][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:07:44.195957][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:07:49.201420][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:07:49.201920][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:07:54.207374][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:07:54.207825][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:07:59.213342][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:07:59.214191][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.958059fps
+[07/09 18:08:04.219343][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:08:04.220017][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:08:09.225282][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:08:09.226063][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:08:14.231212][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 18:08:14.231850][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:08:19.237172][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:08:19.237808][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:08:24.243188][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:08:24.243951][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:08:29.249146][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:08:29.249912][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:08:34.255040][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:08:34.255889][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:08:39.261017][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:08:39.261597][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:08:44.266977][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:08:44.267781][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:08:49.272916][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:08:49.273604][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:08:54.278920][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:08:54.279586][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:08:59.284823][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:08:59.285588][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:09:04.290798][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:09:04.291457][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:09:09.296949][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:09:09.297908][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.958059fps
+[07/09 18:09:14.302735][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:09:14.303512][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:09:19.308851][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:09:19.309684][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:09:24.314546][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 18:09:24.315137][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:09:29.320607][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:09:29.321361][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:09:34.326577][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:09:34.327124][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:09:39.332525][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:09:39.333053][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:09:44.338433][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:09:44.338908][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:09:49.344389][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:09:49.344873][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:09:54.350404][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:09:54.350910][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:09:59.356306][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:09:59.356948][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:10:04.362285][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:10:04.362897][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:10:09.368339][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:10:09.369153][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.958059fps
+[07/09 18:10:14.374242][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:10:14.375003][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:10:19.380186][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:10:19.381053][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:10:24.386153][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 18:10:24.386794][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:10:29.392071][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:10:29.392900][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:10:34.398048][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:10:34.398648][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:10:39.404046][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:10:39.404727][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:10:44.410016][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:10:44.410791][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:10:49.415940][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:10:49.416751][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:10:54.421906][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:10:54.422661][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:10:59.427818][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:10:59.428659][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:11:04.433811][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:11:04.434549][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:11:09.439785][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:11:09.440719][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:11:14.445684][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:11:14.446349][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:11:19.451684][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:11:19.452452][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:11:24.457634][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:11:24.458393][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:11:29.463550][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 18:11:29.464298][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:11:34.469559][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:11:34.470332][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:11:39.475506][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:11:39.476274][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:11:44.481487][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:11:44.482257][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:11:49.487359][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:11:49.487989][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:11:54.493378][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:11:54.494139][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:11:59.499320][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:11:59.500084][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:12:04.505305][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:12:04.506123][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:12:09.511250][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:12:09.512073][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:12:14.517218][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:12:14.517682][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:12:19.523153][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:12:19.523896][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:12:24.529099][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:12:24.529870][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:12:29.535008][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 18:12:29.535666][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:12:34.541070][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:12:34.541802][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:12:39.546997][info][243018][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:12:39.547484][info][243087][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:12:46.297054][info][266792][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/09 18:12:46.297065][info][266792][DeviceManager.cpp:25] Current found device(s): (1)
+[07/09 18:12:46.297066][info][266792][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 18:12:46.297067][info][266792][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/09 18:12:47.302681][info][266792][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/09 18:12:47.302713][info][266792][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 18:12:47.307636][info][266792][G330Device.cpp:566] UVCAutoRebootOnFault=true for device: Gemini 335L
+[07/09 18:12:47.310405][info][266792][DeviceBase.cpp:665] key: AppSlot,value:2
+[07/09 18:12:47.310410][info][266792][DeviceBase.cpp:665] key: HwType,value:L2
+[07/09 18:12:47.310411][info][266792][DeviceBase.cpp:665] key: HwVer,value:V1.1
+[07/09 18:12:47.310412][info][266792][DeviceBase.cpp:665] key: IspFwVer,value:20241125
+[07/09 18:12:47.310413][info][266792][DeviceBase.cpp:665] key: IspNeedVer,value:20241125
+[07/09 18:12:47.310414][info][266792][DeviceBase.cpp:665] key: PresetVer,value:1.2.2
+[07/09 18:12:47.496098][info][266792][DeviceManager.cpp:199] Device created successfully! Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S FW: 1.4.60
+[07/09 18:12:47.496130][info][266792][Pipeline.cpp:54] [CP263630007S] Pipeline created with device: {name: Gemini 335L, sn: CP263630007S}, @0x600000B15918
+[07/09 18:12:47.519528][info][266792][Pipeline.cpp:228] [CP263630007S] Check and set config done!
+[07/09 18:12:47.519918][info][266792][Pipeline.cpp:266] [CP263630007S] Try to start streams!
+[07/09 18:12:47.519925][info][266792][VideoSensor.cpp:58] [CP263630007S] Try to start stream: {type: Color, format: BGR, width: 1280, height: 800, fps: 30}
+[07/09 18:12:47.519931][info][266792][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPED to STARTING@Color
+[07/09 18:12:47.519935][info][266792][VideoSensor.cpp:127] [CP263630007S] Start backend stream: {type: Color, format: YUYV, width: 1280, height: 800, fps: 30}
+[07/09 18:12:47.522198][warning][266842][VideoSensor.cpp:199] [CP263630007S] This frame will be dropped because the data size does not match the expectation! size=196410, expected=2048000 @Color
+[07/09 18:12:47.523371][info][266792][VideoSensor.cpp:58] [CP263630007S] Try to start stream: {type: Depth, format: Y16, width: 848, height: 480, fps: 30}
+[07/09 18:12:47.523376][info][266792][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPED to STARTING@Depth
+[07/09 18:12:47.523378][info][266792][VideoSensor.cpp:127] [CP263630007S] Start backend stream: {type: Depth, format: Z16, width: 848, height: 480, fps: 30}
+[07/09 18:12:47.525705][info][266792][Pipeline.cpp:293] [CP263630007S] Start streams done!
+[07/09 18:12:47.525706][info][266792][Pipeline.cpp:250] [CP263630007S] Pipeline start done!
+[07/09 18:12:47.625045][info][266844][SensorBase.cpp:210] [CP263630007S] Stream state changed from STARTING to STREAMING@Depth
+[07/09 18:12:48.611000][warning][266792][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=1000
+[07/09 18:12:50.528045][warning][266843][VideoSensor.cpp:199] [CP263630007S] This frame will be dropped because the data size does not match the expectation! size=32594, expected=2048000 @Color [**2 logs in 3005ms, last: 18:12:47.523056**]
+[07/09 18:12:51.614493][warning][266792][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=1000 [**3 logs in 3003ms**]
+[07/09 18:12:52.630535][info][266844][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=30.163803fps
+[07/09 18:12:52.633672][info][266886][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=30.157780fps
+[07/09 18:12:57.621394][warning][266792][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=1000 [**6 logs in 6006ms**]
+[07/09 18:12:57.636515][info][266844][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:12:57.640272][info][266886][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:13:02.642326][info][266844][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.970030fps
+[07/09 18:13:02.644772][info][266886][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.970030fps
+[07/09 18:13:07.632302][info][266792][Pipeline.cpp:367] [CP263630007S] Try to stop pipeline!
+[07/09 18:13:07.632318][info][266792][Pipeline.cpp:343] [CP263630007S] Try to stop streams!
+[07/09 18:13:07.632341][info][266792][SensorBase.cpp:210] [CP263630007S] Stream state changed from STREAMING to STOPPING@Depth
+[07/09 18:13:07.679497][info][266792][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPING to STOPPED@Depth
+[07/09 18:13:07.679549][info][266792][Pipeline.cpp:357] [CP263630007S] Sensor stream stopped, sensorType=Depth
+[07/09 18:13:07.679559][info][266792][SensorBase.cpp:210] [CP263630007S] Stream state changed from STARTING to STOPPING@Color
+[07/09 18:13:07.716912][info][266792][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPING to STOPPED@Color
+[07/09 18:13:07.716923][info][266792][Pipeline.cpp:357] [CP263630007S] Sensor stream stopped, sensorType=Color
+[07/09 18:13:07.716924][info][266792][Pipeline.cpp:363] [CP263630007S] Stop streams done!
+[07/09 18:13:07.717305][info][266792][Pipeline.cpp:392] [CP263630007S] Stop pipeline done!
+[07/09 18:13:07.723667][info][266792][Pipeline.cpp:65] [CP263630007S] Pipeline destroyed! @0x600000B15918
+[07/09 18:13:07.723778][info][266792][SensorBase.cpp:47] [CP263630007S] SensorBase is destroyed
+[07/09 18:13:07.724381][info][266792][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/09 18:13:07.724382][info][266792][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[07/09 18:13:07.724418][info][266792][SensorBase.cpp:47] [CP263630007S] SensorBase is destroyed
+[07/09 18:13:07.781102][info][266792][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/09 18:13:07.781108][info][266792][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[07/09 18:13:08.468181][warning][267413][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=1000 [**10 logs in 10846ms, last: 18:13:07.630477**]
+[07/09 18:13:19.731573][info][268516][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/09 18:13:19.731588][info][268516][DeviceManager.cpp:25] Current found device(s): (1)
+[07/09 18:13:19.731589][info][268516][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 18:13:19.731590][info][268516][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/09 18:13:20.753478][info][268516][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/09 18:13:20.753491][info][268516][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 18:13:20.757095][info][268516][G330Device.cpp:566] UVCAutoRebootOnFault=true for device: Gemini 335L
+[07/09 18:13:20.758387][info][268516][DeviceBase.cpp:665] key: AppSlot,value:2
+[07/09 18:13:20.758389][info][268516][DeviceBase.cpp:665] key: HwType,value:L2
+[07/09 18:13:20.758390][info][268516][DeviceBase.cpp:665] key: HwVer,value:V1.1
+[07/09 18:13:20.758391][info][268516][DeviceBase.cpp:665] key: IspFwVer,value:20241125
+[07/09 18:13:20.758392][info][268516][DeviceBase.cpp:665] key: IspNeedVer,value:20241125
+[07/09 18:13:20.758393][info][268516][DeviceBase.cpp:665] key: PresetVer,value:1.2.2
+[07/09 18:13:20.937816][info][268516][DeviceManager.cpp:199] Device created successfully! Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S FW: 1.4.60
+[07/09 18:13:20.937857][info][268516][Pipeline.cpp:54] [CP263630007S] Pipeline created with device: {name: Gemini 335L, sn: CP263630007S}, @0x600001909A18
+[07/09 18:13:20.960376][info][268516][Pipeline.cpp:228] [CP263630007S] Check and set config done!
+[07/09 18:13:20.960726][info][268516][Pipeline.cpp:266] [CP263630007S] Try to start streams!
+[07/09 18:13:20.960731][info][268516][VideoSensor.cpp:58] [CP263630007S] Try to start stream: {type: Color, format: BGR, width: 1280, height: 800, fps: 30}
+[07/09 18:13:20.960738][info][268516][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPED to STARTING@Color
+[07/09 18:13:20.960741][info][268516][VideoSensor.cpp:127] [CP263630007S] Start backend stream: {type: Color, format: YUYV, width: 1280, height: 800, fps: 30}
+[07/09 18:13:20.963298][info][268516][VideoSensor.cpp:58] [CP263630007S] Try to start stream: {type: Depth, format: Y16, width: 848, height: 480, fps: 30}
+[07/09 18:13:20.963304][info][268516][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPED to STARTING@Depth
+[07/09 18:13:20.963306][info][268516][VideoSensor.cpp:127] [CP263630007S] Start backend stream: {type: Depth, format: Z16, width: 848, height: 480, fps: 30}
+[07/09 18:13:20.965630][info][268516][Pipeline.cpp:293] [CP263630007S] Start streams done!
+[07/09 18:13:20.965632][info][268516][Pipeline.cpp:250] [CP263630007S] Pipeline start done!
+[07/09 18:13:21.051785][info][268595][SensorBase.cpp:210] [CP263630007S] Stream state changed from STARTING to STREAMING@Depth
+[07/09 18:13:21.433550][info][268594][SensorBase.cpp:210] [CP263630007S] Stream state changed from STARTING to STREAMING@Color
+[07/09 18:13:26.056966][info][268595][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=30.163803fps
+[07/09 18:13:26.058174][info][268616][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=30.169830fps
+[07/09 18:13:26.438778][info][268594][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=30.169830fps
+[07/09 18:13:26.439172][info][268624][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=30.181892fps
+[07/09 18:13:31.062926][info][268595][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:13:31.064168][info][268616][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:13:31.444600][info][268594][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:13:31.444969][info][268624][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:13:36.068927][info][268595][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:13:36.070243][info][268616][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:13:36.450654][info][268594][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:13:36.451049][info][268624][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:13:41.074882][info][268595][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:13:41.076197][info][268616][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:13:41.456512][info][268594][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 18:13:41.456875][info][268624][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:13:46.080776][info][268595][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:13:46.081987][info][268616][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:13:46.462498][info][268594][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:13:46.462868][info][268624][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:13:51.086743][info][268595][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:13:51.088025][info][268616][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:13:51.468530][info][268594][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:13:51.468923][info][268624][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:13:56.092713][info][268595][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.970030fps
+[07/09 18:13:56.093937][info][268616][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:13:56.474376][info][268594][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:13:56.474749][info][268624][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:14:01.098696][info][268595][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:14:01.099987][info][268616][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:14:01.480345][info][268594][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:14:01.480724][info][268624][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:14:06.104618][info][268595][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:14:06.105864][info][268616][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:14:06.486402][info][268594][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:14:06.486825][info][268624][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:14:11.110582][info][268595][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:14:11.111816][info][268616][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.970030fps
+[07/09 18:14:11.492360][info][268594][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:14:11.492761][info][268624][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:14:16.116526][info][268595][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:14:16.117712][info][268616][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:14:16.498312][info][268594][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:14:16.498707][info][268624][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:14:21.122550][info][268595][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:14:21.123878][info][268616][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:14:21.504261][info][268594][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:14:21.504666][info][268624][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:14:26.128493][info][268595][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:14:26.129863][info][268616][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:14:26.510262][info][268594][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:14:26.510659][info][268624][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:14:31.134399][info][268595][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:14:31.135598][info][268616][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:14:31.516111][info][268594][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:14:31.516478][info][268624][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:14:36.140381][info][268595][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:14:36.141572][info][268616][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:14:36.522030][info][268594][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 18:14:36.522397][info][268624][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:14:41.146316][info][268595][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:14:41.147535][info][268616][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:14:41.528062][info][268594][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:14:41.528773][info][268624][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:14:46.152340][info][268595][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:14:46.153618][info][268616][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:14:46.533979][info][268594][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:14:46.534349][info][268624][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:14:51.297521][info][273040][DeviceManager.cpp:332] Device changed! removed: 1, added: 0
+[07/09 18:14:51.297571][warning][273040][DeviceBase.cpp:207] Device is deactivated or disconnected while there are still sensors streaming!
+[07/09 18:14:51.297906][info][273040][DeviceManager.cpp:25] Removed device(s) list: (1)
+[07/09 18:14:51.297913][info][273040][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 18:14:51.297921][info][273040][DeviceManager.cpp:25] Current device(s) list: (0)
+[07/09 18:14:52.015533][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:14:52.067568][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:14:52.122855][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:14:52.132081][warning][268516][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=1000
+[07/09 18:14:52.176096][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:14:52.230036][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:14:52.285292][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:14:55.135244][warning][268516][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=1000 [**3 logs in 3003ms**]
+[07/09 18:14:55.223102][info][273239][DeviceManager.cpp:332] Device changed! removed: 0, added: 1
+[07/09 18:14:55.223118][info][273239][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/09 18:14:55.223122][info][273239][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 18:15:00.917580][info][273476][DeviceManager.cpp:332] Device changed! removed: 1, added: 0
+[07/09 18:15:00.917602][info][273476][DeviceManager.cpp:25] Removed device(s) list: (1)
+[07/09 18:15:00.917608][info][273476][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 18:15:00.917612][info][273476][DeviceManager.cpp:25] Current device(s) list: (0)
+[07/09 18:15:01.142504][warning][268516][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=1000 [**6 logs in 6007ms**]
+[07/09 18:15:02.290614][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:02.345757][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:02.398585][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:02.453749][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:02.508280][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:02.559265][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:08.607918][info][273815][DeviceManager.cpp:332] Device changed! removed: 0, added: 1
+[07/09 18:15:08.607948][info][273815][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/09 18:15:08.607951][info][273815][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 18:15:11.652376][info][273982][DeviceManager.cpp:332] Device changed! removed: 1, added: 0
+[07/09 18:15:11.652388][info][273982][DeviceManager.cpp:25] Removed device(s) list: (1)
+[07/09 18:15:11.652391][info][273982][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 18:15:11.652393][info][273982][DeviceManager.cpp:25] Current device(s) list: (0)
+[07/09 18:15:12.564471][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:12.617568][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:12.672703][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:12.727801][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:12.782938][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:12.838141][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:13.155864][warning][268516][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=1000 [**12 logs in 12013ms**]
+[07/09 18:15:22.843218][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:22.898524][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:22.949754][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:23.002904][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:23.055022][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:23.108412][warning][268593][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:30.176613][info][268516][Pipeline.cpp:367] [CP263630007S] Try to stop pipeline!
+[07/09 18:15:30.176638][info][268516][Pipeline.cpp:343] [CP263630007S] Try to stop streams!
+[07/09 18:15:30.176656][warning][268516][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:2
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:30.189449][info][268516][Pipeline.cpp:367] [CP263630007S] Try to stop pipeline!
+[07/09 18:15:30.189458][info][268516][Pipeline.cpp:343] [CP263630007S] Try to stop streams!
+[07/09 18:15:30.189472][warning][268516][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:2
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:30.189628][info][268516][Pipeline.cpp:367] [CP263630007S] Try to stop pipeline!
+[07/09 18:15:30.189629][info][268516][Pipeline.cpp:343] [CP263630007S] Try to stop streams!
+[07/09 18:15:30.189631][warning][268516][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:2
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:30.189665][warning][268516][Pipeline.cpp:61] [CP263630007S] Execute failure! A libobsensor_exception has occurred!
+ - where: Pipeline.cpp(61):~Pipeline
+ - msg: Device is deactivated/disconnected! DeviceComponentId:2
+ - type: N11libobsensor21recoverable_exceptionE
+ - status: 108
+[07/09 18:15:30.189678][info][268516][Pipeline.cpp:65] [CP263630007S] Pipeline destroyed! @0x600001909A18
+[07/09 18:15:30.189688][info][268516][SensorBase.cpp:210] [CP263630007S] Stream state changed from STREAMING to STOPPING@Depth
+[07/09 18:15:30.190617][warning][268516][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:30.190656][warning][268516][VideoSensor.cpp:251] [CP263630007S] Failed to send stop stream vendor command: Device is deactivated/disconnected! DeviceComponentId:0
+[07/09 18:15:30.190667][info][268516][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPING to STOPPED@Depth
+[07/09 18:15:30.190801][info][268516][SensorBase.cpp:47] [CP263630007S] SensorBase is destroyed
+[07/09 18:15:30.191595][info][268516][SensorBase.cpp:210] [CP263630007S] Stream state changed from STREAMING to STOPPING@Color
+[07/09 18:15:30.191918][warning][268516][ObException.cpp:26] A recoverable_exception has occurred!
+ - where: DeviceBase.cpp(330)
+ - msg: Device is deactivated/disconnected! DeviceComponentId:0
+ - type: WRONG_API_CALL_SEQUENCE
+ - status: 108
+[07/09 18:15:30.191947][warning][268516][VideoSensor.cpp:251] [CP263630007S] Failed to send stop stream vendor command: Device is deactivated/disconnected! DeviceComponentId:0
+[07/09 18:15:30.191957][info][268516][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPING to STOPPED@Color
+[07/09 18:15:30.192043][info][268516][SensorBase.cpp:47] [CP263630007S] SensorBase is destroyed
+[07/09 18:15:30.192231][info][268516][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/09 18:15:30.192232][info][268516][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[07/09 18:15:30.192259][info][268516][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/09 18:15:30.192259][info][268516][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[07/09 18:15:30.775312][warning][274092][Pipeline.cpp:335] [CP263630007S] Wait for frame timeout, you can try to increase the wait time! current timeout=1000 [**17 logs in 17619ms, last: 18:15:30.172083**]
+[07/09 18:15:32.151644][info][275293][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/09 18:15:32.151654][info][275293][DeviceManager.cpp:25] Current found device(s): (0)
+[07/09 18:15:32.151656][info][275293][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/09 18:15:33.158547][info][275293][DeviceManager.cpp:25] Current device(s) list: (0)
+[07/09 18:15:33.158574][warning][275293][ObException.cpp:32] A unrecoverable_exception has occurred!
+ - where: Pipeline.cpp(22)
+ - msg: No device found
+ - type: CAMERA_DISCONNECTED
+ - status: 112
+[07/09 18:15:39.527603][info][276432][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/09 18:15:39.527616][info][276432][DeviceManager.cpp:25] Current found device(s): (1)
+[07/09 18:15:39.527617][info][276432][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 18:15:39.527618][info][276432][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/09 18:15:40.545438][info][276432][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/09 18:15:40.545471][info][276432][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/09 18:15:40.550476][info][276432][G330Device.cpp:566] UVCAutoRebootOnFault=true for device: Gemini 335L
+[07/09 18:15:40.551860][info][276432][DeviceBase.cpp:665] key: AppSlot,value:2
+[07/09 18:15:40.551864][info][276432][DeviceBase.cpp:665] key: HwType,value:L2
+[07/09 18:15:40.551866][info][276432][DeviceBase.cpp:665] key: HwVer,value:V1.1
+[07/09 18:15:40.551867][info][276432][DeviceBase.cpp:665] key: IspFwVer,value:20241125
+[07/09 18:15:40.551867][info][276432][DeviceBase.cpp:665] key: IspNeedVer,value:20241125
+[07/09 18:15:40.551868][info][276432][DeviceBase.cpp:665] key: PresetVer,value:1.2.2
+[07/09 18:15:40.739574][info][276432][DeviceManager.cpp:199] Device created successfully! Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S FW: 1.4.60
+[07/09 18:15:40.739620][info][276432][Pipeline.cpp:54] [CP263630007S] Pipeline created with device: {name: Gemini 335L, sn: CP263630007S}, @0x600001DC5A18
+[07/09 18:15:40.762125][info][276432][Pipeline.cpp:228] [CP263630007S] Check and set config done!
+[07/09 18:15:40.762436][info][276432][Pipeline.cpp:266] [CP263630007S] Try to start streams!
+[07/09 18:15:40.762442][info][276432][VideoSensor.cpp:58] [CP263630007S] Try to start stream: {type: Color, format: BGR, width: 1280, height: 800, fps: 30}
+[07/09 18:15:40.762449][info][276432][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPED to STARTING@Color
+[07/09 18:15:40.762453][info][276432][VideoSensor.cpp:127] [CP263630007S] Start backend stream: {type: Color, format: YUYV, width: 1280, height: 800, fps: 30}
+[07/09 18:15:40.764519][info][276432][VideoSensor.cpp:58] [CP263630007S] Try to start stream: {type: Depth, format: Y16, width: 848, height: 480, fps: 30}
+[07/09 18:15:40.764524][info][276432][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPED to STARTING@Depth
+[07/09 18:15:40.764526][info][276432][VideoSensor.cpp:127] [CP263630007S] Start backend stream: {type: Depth, format: Z16, width: 848, height: 480, fps: 30}
+[07/09 18:15:40.766444][info][276432][Pipeline.cpp:293] [CP263630007S] Start streams done!
+[07/09 18:15:40.766445][info][276432][Pipeline.cpp:250] [CP263630007S] Pipeline start done!
+[07/09 18:15:40.866706][info][276504][SensorBase.cpp:210] [CP263630007S] Stream state changed from STARTING to STREAMING@Depth
+[07/09 18:15:41.181827][info][276503][SensorBase.cpp:210] [CP263630007S] Stream state changed from STARTING to STREAMING@Color
+[07/09 18:15:45.871671][info][276504][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=30.163803fps
+[07/09 18:15:45.872515][info][276542][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=30.175858fps
+[07/09 18:15:46.186781][info][276503][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=30.169830fps
+[07/09 18:15:46.187184][info][276578][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=30.181892fps
+[07/09 18:15:50.877686][info][276504][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:15:50.878920][info][276542][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.958059fps
+[07/09 18:15:51.192578][info][276503][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 18:15:51.192947][info][276578][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:15:55.883610][info][276504][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.970030fps
+[07/09 18:15:55.884740][info][276542][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:15:56.198656][info][276503][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.958059fps
+[07/09 18:15:56.199050][info][276578][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:16:00.889618][info][276504][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:16:00.890955][info][276542][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:16:01.204595][info][276503][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.970030fps
+[07/09 18:16:01.204983][info][276578][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:16:05.895566][info][276504][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:16:05.896827][info][276542][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:16:06.210588][info][276503][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:16:06.210978][info][276578][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:16:10.901518][info][276504][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:16:10.902753][info][276542][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:16:11.216414][info][276503][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:16:11.216785][info][276578][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:16:15.907422][info][276504][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:16:15.908641][info][276542][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.970030fps
+[07/09 18:16:16.222359][info][276503][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:16:16.222723][info][276578][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.970030fps
+[07/09 18:16:20.913386][info][276504][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:16:20.914693][info][276542][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:16:21.228319][info][276503][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:16:21.228691][info][276578][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:16:25.919347][info][276504][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:16:25.920622][info][276542][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:16:26.234293][info][276503][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:16:26.234659][info][276578][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:16:30.925367][info][276504][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:16:30.926693][info][276542][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:16:31.240273][info][276503][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:16:31.240646][info][276578][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:16:35.931270][info][276504][VideoSensor.cpp:153] [CP263630007S] Depth backend frame callback, frameRate=29.964043fps
+[07/09 18:16:35.932522][info][276542][SensorBase.cpp:379] [CP263630007S] Depth Streaming... frameRate=29.964043fps
+[07/09 18:16:36.246293][info][276503][VideoSensor.cpp:153] [CP263630007S] Color backend frame callback, frameRate=29.964043fps
+[07/09 18:16:36.246705][info][276578][SensorBase.cpp:379] [CP263630007S] Color Streaming... frameRate=29.964043fps
+[07/09 18:16:39.464351][info][276432][Pipeline.cpp:367] [CP263630007S] Try to stop pipeline!
+[07/09 18:16:39.464361][info][276432][Pipeline.cpp:343] [CP263630007S] Try to stop streams!
+[07/09 18:16:39.464373][info][276432][SensorBase.cpp:210] [CP263630007S] Stream state changed from STREAMING to STOPPING@Depth
+[07/09 18:16:39.493363][warning][276503][VideoSensor.cpp:199] [CP263630007S] This frame will be dropped because the data size does not match the expectation! size=949800, expected=2048000 @Color
+[07/09 18:16:39.511092][info][276432][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPING to STOPPED@Depth
+[07/09 18:16:39.511131][info][276432][Pipeline.cpp:357] [CP263630007S] Sensor stream stopped, sensorType=Depth
+[07/09 18:16:39.511136][info][276432][SensorBase.cpp:210] [CP263630007S] Stream state changed from STREAMING to STOPPING@Color
+[07/09 18:16:39.548109][info][276432][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPING to STOPPED@Color
+[07/09 18:16:39.548177][info][276432][Pipeline.cpp:357] [CP263630007S] Sensor stream stopped, sensorType=Color
+[07/09 18:16:39.548179][info][276432][Pipeline.cpp:363] [CP263630007S] Stop streams done!
+[07/09 18:16:39.548530][info][276432][Pipeline.cpp:392] [CP263630007S] Stop pipeline done!
+[07/09 18:16:39.548538][info][276432][Pipeline.cpp:65] [CP263630007S] Pipeline destroyed! @0x600001DC5A18
+[07/09 18:16:39.548609][info][276432][SensorBase.cpp:47] [CP263630007S] SensorBase is destroyed
+[07/09 18:16:39.548993][info][276432][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/09 18:16:39.548994][info][276432][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[07/09 18:16:39.549019][info][276432][SensorBase.cpp:47] [CP263630007S] SensorBase is destroyed
+[07/09 18:16:39.595858][info][276432][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/09 18:16:39.595859][info][276432][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[07/09 18:16:40.030309][warning][278922][VideoSensor.cpp:199] [CP263630007S] This frame will be dropped because the data size does not match the expectation! size=32716, expected=2048000 @Color [**12 logs in 536ms, last: 18:16:39.509784**]
+[07/10 10:52:08.778653][info][801213][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/10 10:52:08.778665][info][801213][DeviceManager.cpp:25] Current found device(s): (0)
+[07/10 10:52:08.778666][info][801213][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/10 10:52:09.795742][info][801213][DeviceManager.cpp:25] Current device(s) list: (0)
+[07/10 10:52:09.795764][warning][801213][ObException.cpp:32] A unrecoverable_exception has occurred!
+ - where: Pipeline.cpp(22)
+ - msg: No device found
+ - type: CAMERA_DISCONNECTED
+ - status: 112
+[07/10 10:53:02.575006][info][810077][MacUsbPal.cpp:213] Create PollingDeviceWatcher!
+[07/10 10:53:02.575022][info][810077][DeviceManager.cpp:25] Current found device(s): (1)
+[07/10 10:53:02.575023][info][810077][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/10 10:53:02.575024][info][810077][DeviceManager.cpp:405] Enable net device enumeration: true
+[07/10 10:53:03.596017][info][810077][DeviceManager.cpp:25] Current device(s) list: (1)
+[07/10 10:53:03.596035][info][810077][DeviceManager.cpp:34] 	- Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S, Connection: USB3.2
+[07/10 10:53:03.603904][info][810077][G330Device.cpp:566] UVCAutoRebootOnFault=true for device: Gemini 335L
+[07/10 10:53:03.606516][info][810077][DeviceBase.cpp:665] key: AppSlot,value:2
+[07/10 10:53:03.606519][info][810077][DeviceBase.cpp:665] key: HwType,value:L2
+[07/10 10:53:03.606520][info][810077][DeviceBase.cpp:665] key: HwVer,value:V1.1
+[07/10 10:53:03.606521][info][810077][DeviceBase.cpp:665] key: IspFwVer,value:20241125
+[07/10 10:53:03.606522][info][810077][DeviceBase.cpp:665] key: IspNeedVer,value:20241125
+[07/10 10:53:03.606523][info][810077][DeviceBase.cpp:665] key: PresetVer,value:1.2.2
+[07/10 10:53:03.785043][info][810077][DeviceManager.cpp:199] Device created successfully! Name: Gemini 335L, PID: 0x0804, SN/ID: CP263630007S FW: 1.4.60
+[07/10 10:53:03.785084][info][810077][Pipeline.cpp:54] [CP263630007S] Pipeline created with device: {name: Gemini 335L, sn: CP263630007S}, @0x6000024C1D18
+[07/10 10:53:03.790000][info][810077][Pipeline.cpp:228] [CP263630007S] Check and set config done!
+[07/10 10:53:03.790230][info][810077][Pipeline.cpp:266] [CP263630007S] Try to start streams!
+[07/10 10:53:03.790236][info][810077][VideoSensor.cpp:58] [CP263630007S] Try to start stream: {type: Color, format: BGR, width: 1280, height: 800, fps: 30}
+[07/10 10:53:03.790241][info][810077][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPED to STARTING@Color
+[07/10 10:53:03.790244][info][810077][VideoSensor.cpp:127] [CP263630007S] Start backend stream: {type: Color, format: YUYV, width: 1280, height: 800, fps: 30}
+[07/10 10:53:03.792130][info][810077][Pipeline.cpp:293] [CP263630007S] Start streams done!
+[07/10 10:53:03.792133][info][810077][Pipeline.cpp:250] [CP263630007S] Pipeline start done!
+[07/10 10:53:03.804343][info][810077][Pipeline.cpp:367] [CP263630007S] Try to stop pipeline!
+[07/10 10:53:03.804346][info][810077][Pipeline.cpp:343] [CP263630007S] Try to stop streams!
+[07/10 10:53:03.804361][info][810077][SensorBase.cpp:210] [CP263630007S] Stream state changed from STARTING to STOPPING@Color
+[07/10 10:53:03.841743][info][810077][SensorBase.cpp:210] [CP263630007S] Stream state changed from STOPPING to STOPPED@Color
+[07/10 10:53:03.841754][info][810077][Pipeline.cpp:357] [CP263630007S] Sensor stream stopped, sensorType=Color
+[07/10 10:53:03.841755][info][810077][Pipeline.cpp:363] [CP263630007S] Stop streams done!
+[07/10 10:53:03.842003][info][810077][Pipeline.cpp:392] [CP263630007S] Stop pipeline done!
+[07/10 10:53:03.842017][info][810077][Pipeline.cpp:65] [CP263630007S] Pipeline destroyed! @0x6000024C1D18
+[07/10 10:53:03.842203][info][810077][SensorBase.cpp:47] [CP263630007S] SensorBase is destroyed
+[07/10 10:53:03.842804][info][810077][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/10 10:53:03.842806][info][810077][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[07/10 10:53:03.880354][info][810077][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[07/10 10:53:03.880363][info][810077][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done

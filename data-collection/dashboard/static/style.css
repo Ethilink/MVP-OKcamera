@@ -1,0 +1,575 @@
+/* ORC data-collection dashboard — T06.
+   Zero external assets (AC7): system font stack, no CDN fonts/JS/images.
+   Everything below is one cohesive black "capture console" theme. */
+
+:root {
+  --bg: #000000;
+  --bg-2: #08080a;
+  --panel: #101012;
+  --panel-2: #161618;
+  --panel-3: #1f1f22;
+  --text: #f2f2f4;
+  --muted: #8b8b92;
+  --faint: #5a5a61;
+  --line: #232326;
+  --line-2: #303034;
+  --accent: #e8e8ec;         /* monochrome accent — near-white */
+  --accent-strong: #c4c4ca;
+  --ok: #2fd07a;
+  --warn: #f5b13d;
+  --bad: #ff5a5f;
+  --radius: 14px;
+  --radius-sm: 8px;
+  --shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.85);
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(1200px 600px at 78% -8%, rgba(255, 255, 255, 0.04), transparent 60%),
+    radial-gradient(900px 500px at 0% 110%, rgba(255, 255, 255, 0.02), transparent 55%),
+    var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ---- Topbar ---------------------------------------------------------------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.85rem 1.5rem;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(29, 37, 49, 0.65), rgba(14, 19, 27, 0.35));
+  backdrop-filter: blur(6px);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.brand { display: flex; align-items: center; gap: 0.7rem; }
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #17171a, #0a0a0c);
+  border: 1px solid var(--line-2);
+  box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+.brand-mark svg { width: 1.25rem; height: 1.25rem; display: block; }
+.brand-text { display: flex; flex-direction: column; line-height: 1.05; }
+.brand-text h1 { font-size: 1.02rem; margin: 0; font-weight: 700; letter-spacing: 0.01em; }
+.brand-sub {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--faint);
+  font-weight: 600;
+}
+
+.status { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-left: auto; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.32rem 0.7rem;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-size: 0.82rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.chip b { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 700; }
+.chip.dataset { max-width: 24ch; overflow: hidden; text-overflow: ellipsis; }
+.chip.dataset::before {
+  content: "";
+  width: 0.5rem; height: 0.5rem; border-radius: 2px;
+  background: var(--faint);
+  flex: none;
+}
+.chip.dataset.active { color: var(--text); border-color: var(--line-2); }
+.chip.dataset.active::before { background: var(--accent); }
+
+/* Health indicator: dot + label, colour-coded, so a frozen stream is obvious. */
+.health { transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease; }
+.health .dot {
+  width: 0.55rem; height: 0.55rem; border-radius: 50%;
+  background: var(--muted);
+  box-shadow: 0 0 0 0 currentColor;
+}
+.health[data-health="ok"] { color: var(--ok); border-color: rgba(47, 208, 122, 0.4); background: rgba(47, 208, 122, 0.12); }
+.health[data-health="ok"] .dot { background: var(--ok); animation: beacon 1.8s ease-out infinite; }
+.health[data-health="stale"],
+.health[data-health="dead"] { color: var(--bad); border-color: rgba(255, 90, 95, 0.45); background: rgba(255, 90, 95, 0.14); }
+.health[data-health="stale"] .dot,
+.health[data-health="dead"]  .dot { background: var(--bad); animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: 0.25; } }
+@keyframes beacon {
+  0%   { box-shadow: 0 0 0 0 rgba(47, 208, 122, 0.55); }
+  70%  { box-shadow: 0 0 0 7px rgba(47, 208, 122, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(47, 208, 122, 0); }
+}
+
+/* ---- Layout ---------------------------------------------------------------- */
+
+main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 1.25rem;
+  padding: 1.25rem 1.5rem 2rem;
+  align-items: start;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+/* ---- Stage (live video) ---------------------------------------------------- */
+
+.stage { display: flex; flex-direction: column; gap: 0.9rem; }
+
+/* Mode toggle (AC1) — segmented Image / Video control at the top of the stage. */
+.mode-toggle {
+  display: inline-flex;
+  align-self: center;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.mode-btn {
+  padding: 0.4rem 1.1rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.mode-btn:hover:not(:disabled):not(.active) { color: var(--text); background: var(--panel-3); }
+.mode-btn.active {
+  color: var(--text);
+  background: var(--panel-3);
+  border-color: var(--line-2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.mode-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.stage-frame {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  background: #000;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+/* A faint animated ring when the feed is live — dies when stale. */
+.stage-frame::after {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: var(--radius);
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 0 60px rgba(0, 0, 0, 0.6);
+}
+#stream {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+/* HUD overlays floating on the video */
+.hud { position: absolute; z-index: 3; display: flex; gap: 0.4rem; }
+.hud-tl { top: 0.75rem; left: 0.75rem; }
+.hud-tr { top: 0.75rem; right: 0.75rem; }
+.hud-pill {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text);
+  background: rgba(10, 14, 20, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(8px);
+}
+.hud-pill b { font-variant-numeric: tabular-nums; }
+/* .hud-pill sets display:inline-flex, which beats the UA [hidden] rule on
+   specificity — without this, rec-badge / keyframe-pill ignore `hidden` and
+   show while idle. Mirrors the [hidden] guards on .no-signal/.saved-chip/etc. */
+.hud-pill[hidden] { display: none; }
+.live-badge .dot {
+  width: 0.5rem; height: 0.5rem; border-radius: 50%;
+  background: var(--faint);
+}
+.live-badge[data-health="ok"] { color: #d4ffe6; }
+.live-badge[data-health="ok"] .dot { background: var(--ok); animation: pulse 1.4s infinite; }
+.live-badge[data-health="stale"] .dot,
+.live-badge[data-health="dead"] .dot { background: var(--bad); animation: pulse 0.8s infinite; }
+
+/* REC / PROCESSING / FAILED badge — recording-mode state, top-right HUD. */
+.rec-badge .dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--bad); }
+.rec-badge[data-state="recording"] { color: #ffd9da; }
+.rec-badge[data-state="recording"] .dot { animation: pulse 1s infinite; }
+.rec-badge[data-state="processing"] { color: var(--warn); }
+.rec-badge[data-state="processing"] .dot { background: var(--warn); animation: pulse 1.2s infinite; }
+.rec-badge[data-state="failed"] { color: var(--bad); }
+
+/* Keyframe counter — visible only while recording. */
+.keyframe-pill b { color: var(--text); }
+
+/* No-signal veil, shown when the stream is stale/dead */
+.no-signal {
+  position: absolute; inset: 0; z-index: 4;
+  display: grid; place-items: center;
+  background: rgba(6, 9, 13, 0.72);
+  backdrop-filter: blur(2px);
+  text-align: center;
+}
+.no-signal[hidden] { display: none; }
+.ns-icon {
+  font-size: 2rem; line-height: 1;
+  color: var(--bad);
+  filter: drop-shadow(0 0 12px rgba(255, 90, 95, 0.5));
+}
+.ns-title { margin: 0.6rem 0 0.2rem; font-size: 1.05rem; font-weight: 700; }
+.ns-sub { margin: 0; font-size: 0.85rem; color: var(--muted); }
+
+/* Frozen state — while a capture is held for confirmation, ring the frame green
+   so it reads as "this exact still was saved", distinct from the live blue ring. */
+.stage-frame.frozen::after {
+  box-shadow: inset 0 0 0 2px rgba(47, 208, 122, 0.7), inset 0 0 60px rgba(0, 0, 0, 0.55);
+}
+
+/* Recording-mode ring — distinct colour per state so it reads at a glance
+   (TR6 "state reflection": recording/processing/failed are visually distinct). */
+.stage-frame[data-rec-state="recording"]::after {
+  box-shadow: inset 0 0 0 2px rgba(255, 90, 95, 0.75), inset 0 0 60px rgba(0, 0, 0, 0.55);
+}
+.stage-frame[data-rec-state="processing"]::after,
+.stage-frame[data-rec-state="failed"]::after {
+  box-shadow: inset 0 0 0 2px rgba(245, 177, 61, 0.65), inset 0 0 60px rgba(0, 0, 0, 0.55);
+}
+
+/* Capture confirmation chip — "✓ saved · Discard", bottom-centre over the still */
+.saved-chip {
+  position: absolute; z-index: 6;
+  left: 50%; bottom: 0.9rem; transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 0.55rem;
+  padding: 0.4rem 0.5rem 0.4rem 0.8rem;
+  border-radius: 999px;
+  font-size: 0.8rem; font-weight: 600; color: var(--text);
+  background: rgba(10, 14, 20, 0.82);
+  border: 1px solid rgba(47, 208, 122, 0.45);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow);
+}
+.saved-chip[hidden] { display: none; }
+.saved-tick { color: var(--ok); font-weight: 800; }
+.discard-btn {
+  cursor: pointer;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.75rem; font-weight: 700;
+  color: var(--text);
+  background: var(--panel-3);
+  border: 1px solid var(--line-2);
+}
+.discard-btn:hover { border-color: var(--bad); color: #ffd9da; background: rgba(255, 90, 95, 0.12); }
+
+/* Keyframe mark confirmation — a brief pulse, no freeze (recording mode). */
+.keyframe-chip { border-color: rgba(255, 255, 255, 0.35); }
+.keyframe-chip .saved-tick { color: var(--text); }
+
+/* Capture flash overlay — a quick white pop on every flag */
+.capture-flash {
+  position: absolute; inset: 0; z-index: 5;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+}
+.capture-flash.fire { animation: capflash 0.32s ease-out; }
+.capture-flash.fire-keyframe { background: #4fd1ff; animation: capflash 0.32s ease-out; }
+@keyframes capflash {
+  0% { opacity: 0.85; }
+  100% { opacity: 0; }
+}
+
+/* Stage controls row — FLAG (still-capture/keyframe) + Record/Stop + Discard */
+.stage-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+.record-controls { display: flex; align-items: center; gap: 0.6rem; }
+/* .record-controls sets display:flex, which beats the UA [hidden] rule on
+   specificity — without this it would show in image mode (AC3). */
+.record-controls[hidden] { display: none; }
+
+/* Record/Stop button */
+.record-btn {
+  display: inline-flex; align-items: center; gap: 0.6rem;
+  padding: 0.75rem 1.6rem;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text);
+}
+.record-btn .record-dot {
+  width: 0.7rem; height: 0.7rem; border-radius: 50%;
+  background: var(--bad);
+  display: inline-block;
+}
+.record-btn[data-state="recording"] {
+  background: linear-gradient(180deg, #3a1418, #24080a);
+  border-color: rgba(255, 90, 95, 0.6);
+  color: #ffd9da;
+}
+.record-btn[data-state="recording"] .record-dot { animation: pulse 1s infinite; }
+
+/* FLAG button — the primary action, big and tactile */
+.flag-btn {
+  align-self: center;
+  position: relative;
+  display: inline-flex; align-items: center; gap: 0.7rem;
+  padding: 0.95rem 2.6rem;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #fff;
+  background: linear-gradient(180deg, #ff6b6f, #e23a40);
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 12px 28px -10px rgba(226, 58, 64, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  transition: transform 0.08s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+.flag-btn:hover { filter: brightness(1.06); box-shadow: 0 16px 34px -10px rgba(226, 58, 64, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.28); }
+.flag-btn:active { transform: scale(0.965); }
+.flag-btn:disabled {
+  background: linear-gradient(180deg, #3a444f, #303945);
+  color: var(--faint);
+  cursor: not-allowed;
+  box-shadow: none;
+  filter: none;
+}
+.flag-btn.flash { animation: flash 0.45s ease; }
+@keyframes flash {
+  0%   { box-shadow: 0 0 0 0 rgba(47, 208, 122, 0.9), inset 0 1px 0 rgba(255,255,255,0.28); background: linear-gradient(180deg, #2fd07a, #1eaf63); }
+  100% { box-shadow: 0 0 0 26px rgba(47, 208, 122, 0), inset 0 1px 0 rgba(255,255,255,0.28); }
+}
+.flag-btn kbd {
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  opacity: 0.85;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 5px;
+  padding: 0.05rem 0.4rem;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+/* ---- Control panel --------------------------------------------------------- */
+
+.panel { display: flex; flex-direction: column; gap: 1rem; }
+.card {
+  background: linear-gradient(180deg, var(--panel), var(--bg-2));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.15rem;
+  box-shadow: var(--shadow);
+}
+.card-head {
+  display: flex; align-items: center; gap: 0.5rem;
+  margin: 0 0 0.9rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+.card-head svg { width: 0.95rem; height: 0.95rem; opacity: 0.8; }
+
+/* Confidence slider */
+.conf-row { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 0.7rem; }
+.conf-label { font-size: 0.82rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; }
+#confidence-value {
+  color: var(--text); font-weight: 800; font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+}
+#confidence {
+  --fill: 50%;
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent) var(--fill), var(--panel-3) var(--fill));
+  outline: none;
+  cursor: pointer;
+}
+#confidence::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff;
+  border: 3px solid var(--accent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+#confidence::-moz-range-thumb {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; border: 3px solid var(--accent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); cursor: pointer;
+}
+
+/* Settings form */
+.settings label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.8rem; font-weight: 500; }
+.settings label:last-of-type { margin-bottom: 1rem; }
+.settings input {
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.6rem 0.7rem;
+  background: var(--panel-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.settings input::placeholder { color: var(--faint); }
+.settings input:focus,
+#confidence:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.14);
+}
+
+/* Buttons */
+button {
+  font: inherit;
+  cursor: pointer;
+  padding: 0.62rem 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-2);
+  background: linear-gradient(180deg, #1c1c20, #141417);
+  color: var(--text);
+  font-weight: 700;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.08s ease;
+}
+button:hover { border-color: #444448; background: linear-gradient(180deg, #232327, #191919); }
+button:active { transform: translateY(1px); }
+button.block { width: 100%; }
+button.secondary {
+  background: var(--panel-2);
+  color: var(--text);
+  border-color: var(--line-2);
+}
+button.secondary:hover { border-color: #444448; background: var(--panel-3); }
+button:disabled { opacity: 0.55; cursor: not-allowed; filter: none; transform: none; }
+
+/* ---- Banners, toast, validate results -------------------------------------- */
+
+.banner {
+  margin: 0.75rem 1.5rem 0;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+}
+.banner.error {
+  background: rgba(255, 90, 95, 0.14);
+  border: 1px solid rgba(255, 90, 95, 0.5);
+  color: #ffd2d3;
+}
+
+.toast {
+  position: fixed;
+  bottom: 1.5rem; right: 1.5rem;
+  background: linear-gradient(180deg, #2fd07a, #1eaf63);
+  color: #052414;
+  font-weight: 800;
+  padding: 0.75rem 1.15rem;
+  border-radius: 10px;
+  box-shadow: 0 12px 30px -8px rgba(0, 0, 0, 0.6);
+  z-index: 30;
+  animation: toastIn 0.22s ease;
+}
+@keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* ---- Blocking modal (won't-save / error) ---------------------------------- */
+.modal {
+  position: fixed; inset: 0; z-index: 50;
+  display: grid; place-items: center;
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.66);
+  backdrop-filter: blur(3px);
+  animation: modalIn 0.16s ease;
+}
+.modal[hidden] { display: none; }
+.modal-card {
+  width: min(30rem, 100%);
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  border: 1px solid rgba(255, 90, 95, 0.5);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.6rem 1.5rem 1.3rem;
+  text-align: center;
+}
+.modal-icon { font-size: 1.9rem; line-height: 1; color: var(--bad); margin-bottom: 0.5rem; }
+.modal-title { margin: 0 0 0.4rem; font-size: 1.05rem; }
+.modal-message { margin: 0 0 1.15rem; color: var(--muted); font-size: 0.92rem; line-height: 1.45; }
+.modal-ok {
+  border: 1px solid var(--line-2);
+  background: var(--panel-3);
+  color: var(--text);
+  font-weight: 700;
+  padding: 0.6rem 1.5rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.modal-ok:hover { background: var(--line-2); }
+@keyframes modalIn { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+
+/* Save-location readout under Settings */
+.save-loc {
+  margin: 0.7rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.4;
+  word-break: break-all;
+}
+.save-loc[hidden] { display: none; }
+.save-loc b { color: var(--text); font-weight: 600; }
+
+.validate-results { margin-top: 0.9rem; font-size: 0.85rem; }
+.validate-results ul { margin: 0.25rem 0 0.75rem; padding-left: 1.1rem; }
+.validate-results li { margin: 0.15rem 0; }
+.validate-results .errors li { color: #ffb3b5; }
+.validate-results .warnings li { color: var(--warn); }
+.validate-results .clean {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  color: var(--ok); font-weight: 700;
+}
+.validate-results h3 {
+  margin: 0.6rem 0 0.25rem;
+  font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
