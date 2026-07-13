@@ -36,6 +36,19 @@
     <div id="error" class="banner error" role="alert" hidden></div>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
+    <!-- Blocking dialog: shown when an action won't save (no output folder,
+         config error, recording failure) — a pop-up front and centre, not a
+         banner pinned far from the controls. role=alertdialog so it is announced. -->
+    <div id="modal" class="modal" role="alertdialog" aria-modal="true"
+         aria-labelledby="modal-title" aria-describedby="modal-message" hidden>
+      <div class="modal-card">
+        <div class="modal-icon" aria-hidden="true">⚠</div>
+        <h2 class="modal-title" id="modal-title">Can't save</h2>
+        <p class="modal-message" id="modal-message"></p>
+        <button type="button" class="modal-ok" id="modal-ok">Got it</button>
+      </div>
+    </div>
+
     <main>
       <section class="stage">
         <!-- Mode toggle (AC1): segmented Image / Video control at the top of the
@@ -155,6 +168,10 @@
             <input id="dataset_name" name="dataset_name" type="text" placeholder="or-2026-07-07" />
           </label>
           <button type="submit" class="block">Apply settings</button>
+          <!-- Where captures actually land — filled in on Apply so the operator
+               can confirm the location (and whether it's appending) instead of
+               digging on disk. -->
+          <p class="save-loc" id="save-loc" hidden></p>
         </form>
       </aside>
     </main>

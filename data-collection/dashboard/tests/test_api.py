@@ -186,7 +186,10 @@ def test_ac4_settings_collision_invalid_and_swap(tmp_path):
         json={"output_path": str(tmp_path), "dataset_name": "ds1", "camera_index": 3},
     )
     assert resp.status_code == 200
-    assert resp.json() == {"ok": True}
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["dataset_name"] == "ds1"
+    assert body["appended"] is False  # brand-new dataset, not a resume
     assert stub.set_camera_calls == [3]
 
     # flag once so counters are non-zero, then prove the swap resets them
@@ -198,9 +201,10 @@ def test_ac4_settings_collision_invalid_and_swap(tmp_path):
     ).raise_for_status()
     assert client.get("/status").json()["n_flagged"] == 0  # fresh writer, reset
 
-    # collision: an existing NESTED Dataset folder (images/<name>/) is rejected
-    # with 409 (U1: a bare images/ parent alone does not collide — see
-    # test_u1_storage.py AC5).
+    # collision: a folder that exists but is NOT an ORC dataset (no
+    # annotations/annotations.json) is rejected with 409 so we never overwrite
+    # something we didn't create. (A real dataset would instead resume/append —
+    # see test_u1_storage.py AC5.)
     (tmp_path / "images" / "taken").mkdir(parents=True)
     resp = client.post(
         "/settings", json={"output_path": str(tmp_path), "dataset_name": "taken"}

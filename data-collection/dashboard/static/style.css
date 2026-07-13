@@ -511,6 +511,51 @@ button:disabled { opacity: 0.55; cursor: not-allowed; filter: none; transform: n
 }
 @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
+/* ---- Blocking modal (won't-save / error) ---------------------------------- */
+.modal {
+  position: fixed; inset: 0; z-index: 50;
+  display: grid; place-items: center;
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.66);
+  backdrop-filter: blur(3px);
+  animation: modalIn 0.16s ease;
+}
+.modal[hidden] { display: none; }
+.modal-card {
+  width: min(30rem, 100%);
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  border: 1px solid rgba(255, 90, 95, 0.5);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.6rem 1.5rem 1.3rem;
+  text-align: center;
+}
+.modal-icon { font-size: 1.9rem; line-height: 1; color: var(--bad); margin-bottom: 0.5rem; }
+.modal-title { margin: 0 0 0.4rem; font-size: 1.05rem; }
+.modal-message { margin: 0 0 1.15rem; color: var(--muted); font-size: 0.92rem; line-height: 1.45; }
+.modal-ok {
+  border: 1px solid var(--line-2);
+  background: var(--panel-3);
+  color: var(--text);
+  font-weight: 700;
+  padding: 0.6rem 1.5rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.modal-ok:hover { background: var(--line-2); }
+@keyframes modalIn { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+
+/* Save-location readout under Settings */
+.save-loc {
+  margin: 0.7rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.4;
+  word-break: break-all;
+}
+.save-loc[hidden] { display: none; }
+.save-loc b { color: var(--text); font-weight: 600; }
+
 .validate-results { margin-top: 0.9rem; font-size: 0.85rem; }
 .validate-results ul { margin: 0.25rem 0 0.75rem; padding-left: 1.1rem; }
 .validate-results li { margin: 0.15rem 0; }

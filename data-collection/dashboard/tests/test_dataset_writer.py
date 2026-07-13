@@ -70,6 +70,37 @@ def test_ac01_constructor_creates_no_directories(tmp_path):
     assert writer.dataset_dir == tmp_path / "lazy_set"
 
 
+def test_reuse_existing_dataset_appends_and_preserves_prior_data(
+    tmp_path, fake_frame, fake_dets
+):
+    # Reusing a name RESUMES the on-disk dataset (operator request 2026-07-10):
+    # prior images/annotations load so ids continue and old frames survive.
+    frame = fake_frame(1920, 1080)
+    dets = fake_dets([[100, 100, 300, 300]], size=(1920, 1080))
+
+    first = DatasetWriter(tmp_path, "reused", "model-v1")
+    first.flag(frame, dets, threshold=0.5)
+    first.flag(frame, dets, threshold=0.5)
+    assert first.resumed is False
+    assert first.n_flagged == 2
+
+    second = DatasetWriter(tmp_path, "reused", "model-v1")
+    assert second.resumed is True
+    assert second.n_flagged == 2  # loaded the two prior frames
+
+    result = second.flag(frame, dets, threshold=0.5)
+    assert result.file_name == "frame_00003.jpg"  # id continues, no overwrite
+    assert (tmp_path / "reused" / "images" / "frame_00001.jpg").is_file()
+    assert (tmp_path / "reused" / "images" / "frame_00003.jpg").is_file()
+
+    doc = _read_json(tmp_path / "reused")
+    assert [img["id"] for img in doc["images"]] == [1, 2, 3]
+    # Undo removes only THIS writer's capture, never the two it resumed with.
+    assert second.discard_last() == 3
+    with pytest.raises(IndexError):
+        second.discard_last()
+
+
 # ---------------------------------------------------------------------------
 # AC2 — first-flag folder creation, n=1
 # ---------------------------------------------------------------------------

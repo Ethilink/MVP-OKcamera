@@ -37,8 +37,6 @@ class DatasetWriter:
             raise ValueError(f"invalid dataset_name: {dataset_name!r}")
 
         dataset_dir = Path(output_path) / dataset_name
-        if dataset_dir.exists():
-            raise FileExistsError(f"dataset already exists: {dataset_dir}")
 
         self.output_path = Path(output_path)
         self.dataset_name = dataset_name
@@ -48,6 +46,43 @@ class DatasetWriter:
         self._n_flagged = 0
         self._date_created = datetime.now().isoformat()
         self._dataset_dir = dataset_dir
+        # True when this writer RESUMED an existing on-disk dataset instead of
+        # creating a fresh one. Surfaced to the API so a reused name shows
+        # "appending to N images" — the operator is never surprised that new
+        # captures landed on top of old data (operator request 2026-07-10).
+        self.resumed = False
+
+        if dataset_dir.exists():
+            # Reusing a name APPENDS to the existing dataset: load its prior
+            # images + annotations so image ids continue and _write_annotations
+            # rewrites the FULL document (old + new), never clobbering old data.
+            # A folder that is not a recognizable ORC dataset (no readable
+            # annotations/annotations.json — a bare dir or a plain file) still
+            # raises, so we never overwrite something we didn't create.
+            ann_path = dataset_dir / "annotations" / "annotations.json"
+            if not ann_path.is_file():
+                raise FileExistsError(
+                    f"{dataset_dir} already exists but is not an ORC dataset "
+                    "(no annotations/annotations.json) — choose a different name"
+                )
+            try:
+                doc = json.loads(ann_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise FileExistsError(
+                    f"{dataset_dir} already exists but its annotations.json is "
+                    f"unreadable ({exc}) — choose a different name"
+                ) from exc
+            self.images = list(doc.get("images", []))
+            self.annotations = list(doc.get("annotations", []))
+            self._n_flagged = len(self.images)
+            self._date_created = (doc.get("info") or {}).get(
+                "date_created", self._date_created
+            )
+            self.resumed = True
+
+        # Undo ("Discard last") must never delete a PRIOR session's frame, only
+        # captures made by THIS writer — this floor is the count we resumed with.
+        self._resume_floor = len(self.images)
 
     @property
     def n_flagged(self) -> int:
@@ -66,7 +101,10 @@ class DatasetWriter:
             (self._dataset_dir / "images").mkdir(parents=True, exist_ok=True)
             (self._dataset_dir / "annotations").mkdir(parents=True, exist_ok=True)
 
-        image_id = len(self.images) + 1
+        # Continue past the highest existing id (append-safe): a resumed dataset
+        # keeps its frame_NNNNN sequence and never overwrites a prior frame. For
+        # a fresh/contiguous set this is exactly len + 1.
+        image_id = max((img["id"] for img in self.images), default=0) + 1
         file_name = f"frame_{image_id:05d}.jpg"
 
         W, H = int(frame.shape[1]), int(frame.shape[0])
@@ -129,11 +167,13 @@ class DatasetWriter:
 
         Powers the capture-preview "Discard" affordance. Safe to interleave with
         ``flag`` only under the caller's ``dataset_lock`` (this class is not
-        thread-safe by itself). Because ``image_id``/``file_name`` derive from
-        ``len(self.images)``, removing the tail makes the next flag cleanly reuse
-        the freed id — no gap, no duplicate. Raises ``IndexError`` if empty.
+        thread-safe by itself). Because ``image_id``/``file_name`` derive from the
+        highest existing id, removing the tail makes the next flag cleanly reuse
+        the freed id — no gap, no duplicate. Raises ``IndexError`` when there is
+        nothing left that THIS writer captured (never undoes past a resumed
+        dataset's pre-existing frames).
         """
-        if not self.images:
+        if len(self.images) <= self._resume_floor:
             raise IndexError("nothing to discard")
 
         removed = self.images.pop()

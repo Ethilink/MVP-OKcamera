@@ -223,14 +223,27 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
 
     @app.post("/settings")
     def settings(body: SettingsIn) -> dict:
+        # A blank Output path used to be accepted and silently resolve to a
+        # RELATIVE ./images|./videos under the server's launch dir — captures
+        # "saved" somewhere the operator never chose, with no warning. Reject it
+        # up front so the frontend can pop a clear "pick a folder" dialog.
+        output_path = body.output_path.strip()
+        if not output_path:
+            raise HTTPException(
+                status_code=422,
+                detail="Output path is required — enter the folder to save captures into.",
+            )
         try:
             with app.state.dataset_lock:
                 # Swapping in a fresh writer resets the in-memory counters
-                # (image_id / ann_id / n_flagged). Held under dataset_lock so an
-                # in-flight flag can't land on a half-swapped writer.
-                app.state.writer = app.state.writer_factory(
-                    str(Path(body.output_path) / "images"), body.dataset_name
+                # (image_id / ann_id / n_flagged) unless the name reuses an
+                # existing dataset, in which case the writer resumes it (append).
+                # Held under dataset_lock so an in-flight flag can't land on a
+                # half-swapped writer.
+                writer = app.state.writer_factory(
+                    str(Path(output_path) / "images"), body.dataset_name
                 )
+                app.state.writer = writer
         except FileExistsError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
@@ -240,9 +253,19 @@ def create_app(detector, writer_factory, capture, validate_fn=_default_validate)
             app.state.capture.set_camera(body.camera_index)
 
         # Recording entries are minted under the same output root.
-        app.state.output_path = body.output_path
+        app.state.output_path = output_path
 
-        return {"ok": True}
+        # Report whether we resumed an existing dataset (append) and the resolved
+        # absolute save location, so the UI can confirm WHERE data lands and that a
+        # reused name is appending to old frames, not silently overwriting them.
+        return {
+            "ok": True,
+            "dataset_name": writer.dataset_name,
+            "output_path": output_path,
+            "resolved_path": str(Path(output_path).resolve()),
+            "appended": getattr(writer, "resumed", False),
+            "existing_images": writer.n_flagged,
+        }
 
     @app.post("/flag")
     def flag(body: FlagIn | None = None) -> dict:

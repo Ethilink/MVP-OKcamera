@@ -130,13 +130,13 @@ def test_ac4_invalid_entry_base_422_no_folder(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# AC5 — image-mode collision-reject (409) fires only for a genuine re-use of
-# an existing images/<name>/ Dataset, never merely because images/ (holding a
-# different Dataset) already exists.
+# AC5 — reusing an existing images/<name>/ Dataset now APPENDS to it (operator
+# request 2026-07-10), while a bare images/ parent (holding a different Dataset)
+# still does not collide. A non-dataset folder still errors — see test_api.
 # ---------------------------------------------------------------------------
 
 
-def test_ac5_image_collision_only_on_genuine_reuse(tmp_path):
+def test_ac5_image_reuse_appends_to_existing_dataset(tmp_path):
     stub = StubCapture(latest=_snap_latest())
     app = create_app(FakeDetector(), _writer_factory(), stub)
     client = TestClient(app)
@@ -161,11 +161,21 @@ def test_ac5_image_collision_only_on_genuine_reuse(tmp_path):
     assert flag_resp.status_code == 200
     assert (tmp_path / "images" / "X").is_dir()
 
-    # ...then re-configuring the SAME Dataset X is a genuine reuse -> 409.
+    # ...then re-configuring the SAME Dataset X now RESUMES it (append), 200 with
+    # appended=True and the existing frame count — not a 409.
     resp2 = client.post(
         "/settings", json={"output_path": str(tmp_path), "dataset_name": "X"}
     )
-    assert resp2.status_code == 409
+    assert resp2.status_code == 200
+    body = resp2.json()
+    assert body["appended"] is True
+    assert body["existing_images"] == 1  # the frame flagged under X above
+
+    # A further flag continues the sequence (frame_00002) and keeps frame_00001.
+    flag2 = client.post("/flag")
+    assert flag2.status_code == 200
+    assert (tmp_path / "images" / "X" / "images" / "frame_00001.jpg").is_file()
+    assert (tmp_path / "images" / "X" / "images" / "frame_00002.jpg").is_file()
 
 
 # ---------------------------------------------------------------------------

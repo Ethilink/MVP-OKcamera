@@ -48,6 +48,12 @@ const els = {
   modeVideo: $("mode-video"),
   nameFieldLabel: $("name-field-label"),
   datasetName: $("dataset_name"),
+  // Blocking dialog + persistent save-location readout (won't-save fixes).
+  modal: $("modal"),
+  modalTitle: $("modal-title"),
+  modalMessage: $("modal-message"),
+  modalOk: $("modal-ok"),
+  saveLoc: $("save-loc"),
 };
 
 let currentHealth = "unknown";
@@ -127,6 +133,38 @@ function showToast(msg) {
     els.toast.hidden = true;
   }, 1200);
 }
+
+// Blocking modal for "nothing will be saved / something is wrong" — the operator
+// asked for a pop-up instead of the top banner, which sits far from the Record /
+// FLAG / Settings controls and is easy to miss. Reserved for user-initiated
+// actions that failed to save; the passive banner (showError) still carries
+// pollable/minor warnings (a mid-take encoder poll, a keyframe that aged out) so
+// they don't re-pop a modal every second.
+function showModal(message, title) {
+  if (!els.modal) {
+    showError(message); // markup missing — degrade to the banner, never silent
+    return;
+  }
+  if (els.modalTitle) els.modalTitle.textContent = title || "Can't save";
+  if (els.modalMessage) els.modalMessage.textContent = message;
+  els.modal.hidden = false;
+  if (els.modalOk) els.modalOk.focus();
+}
+
+function hideModal() {
+  if (els.modal) els.modal.hidden = true;
+}
+
+if (els.modalOk) els.modalOk.addEventListener("click", hideModal);
+if (els.modal) {
+  // Click the dimmed backdrop (outside the card) to dismiss.
+  els.modal.addEventListener("click", (e) => {
+    if (e.target === els.modal) hideModal();
+  });
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && els.modal && !els.modal.hidden) hideModal();
+});
 
 // Parse a fetch Response; throw an Error carrying the server's detail on !ok.
 async function readJson(res) {
@@ -246,7 +284,9 @@ async function flag() {
     clearError();
     freezeTimer = setTimeout(resumeLive, 1500); // hold the still, then resume
   } catch (e) {
-    showError(`Flag: ${e.message}`);
+    // No dataset configured, frame aged out, or recording in progress — the
+    // capture did not save, so pop it up rather than freeze-and-bury.
+    showModal(e.message, "Capture not saved");
     resumeLive(); // don't strand the feed frozen on an error
   }
 }
@@ -309,7 +349,7 @@ if (els.discard) {
       showToast("Discarded last capture");
       clearError();
     } catch (err) {
-      showError(`Discard: ${err.message}`);
+      showModal(err.message, "Couldn't discard");
     }
     resumeLive();
   });
@@ -331,6 +371,7 @@ document.addEventListener("keydown", (e) => {
   if (e.code !== "Space" && e.key !== " ") return;
   if (e.repeat) return; // hold-to-repeat must not machine-gun
   if (typingInField(e.target)) return; // SPACE while typing is a space, not a flag
+  if (els.modal && !els.modal.hidden) return; // dismissing an error must not also capture
   e.preventDefault(); // stop the page from scrolling
   flagOrKeyframe();
 });
@@ -347,19 +388,46 @@ els.settings.addEventListener("submit", async (e) => {
   if (cam !== "") payload.camera_index = Number(cam);
 
   try {
-    await readJson(
+    const body = await readJson(
       await fetch("/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       })
     );
-    showToast("Settings applied");
+    renderSaveLoc(body);
+    // Say plainly whether this reused an existing dataset (appending to old
+    // frames) or started fresh — reusing a name is no longer an error, so make
+    // it visible rather than silent.
+    showToast(
+      body.appended
+        ? `Appending to “${body.dataset_name}” · ${body.existing_images} existing`
+        : "Settings applied"
+    );
     clearError();
   } catch (err) {
-    showError(`Settings: ${err.message}`);
+    // A config failure means nothing will be captured — pop it up instead of
+    // burying it in the top banner next to controls you're not looking at.
+    showModal(err.message, "Settings not applied");
   }
 });
+
+// Persistent "where captures land" readout under Settings. The resolved path was
+// never shown before, so the operator had to dig on disk to find (or fail to
+// find) their data. Path text is set via textContent to stay injection-safe.
+function renderSaveLoc(body) {
+  if (!els.saveLoc) return;
+  const base = body.resolved_path || body.output_path;
+  if (!base) {
+    els.saveLoc.hidden = true;
+    return;
+  }
+  els.saveLoc.textContent = body.appended ? "Appending to " : "Saving to ";
+  const b = document.createElement("b");
+  b.textContent = `${base}/images/${body.dataset_name}`;
+  els.saveLoc.appendChild(b);
+  els.saveLoc.hidden = false;
+}
 
 // --- capture mode + recording UI (U3) ---------------------------------------
 
@@ -449,7 +517,7 @@ if (els.record) {
     if (recState === "idle") {
       const entryBase = els.datasetName ? els.datasetName.value.trim() : "";
       if (!entryBase) {
-        showError("Record: enter a recording session name first");
+        showModal("Enter a recording session name before you start recording.", "Can't record");
         return;
       }
       recordBusy = true;
@@ -466,7 +534,8 @@ if (els.record) {
         nKeyframes = 0;
         clearError();
       } catch (e) {
-        showError(`Record: ${e.message}`); // 409 already recording, 422 bad base
+        // 409 already recording, 422 bad base, 409 no output path configured.
+        showModal(e.message, "Can't start recording");
       } finally {
         recordBusy = false;
         renderRecordingUI();
@@ -481,12 +550,15 @@ if (els.record) {
           // The encoder died mid-take: the clip was still saved (whatever frames
           // + keyframes landed before the failure) but it is TRUNCATED — don't
           // let it look like a clean recording.
-          showError(`Recording incomplete — encoder failed mid-take (${stop.error}). The saved clip is truncated; re-record.`);
+          showModal(
+            `The encoder failed mid-take (${stop.error}). The saved clip is truncated — re-record it.`,
+            "Recording incomplete"
+          );
         } else {
           clearError();
         }
       } catch (e) {
-        showError(`Record: ${e.message}`);
+        showModal(e.message, "Recording error");
       } finally {
         recordBusy = false;
         renderRecordingUI();
@@ -504,7 +576,7 @@ async function discardRecording(label) {
     showToast(label || "Recording discarded");
     clearError();
   } catch (e) {
-    showError(`Discard: ${e.message}`);
+    showModal(e.message, "Couldn't discard");
   } finally {
     renderRecordingUI();
   }
