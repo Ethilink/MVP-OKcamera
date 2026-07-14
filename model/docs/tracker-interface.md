@@ -1,16 +1,17 @@
 # Tracker interface — the contract for `orc_model`
 
-The single thing the **data-collection dashboard** needs from the model: a stateful
-tracker it can feed camera frames to, one at a time, that hands back detections
-with a stable id per instrument. That's it. This doc is the contract; the type
-lives in [`src/orc_model/pipelines/tracking.py`](../src/orc_model/pipelines/tracking.py)
-as `InstrumentTracker` (Protocol) + `FakeInstrumentTracker` (stub).
+The single thing a **consumer** (the data-collection dashboard or demo app
+backend) needs from the model: a stateful tracker it can feed camera frames to,
+one at a time, that hands back detections with a stable id per instrument.
+That's it. This doc is the contract; the type lives in
+[`src/orc_model/pipelines/tracking.py`](../src/orc_model/pipelines/tracking.py) as
+`InstrumentTracker` (Protocol) + `FakeInstrumentTracker` (stub).
 
 > **Why a contract:** the two halves are built in parallel. You own everything
 > behind `update()` — you can keep updating the detector, swap the ONNX, retune
 > the tracker. As long as the output shape below holds, none of that reaches the
-> dashboard. The dashboard builds against the fake stub today and swaps in your
-> real tracker when the weights land.
+> consumer. Consumers build against a fake implementation and swap in your real
+> tracker when the weights land.
 
 ---
 
@@ -41,7 +42,12 @@ output is exactly what the human flags and fixes downstream.
 `update(frame)` — a single **BGR** `np.ndarray`, shape `(H, W, 3)`, `uint8` —
 exactly what OpenCV / Camo produces. No preprocessing on the caller's side.
 
-> **The stream is subsampled well below camera fps.** The dashboard calls
+**The input frame is read-only.** `update()` must not modify its pixels or retain
+a mutable reference for later work. The consumer owns the frame and may use the
+same pixels after `update()` to render an overlay, save a dataset image, or derive
+a UI thumbnail.
+
+> **The stream is subsampled well below camera fps.** The consumer calls
 > `update()` as fast as inference allows (~10–15 fps, not 60), on **one thread,
 > in frame order**. Your tracker's motion model must tolerate a low, variable
 > frame rate — don't assume 60 fps or a fixed `dt`.
@@ -59,6 +65,12 @@ populated**:
 | `tracker_id` | int `(N,)` | **stable, unique per instrument this recording** |
 | `mask` | bool `(N, H, W)` | full-frame instance mask |
 
+- All fields are row-aligned: for every row `i`, `xyxy[i]`, `mask[i]`,
+  `confidence[i]`, `class_id[i]`, and `tracker_id[i]` describe the same
+  instrument in the same input frame.
+- Every box contains finite, ordered coordinates (`x1 < x2`, `y1 < y2`) in the
+  input frame's pixel coordinate system. A detector box may extend beyond the
+  frame boundary; consumers must clamp it before pixel indexing.
 - Return **only** detections at or above `confidence`, and **every** returned
   detection carries a real `tracker_id`. There is no untracked / `-1` case —
   the threshold is a real setting, so the tracker only ever sees confident boxes.
@@ -70,6 +82,23 @@ populated**:
 exactly these shapes — your tracker's job is to **add `tracker_id` and preserve
 the rest** (watch that `ByteTrack` doesn't drop `mask` / `data` on the way
 through).
+
+## Consumer-generated crops and previews
+
+`InstrumentTracker` does **not** generate, encode, store, or transport detection
+crops. A consumer already owns the input frame and derives any crop from that
+frame plus the returned, row-aligned `xyxy`/`mask`/`tracker_id` fields.
+
+Crop margins, boundary clamping, padding, resizing, JPEG/PNG encoding, base64
+conversion, caching, and HTTP response shapes are consumer responsibilities.
+This keeps model inference independent of a particular UI, image size, polling
+rate, or transport. A consumer may use `xyxy` for a rectangular preview today
+and the aligned `mask` for a transparent cut-out later without changing this
+interface.
+
+Model-internal appearance crops used for track linking remain private
+implementation details. They are distinct from UI thumbnails derived by a
+consumer from the public frame and detections.
 
 ## `tracker_id` across absence — track linking
 
@@ -93,7 +122,8 @@ link resolves, `update()` re-emits the original id. Two hard requirements:
 > - **Who builds the linker** — to be confirmed (Constantijn assumed). Wherever
 >   it's authored, it lives in `model/` and is composed inside `load_tracker()`
 >   — the consumer only ever sees linked, original ids through this interface.
->   Raw short-tracks / detection cutouts never cross the seam.
+>   Raw short-tracks and model-internal re-identification cutouts never cross
+>   the seam.
 > - **Linking is appearance-based** (match a returning instrument's cutout to
 >   old tracks) ⇒ the demo instrument set must contain **no duplicate types**,
 >   or the linker can't tell twins apart (mvp issue #2).
@@ -108,7 +138,7 @@ link resolves, `update()` re-emits the original id. Two hard requirements:
 
 ## `confidence` — a setting, not a slider hack
 
-`confidence` is a plain read/write attribute. Set at startup; the dashboard may
+`confidence` is a plain read/write attribute. Set at startup; a consumer may
 change it between frames (its slider). It maps straight onto
 `Detector.confidence_threshold`, so it's cheap — no reloading the session.
 Changing it mid-recording may retire/spawn track ids; that's acceptable, every
@@ -116,7 +146,7 @@ captured frame is independent.
 
 ## `reset()` — session boundary
 
-One recording = one `reset()` = one `tracker_id` namespace. The dashboard calls
+One recording = one `reset()` = one `tracker_id` namespace. The consumer calls
 it when a recording starts.
 
 ## `class_names` / `model_version`
@@ -130,14 +160,16 @@ it when a recording starts.
 
 ## NOT your job
 
-The dashboard owns all of this — do **not** build any of it into the tracker:
+The consumer owns all of this — do **not** build any of it into the tracker:
 
 - Serializing to the COCO/`annotations.json` import format
 - Assigning image/annotation ids, writing image files, RLE-encoding masks
+- Generating UI crops, choosing thumbnail dimensions, or JPEG/PNG/base64 encoding
+- Serving image URLs or defining frontend/API response shapes
 - `review_status`, the output folder layout, the confidence slider UI
 
 You emit `sv.Detections`. The mapping to the on-disk dataset is entirely the
-consumer's side.
+consumer's side, as is any mapping to a UI or HTTP response.
 
 ---
 
@@ -150,10 +182,11 @@ while streaming:
     frame = camera.read()          # BGR uint8
     dets = tracker.update(frame)   # -> sv.Detections
     render(frame, dets)            # overlay, colour by tracker_id, live count
+    # optional: derive UI previews from (frame, dets) on the consumer's side
     # on flag: serialize (frame, dets) into the dataset  <-- consumer's side
 ```
 
-Until your weights exist, the dashboard runs the exact same code against
-`FakeInstrumentTracker()` — same interface, fake boxes. Swap it for `load_tracker(...)`
-at integration. **Open item:** how you deliver the trained weights file (path is
-all the dashboard needs — Drive / git-LFS / scp, your call).
+Until your weights exist, consumers can run the exact same code against
+`FakeInstrumentTracker()` — same interface, fake boxes. Swap it for
+`load_tracker(...)` at integration. **Open item:** how you deliver the trained
+weights file (path is all a consumer needs — Drive / git-LFS / scp, your call).

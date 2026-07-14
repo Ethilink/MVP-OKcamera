@@ -242,6 +242,31 @@ class TestAC2RecordingStart:
         assert instrument.get("off_since_s") is None
         assert instrument.get("pickup_count") == 0
 
+    def test_recording_instrument_carries_live_crop_thumbnail(self) -> None:
+        """The recording branch attaches a live crop per visible instrument,
+        matched by tracker_id from the current snapshot — the same crop path as
+        the setup preview, so an off-table instrument (absent from the frame)
+        gets no crop and the app falls back to its last-seen one."""
+        capture = FakeCapture()
+        capture.set_snapshot(
+            np.full((120, 160, 3), 90, dtype=np.uint8),  # non-black → encodes
+            ((3, (10.0, 10.0, 50.0, 60.0)),),
+        )
+        session = Session()
+        app = create_app(capture, session, "test-model", clock=_Clock(0.0))
+        client = TestClient(app)
+
+        client.post("/recording/start")
+        session.observe(1.0, frozenset({3}))
+        session.observe(2.5, frozenset({3}))  # id 3 confirmed on the table
+
+        instruments = client.get("/status").json()["recording"]["instruments"]
+        assert len(instruments) == 1
+        assert instruments[0]["tracker_id"] == 3
+        thumbnail = instruments[0]["thumbnail"]
+        assert thumbnail.startswith("data:image/jpeg;base64,")
+        base64.b64decode(thumbnail.split(",", 1)[1], validate=True)
+
 
 class TestAC3StopAndReportShareIdenticalReportShape:
     """AC3: driving the fakes through a scripted pickup, POST

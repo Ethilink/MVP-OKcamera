@@ -48,6 +48,12 @@ class InstrumentStatusModel(BaseModel):
     on_table: bool
     off_since_s: float | None
     pickup_count: int
+    # A live crop of the instrument from the current frame, when it is visible
+    # this poll (letterboxed data-URI, same crop path as the setup thumbnails).
+    # `None` whenever the instrument is off the table / not detected this frame —
+    # the app keeps showing its last-seen crop, so a missing instrument's tile
+    # never blanks out.
+    thumbnail: str | None
 
 
 class RecordingStatus(BaseModel):
@@ -154,19 +160,23 @@ def create_app(
             ],
         )
 
-    def _setup_detections() -> list[DetectionModel]:
-        """Crop the current snapshot's boxes into API detections. Runs OUTSIDE
-        the session lock — the capture thread takes that lock on every frame, so
-        no image work may block it. `snapshot()` is immutable/thread-safe, and
-        `[]` is the honest answer before the first frame is published."""
+    def _snapshot_detections() -> list:
+        """Crop the current snapshot's boxes into per-detection thumbnails. Runs
+        OUTSIDE the session lock — the capture thread takes that lock on every
+        frame, so no image work may block it. `snapshot()` is immutable/thread-
+        safe, and `[]` is the honest answer before the first frame is published.
+        Shared by the setup preview and the live recording crops."""
         snapshot = capture.snapshot()
         if snapshot is None:
             return []
+        return build_detections(snapshot.frame_bgr, snapshot.detections)
+
+    def _setup_detections() -> list[DetectionModel]:
         # Detection (a plain dataclass) → DetectionModel by matching field names,
         # so adding a field can't leave this mapping silently behind.
         return [
             DetectionModel.model_validate(detection, from_attributes=True)
-            for detection in build_detections(snapshot.frame_bgr, snapshot.detections)
+            for detection in _snapshot_detections()
         ]
 
     @app.get("/status", response_model=StatusResponse)
@@ -174,6 +184,7 @@ def create_app(
         # Read all session/capture state under the lock, but do NOTHING heavy
         # here — the capture thread holds this same lock every frame. Thumbnail
         # cropping happens after the lock is released (see below).
+        recording_raw: tuple[float, list] | None = None
         with lock:
             t = clock()
             phase = session.phase
@@ -183,24 +194,10 @@ def create_app(
             if phase in (Phase.SETUP, Phase.FINISHED):
                 setup_meta = session.setup_status(t)
 
-            recording = None
+            # Just read the session state under the lock; the image work (crops)
+            # happens below, after the lock is released.
             if phase is Phase.RECORDING:
-                elapsed_s, statuses = session.recording_status(t)
-                recording = RecordingStatus(
-                    started_at=timestamps["started_at"],
-                    elapsed_s=elapsed_s,
-                    on_table_count=sum(1 for status in statuses if status.on_table),
-                    instruments=[
-                        InstrumentStatusModel(
-                            tracker_id=status.tracker_id,
-                            label=status.label,
-                            on_table=status.on_table,
-                            off_since_s=status.off_since_s,
-                            pickup_count=status.pickup_count,
-                        )
-                        for status in statuses
-                    ],
-                )
+                recording_raw = session.recording_status(t)
 
         setup = None
         if setup_meta is not None:
@@ -209,6 +206,31 @@ def create_app(
                 detected_count=detected_count,
                 stable_for_s=stable_for_s,
                 detections=_setup_detections(),
+            )
+
+        recording = None
+        if recording_raw is not None:
+            elapsed_s, statuses = recording_raw
+            # Live crops for the instruments visible THIS frame, matched by
+            # tracker_id. Off-table instruments simply aren't in the frame, so
+            # they get `thumbnail=None` and the app falls back to their last-seen
+            # crop. Cropped outside the lock (see `_snapshot_detections`).
+            crops = {det.tracker_id: det.thumbnail for det in _snapshot_detections()}
+            recording = RecordingStatus(
+                started_at=timestamps["started_at"],
+                elapsed_s=elapsed_s,
+                on_table_count=sum(1 for status in statuses if status.on_table),
+                instruments=[
+                    InstrumentStatusModel(
+                        tracker_id=status.tracker_id,
+                        label=status.label,
+                        on_table=status.on_table,
+                        off_since_s=status.off_since_s,
+                        pickup_count=status.pickup_count,
+                        thumbnail=crops.get(status.tracker_id),
+                    )
+                    for status in statuses
+                ],
             )
 
         return StatusResponse(

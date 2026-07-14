@@ -10,7 +10,7 @@ for correction in the separate annotation dashboard. Spec:
 ```bash
 cd data-collection/dashboard
 uv sync            # resolves deps + the ../../model (orc_model) path dep
-```
+```uv 
 
 ## Run
 

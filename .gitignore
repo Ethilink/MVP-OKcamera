@@ -147,3 +147,9 @@ temp/
 
 # Runtime capture output (datasets/video entries written by the dashboard)
 data-collection/dashboard/captures/
+
+# Design moodboards / generated artifacts (large, not source)
+outputs/
+
+# Local reference-only checkout of the separate Ethilink/matching repo (not vendored here)
+matching/

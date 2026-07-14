@@ -31,6 +31,11 @@ class InstrumentTracker(Protocol):
         tracker_id  int     (N,)        stable & unique per instance this session
         mask        bool    (N, H, W)   full-frame instance masks
 
+    Treat `frame` as read-only: do not mutate its pixels or retain a mutable
+    reference. Every output field is row-aligned for this exact input frame;
+    boxes contain finite, ordered coordinates in the frame's pixel space and
+    may extend outside its boundary (consumers clamp before pixel indexing).
+
     Only detections at or above `confidence` are returned, and every returned
     detection carries a real `tracker_id` (there is no untracked/sentinel case).
     A frame with nothing to report returns `sv.Detections.empty()`. `update()`
@@ -44,7 +49,7 @@ class InstrumentTracker(Protocol):
     each captured frame is an independent image."""
 
     def update(self, frame: np.ndarray) -> sv.Detections:
-        """One BGR frame (H, W, 3 uint8) -> tracked detections for THIS frame."""
+        """One read-only BGR frame (H, W, 3 uint8) -> detections for THIS frame."""
         ...
 
     def reset(self) -> None:
