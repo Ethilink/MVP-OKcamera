@@ -14,7 +14,13 @@ import numpy as np
 import supervision as sv
 from orc_model.pipelines.tracking import InstrumentTracker
 
-from backend.fakes import DEFAULT_SCENARIO, FakeCaptureSource, ScenarioEvent, ScenarioTracker
+from backend.fakes import (
+    DEFAULT_SCENARIO,
+    FakeCaptureSource,
+    ScenarioEvent,
+    ScenarioState,
+    ScenarioTracker,
+)
 
 # A small frame for tests that only care about tracker_id presence/absence —
 # ScenarioTracker allocates a full-frame-sized bool mask per detection per
@@ -31,9 +37,12 @@ CAP_PROP_BUFFERSIZE = 38
 
 
 def _update_until(tracker: ScenarioTracker, t: float) -> sv.Detections:
-    """Drive a freshly-constructed `tracker` frame-by-frame so its LAST
-    `update()` call lands at exactly scenario-time `t` (given `tracker.fps`),
-    and return that call's result. No wall clock involved."""
+    """Drive a `tracker` frame-by-frame so its LAST `update()` call lands at
+    exactly scenario-time `t` (given `tracker.fps`), and return that result.
+    `reset()` first: the scripted `events` (id-1/id-3 pickups) belong to the
+    RECORDING phase, which `reset()` (a `Start`) enters — before any reset the
+    tracker is in setup-churn mode, a different scenario. No wall clock."""
+    tracker.reset()
     n_calls = round(t * tracker.fps) + 1
     detections = sv.Detections.empty()
     for _ in range(n_calls):
@@ -167,6 +176,7 @@ class TestTrackerContractFields:
             ScenarioEvent(tracker_id=2, leave_s=0.0, return_s=None),
         )
         tracker = ScenarioTracker(n_instruments=2, events=all_gone)
+        tracker.reset()  # enter the recording scenario the events describe
         tracker.update(FRAME)  # t=0.0: still present (boundary-frame convention)
 
         detections = tracker.update(FRAME)  # t=0.1: both gone
@@ -245,3 +255,120 @@ class TestDefaultScenarioConstant:
             ScenarioEvent(tracker_id=1, leave_s=20.0, return_s=35.0),
             ScenarioEvent(tracker_id=3, leave_s=50.0, return_s=None),
         )
+
+
+def _drive_setup_to(tracker: ScenarioTracker, t: float) -> sv.Detections:
+    """Drive a FRESH (un-reset) tracker to setup-time `t`. Unlike
+    `_update_until`, this stays in the setup-churn phase (no `reset()`)."""
+    n_calls = round(t * tracker.fps) + 1
+    detections = sv.Detections.empty()
+    for _ in range(n_calls):
+        detections = tracker.update(FRAME)
+    return detections
+
+
+class TestSetupChurn:
+    """Before any `reset()` (i.e. on the setup screen) the count breathes: a
+    stable core of 5 plus extra ids that come and go, so the frontend can be
+    exercised against a changing count and changing tiles. `reset()` switches to
+    the clean scripted recording scenario."""
+
+    def test_full_tray_present_at_the_start_of_a_cycle(self) -> None:
+        ids = _tracker_ids(_drive_setup_to(ScenarioTracker(), t=0.0))
+
+        assert ids == {1, 2, 3, 4, 5, 6, 7, 8}
+
+    def test_count_dips_to_the_core_when_all_extras_are_away(self) -> None:
+        # t=5.0 sits inside every extra's absence window (id6 [2,7), id7 [3,8),
+        # id8 [4,9)) → only the core 1-5 remain.
+        ids = _tracker_ids(_drive_setup_to(ScenarioTracker(), t=5.0))
+
+        assert ids == {1, 2, 3, 4, 5}
+
+    def test_core_ids_never_churn(self) -> None:
+        for t in (0.0, 2.5, 5.0, 8.5, 11.0, 20.0):
+            ids = _tracker_ids(_drive_setup_to(ScenarioTracker(), t=t))
+
+            assert {1, 2, 3, 4, 5}.issubset(ids), f"core dropped at t={t}"
+
+    def test_count_actually_varies_across_a_cycle(self) -> None:
+        counts = {
+            len(_tracker_ids(_drive_setup_to(ScenarioTracker(), t=t)))
+            for t in (0.0, 2.5, 5.0, 8.5)
+        }
+
+        assert counts == {8, 7, 5}  # 8 (full), 7 (one extra away), 5 (core only)
+        assert max(counts) == 8 and min(counts) == 5
+
+    def test_churn_is_deterministic(self) -> None:
+        a = _tracker_ids(_drive_setup_to(ScenarioTracker(), t=5.0))
+        b = _tracker_ids(_drive_setup_to(ScenarioTracker(), t=5.0))
+
+        assert a == b
+
+    def test_reset_switches_from_churn_to_the_scripted_scenario(self) -> None:
+        tracker = ScenarioTracker()
+        # In setup churn, id 1 is core → present even deep in a cycle.
+        assert 1 in _tracker_ids(_drive_setup_to(tracker, t=27.0))
+
+        # After reset (= Start), the recording scenario governs: id 1 is away in
+        # (20, 35), so it is absent at t=27.
+        assert 1 not in _tracker_ids(_update_until(ScenarioTracker(), t=27.0))
+
+
+class TestSharedEpochAlignment:
+    """The Codex-flagged bug: a `Start` (`reset()`) must not let the drawn frame
+    drift from the detections. With ONE shared `ScenarioState`, the pixels the
+    capture source draws always sit on the boxes the tracker reports — before
+    AND after a reset."""
+
+    @staticmethod
+    def _detected_boxes_are_drawn(frame: np.ndarray, detections: sv.Detections) -> bool:
+        if detections.xyxy is None:
+            return True
+        for x1, y1, x2, y2 in detections.xyxy:
+            cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
+            if int(frame[cy, cx].max()) == 0:  # black => nothing drawn here
+                return False
+        return True
+
+    def _one_tick(self, source: FakeCaptureSource, tracker: ScenarioTracker):
+        ok, frame = source.read()          # draws the CURRENT frame (no advance)
+        detections = tracker.update(frame)  # reports it, then advances the clock
+        return ok, frame, detections
+
+    def test_drawn_shapes_sit_on_the_detected_boxes_each_tick(self) -> None:
+        state = ScenarioState(fps=10.0)  # one state, shared by tracker + source
+        tracker = ScenarioTracker(state=state)
+        source = FakeCaptureSource(size=(320, 240), fps=None, scenario=state)
+
+        for _ in range(15):
+            _, frame, detections = self._one_tick(source, tracker)
+            assert frame.max() > 0  # something was drawn
+            assert self._detected_boxes_are_drawn(frame, detections)
+
+    def test_alignment_survives_a_reset(self) -> None:
+        state = ScenarioState(fps=10.0)
+        tracker = ScenarioTracker(state=state)
+        source = FakeCaptureSource(size=(320, 240), fps=None, scenario=state)
+
+        for _ in range(30):  # run a while in setup churn
+            self._one_tick(source, tracker)
+
+        tracker.reset()  # Start: rewinds the SHARED clock for both fakes
+
+        for _ in range(15):  # recording — draw + detect must still line up
+            _, frame, detections = self._one_tick(source, tracker)
+            assert self._detected_boxes_are_drawn(frame, detections)
+
+    def test_read_does_not_advance_the_clock_only_update_does(self) -> None:
+        state = ScenarioState(fps=10.0)
+        tracker = ScenarioTracker(state=state)
+        source = FakeCaptureSource(size=(320, 240), fps=None, scenario=state)
+
+        source.read()
+        source.read()
+        assert state.time_s == 0.0  # reads alone never move the clock
+
+        tracker.update(FRAME)
+        assert state.time_s == 1.0 / state.fps  # exactly one frame consumed

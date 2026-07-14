@@ -25,6 +25,10 @@ frontend consumes this API. Neither side ever reaches through its seam.
   the data-collection dashboard.
 - **Backend computes, frontend renders.** Usage windows, completeness,
   debouncing — all backend. The frontend never derives analytics from raw data.
+- **Setup thumbnails are backend-derived.** The model returns frame-aligned
+  detections, not encoded crops. The backend derives small previews from its
+  camera frame and returns them inline with `/status`; the frontend does not
+  crop the MJPEG stream or call the model directly.
 - **Times:** absolute moments are ISO-8601 strings; everything inside a session
   is **seconds relative to recording start** (floats) — what a timeline needs.
 - **Errors:** wrong-phase actions → `409` with `{"detail": "..."}`. Everything
@@ -64,9 +68,16 @@ setup ──POST /recording/start──▶ recording ──POST /recording/stop�
   // (in "finished" the table is still being observed for the next run)
   "setup": {
     "detected_count": 5,             // size of the current detected id-set
-    "stable_for_s": 3.2              // how long the detected ID-SET has been
+    "stable_for_s": 3.2,             // how long the detected ID-SET has been
                                      // unchanged (an id swap at constant count
                                      // resets it — T02 owns this definition)
+    "detections": [                  // always present; may be []
+      {
+        "tracker_id": 1,
+        "label": "Instrument 1",
+        "thumbnail": "data:image/jpeg;base64,…" // string | null
+      }
+    ]
   },
 
   // phase == "recording": drives the live instrument panel
@@ -91,6 +102,19 @@ setup ──POST /recording/start──▶ recording ──POST /recording/stop�
 block is non-null only when `phase == "recording"`. (So `setup` and `recording`
 are never both non-null, but in `finished` the `setup` block IS present — the
 report is fetched separately via `GET /report`.)
+
+`setup.detections` is sorted by `tracker_id` and contains detections from one
+backend capture snapshot. `thumbnail` is a small aspect-preserving JPEG preview
+returned as a data URI; it is `null` when that individual crop cannot be
+validated or encoded. One bad crop must not fail the entire `/status` response.
+The API returns all current detections; presentation limits such as the setup
+constellation's seven-tile cap belong to the frontend.
+
+`detected_count`/`stable_for_s` come from the session state while `detections`
+comes from the latest capture snapshot. They may differ by one frame, and
+`detections` may temporarily be empty when no usable snapshot exists. The
+frontend must tolerate `detected_count != detections.length` and fall back to a
+representative icon for any missing or null thumbnail.
 
 Frontend enables **Start** when `phase == "setup" | "finished"`,
 `capture_health == "ok"`, `detected_count ≥ 1`, and `stable_for_s ≥ 2` — the
@@ -151,6 +175,12 @@ don't overlap and are sorted; an instrument never picked up has `usage: []`.
   present for `> ON_DEBOUNCE` (~1.0 s). Otherwise detector flicker becomes fake
   pickups. Config values, not API.
 - **Identity = `tracker_id`.** The report trusts the tracker's ids completely.
+- **Detection previews are presentation data, not model output.** The backend
+  owns the original frame passed to `InstrumentTracker.update()` and derives
+  `/status` thumbnails from that frame plus the returned `xyxy` and
+  `tracker_id`. Crop geometry, encoding and HTTP transport do not extend the
+  model contract; see
+  [`tracker-interface.md` §Consumer-generated crops and previews](../../model/docs/tracker-interface.md#consumer-generated-crops-and-previews).
 - **Completeness = debounced state at Stop.** `"missing"` ⟺ the instrument is
   in a *confirmed* off-table window at Stop (absence already past
   `OFF_DEBOUNCE`); otherwise `"present"`. A sub-debounce detector blink at the
