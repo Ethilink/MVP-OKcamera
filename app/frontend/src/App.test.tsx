@@ -43,7 +43,7 @@ test("AC2 Start posts /recording/start and switches on the recording poll", asyn
 
   render(<App pollMs={POLL} />)
 
-  const start = await screen.findByRole("button", { name: /^start$/i })
+  const start = await screen.findByRole("button", { name: /^track$/i })
   await waitFor(() => expect(start).toBeEnabled())
   expect(screen.queryByRole("button", { name: /^stop$/i })).toBeNull()
 
@@ -53,7 +53,7 @@ test("AC2 Start posts /recording/start and switches on the recording poll", asyn
   await waitFor(() =>
     expect(screen.getByRole("button", { name: /^stop$/i })).toBeInTheDocument(),
   )
-  expect(screen.queryByRole("button", { name: /^start$/i })).toBeNull()
+  expect(screen.queryByRole("button", { name: /^track$/i })).toBeNull()
 })
 
 // AC4: Stop POSTs /recording/stop; on the finished poll (flag false) App routes
@@ -110,7 +110,7 @@ test("AC4b run-2 restart from finished, and AC4c Back to report", async () => {
   fireEvent.click(newRec)
 
   // → run-2 setup layout, gate enabled (finished payload is stable), Back to report present
-  const start = await screen.findByRole("button", { name: /^start$/i })
+  const start = await screen.findByRole("button", { name: /^track$/i })
   await waitFor(() => expect(start).toBeEnabled())
   expect(
     screen.getByRole("button", { name: /back to report/i }),
@@ -126,7 +126,7 @@ test("AC4b run-2 restart from finished, and AC4c Back to report", async () => {
 
   // AC4b: back into setup, Start restarts; recording poll clears the flag → recording layout
   fireEvent.click(screen.getByRole("button", { name: /new recording/i }))
-  fireEvent.click(await screen.findByRole("button", { name: /^start$/i }))
+  fireEvent.click(await screen.findByRole("button", { name: /^track$/i }))
   await waitFor(() =>
     expect(screen.getByRole("button", { name: /^stop$/i })).toBeInTheDocument(),
   )
@@ -138,7 +138,7 @@ test("AC4c no Back to report in a genuine setup", async () => {
     http.get(`${BASE}/status`, () => HttpResponse.json(setupStable)),
   )
   render(<App pollMs={POLL} />)
-  await screen.findByRole("button", { name: /^start$/i })
+  await screen.findByRole("button", { name: /^track$/i })
   expect(
     screen.queryByRole("button", { name: /back to report/i }),
   ).toBeNull()
@@ -181,7 +181,7 @@ test("AC6 409 on Start shows an inline error and keeps polling", async () => {
 
   render(<App pollMs={POLL} />)
 
-  const start = await screen.findByRole("button", { name: /^start$/i })
+  const start = await screen.findByRole("button", { name: /^track$/i })
   await waitFor(() => expect(start).toBeEnabled())
   fireEvent.click(start)
 
@@ -189,5 +189,5 @@ test("AC6 409 on Start shows an inline error and keeps polling", async () => {
     expect(screen.getByText(/already recording/i)).toBeInTheDocument(),
   )
   // still on the setup screen, still polling (Start remains)
-  expect(screen.getByRole("button", { name: /^start$/i })).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: /^track$/i })).toBeInTheDocument()
 })

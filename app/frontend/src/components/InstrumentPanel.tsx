@@ -1,62 +1,115 @@
+import { motion, useReducedMotion } from "motion/react"
 import type { RecordingStatus } from "@/api/types"
+import type { CropMap } from "@/api/useLastSeenCrops"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { formatSeconds } from "@/lib/format"
+import { instrumentIconFor } from "@/components/instruments/InstrumentIcons"
+import { cn } from "@/lib/utils"
+
+const ROW_EASE = [0.22, 1, 0.36, 1] as const
 
 /**
  * The live per-instrument list during `recording`: one row per instrument
- * (sorted by tracker_id) — label, ON TABLE / OFF TABLE badge, off_since ticking
- * while off, and pickup count. `secondsSincePoll` interpolates the off_since
- * counter between polls (T06 "Ticking ownership"); the polled value re-anchors it.
+ * (sorted by tracker_id) — its cut-out crop, its label, and an ON/OFF TABLE
+ * state. The crop is live while the instrument is on the table and falls back
+ * to its last-seen crop (dimmed) when it is off, so a missing instrument never
+ * blanks out. Rows are a fixed height and never wrap, so a state change
+ * (ON↔OFF) swaps inline without nudging the layout.
+ *
+ * The card renders immediately and the rows slide in staggered — the empty card
+ * appears first, then the instruments arrive into it. It runs once on mount
+ * (stable keys), so live polls never re-trigger it.
  */
 export function InstrumentPanel({
   recording,
-  secondsSincePoll,
+  crops,
 }: {
   recording: RecordingStatus
-  secondsSincePoll: number
+  crops?: CropMap
 }) {
+  const reduce = useReducedMotion() ?? false
   const rows = [...recording.instruments].sort(
     (a, b) => a.tracker_id - b.tracker_id
   )
 
   return (
-    <Card>
+    <Card className="min-h-0 flex-1">
       <CardHeader>
         <CardTitle>Instruments</CardTitle>
       </CardHeader>
-      <CardContent>
+      {/* The list scrolls inside the card when the tray is large, so the card
+          and the Stop below it always stay one size (never a growing column). */}
+      <CardContent className="min-h-0 flex-1 overflow-y-auto">
         <ul className="flex flex-col divide-y divide-border">
-          {rows.map((inst) => (
-            <li
-              key={inst.tracker_id}
-              className="flex items-center justify-between gap-4 py-2"
-            >
-              <span className="font-medium">{inst.label}</span>
-              <div className="flex items-center gap-3">
+          {rows.map((inst, i) => {
+            const crop = crops?.[inst.tracker_id] ?? inst.thumbnail ?? null
+            return (
+              <motion.li
+                key={inst.tracker_id}
+                className="grid h-14 grid-cols-[2.5rem_1fr_auto] items-center gap-3"
+                initial={reduce ? false : { opacity: 0, x: 12 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.4, delay: i * 0.06, ease: ROW_EASE }}
+              >
+                <InstrumentCrop
+                  trackerId={inst.tracker_id}
+                  crop={crop}
+                  label={inst.label}
+                  onTable={inst.on_table}
+                />
+                <span className="truncate font-medium">{inst.label}</span>
                 {inst.on_table ? (
                   <Badge
                     variant="outline"
-                    className="border-transparent bg-emerald-600/10 text-emerald-700 dark:text-emerald-400"
+                    className="w-[5.5rem] justify-center border-transparent bg-emerald-600/10 text-emerald-700 dark:text-emerald-400"
                   >
                     ON TABLE
                   </Badge>
                 ) : (
-                  <Badge variant="destructive">OFF TABLE</Badge>
+                  <Badge variant="destructive" className="w-[5.5rem] justify-center">
+                    OFF TABLE
+                  </Badge>
                 )}
-                {!inst.on_table && inst.off_since_s !== null && (
-                  <span className="w-10 text-right tabular-nums text-muted-foreground">
-                    {formatSeconds(inst.off_since_s + secondsSincePoll)}
-                  </span>
-                )}
-                <span className="text-sm text-muted-foreground">
-                  {inst.pickup_count} pickups
-                </span>
-              </div>
-            </li>
-          ))}
+              </motion.li>
+            )
+          })}
         </ul>
       </CardContent>
     </Card>
+  )
+}
+
+/** The instrument's cut-out: a real crop when we have one (dimmed while off the
+ *  table), else a representative icon. */
+function InstrumentCrop({
+  trackerId,
+  crop,
+  label,
+  onTable,
+}: {
+  trackerId: number
+  crop: string | null
+  label: string
+  onTable: boolean
+}) {
+  const Icon = instrumentIconFor(trackerId)
+  return (
+    <div
+      className={cn(
+        "grid size-10 place-items-center overflow-hidden rounded-lg bg-card text-foreground/70 ring-1 ring-border transition-opacity duration-300",
+        !onTable && "opacity-40"
+      )}
+    >
+      {crop ? (
+        <img
+          src={crop}
+          alt={label}
+          className={cn("size-full object-cover", !onTable && "grayscale")}
+          draggable={false}
+        />
+      ) : (
+        <Icon className="size-5" />
+      )}
+    </div>
   )
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { useStatus } from "@/api/useStatus"
+import { useLastSeenCrops } from "@/api/useLastSeenCrops"
 import { LiveScreen } from "@/screens/LiveScreen"
 import { ReportScreen } from "@/screens/ReportScreen"
 
@@ -20,6 +21,9 @@ import { ReportScreen } from "@/screens/ReportScreen"
  */
 function App({ pollMs = 500 }: { pollMs?: number } = {}) {
   const { status, error } = useStatus(pollMs)
+  // Per-instrument crops accumulate across setup → recording → report, so the
+  // live list and the report can show each instrument's cut-out (D-crops).
+  const crops = useLastSeenCrops(status)
   const [newRecordingRequested, setNewRecordingRequested] = useState(false)
   const phase = status?.phase
 
@@ -29,7 +33,10 @@ function App({ pollMs = 500 }: { pollMs?: number } = {}) {
 
   if (phase === "finished" && !newRecordingRequested) {
     return (
-      <ReportScreen onNewRecording={() => setNewRecordingRequested(true)} />
+      <ReportScreen
+        crops={crops}
+        onNewRecording={() => setNewRecordingRequested(true)}
+      />
     )
   }
 
@@ -37,6 +44,7 @@ function App({ pollMs = 500 }: { pollMs?: number } = {}) {
     <LiveScreen
       status={status}
       error={error}
+      crops={crops}
       showBackToReport={phase === "finished" && newRecordingRequested}
       onBackToReport={() => setNewRecordingRequested(false)}
     />

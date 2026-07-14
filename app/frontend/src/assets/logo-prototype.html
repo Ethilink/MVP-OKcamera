@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Logo Prototype · Dynamic Sets</title>
+  <!-- PROTOTYPE — throwaway design exploration, delete when direction is chosen -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #0f0f13;
+      --card-bg:     #17171f;
+      --border:      rgba(255,255,255,0.06);
+      --text:        #f0f0f8;
+      --muted:       #55556a;
+      --icon-shadow: 0 14px 60px rgba(0,0,0,0.65);
+    }
+    body.light {
+      --bg:          #e8e4f4;
+      --card-bg:     #f5f3fc;
+      --border:      rgba(0,0,0,0.07);
+      --text:        #18181e;
+      --muted:       #8888a2;
+      --icon-shadow: 0 6px 30px rgba(0,0,0,0.12);
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      min-height: 100vh;
+      padding: 60px 32px 120px;
+      transition: background 0.3s, color 0.3s;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 64px;
+    }
+    .eyebrow {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 22px;
+    }
+    .wordmark-ref {
+      height: 34px;
+      display: block;
+      margin: 0 auto;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+      gap: 40px;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+      padding: 32px 24px 28px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      transition: background 0.3s, border-color 0.3s;
+    }
+
+    .icon-wrap {
+      width: 260px;
+      height: 260px;
+      border-radius: 58px;
+      background: #FBF9FD;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: var(--icon-shadow);
+      transition: transform 0.2s, box-shadow 0.3s;
+      cursor: default;
+      overflow: hidden; /* clips the gradient to the rounded icon shape */
+    }
+    .icon-wrap:hover { transform: scale(1.04); }
+
+    .card-label { font-size: 10px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+    .card-name  { font-size: 16px; font-weight: 600; color: var(--text); transition: color 0.3s; }
+    .card-desc  { font-size: 13px; color: var(--muted); text-align: center; line-height: 1.7; max-width: 234px; }
+
+    .toggle {
+      position: fixed;
+      bottom: 28px;
+      right: 28px;
+      padding: 10px 22px;
+      background: var(--card-bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font: 600 12px/1 'Inter', system-ui, sans-serif;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: background 0.25s, color 0.25s, border-color 0.25s;
+    }
+    .toggle:hover { opacity: 0.75; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <p class="eyebrow">Filled Blob — Prototype</p>
+    <img class="wordmark-ref" src="logo_name.svg" alt="Dynamic Sets wordmark (reference)">
+  </div>
+
+  <div class="grid">
+
+    <div class="card">
+      <div class="icon-wrap">
+        <svg id="ba" width="260" height="260" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+      <span class="card-label">A</span>
+      <span class="card-name">Whisper</span>
+      <p class="card-desc">The faintest tint — gradient barely present, almost like light refracted through mist.</p>
+    </div>
+
+    <div class="card">
+      <div class="icon-wrap">
+        <svg id="bb" width="260" height="260" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+      <span class="card-label">B</span>
+      <span class="card-name">Soft</span>
+      <p class="card-desc">Whole field lightly washed — the gradient is clearly there but nothing competes with the outline.</p>
+    </div>
+
+    <div class="card">
+      <div class="icon-wrap">
+        <svg id="bc" width="260" height="260" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+      <span class="card-label">C</span>
+      <span class="card-name">Gentle Full</span>
+      <p class="card-desc">Every pixel softly coloured — full coverage, still airy. The outline remains the brightest point.</p>
+    </div>
+
+    <div class="card">
+      <div class="icon-wrap">
+        <svg id="bd" width="260" height="260" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+      <span class="card-label">D</span>
+      <span class="card-name">Soft Rich</span>
+      <p class="card-desc">The most presence of the four — colourful but still delicate, the previous "rich" toned down.</p>
+    </div>
+
+  </div>
+
+  <button class="toggle" onclick="document.body.classList.toggle('light')">
+    Light / Dark
+  </button>
+
+  <script>
+  (function () {
+    'use strict';
+    const NS = 'http://www.w3.org/2000/svg';
+
+    // ── OKLab colour interpolation ────────────────────────────────────────
+    function toLinear(c) {
+      return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+    function fromLinear(c) {
+      return c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+    }
+    function rgbToLab(r, g, b) {
+      const R = toLinear(r/255), G = toLinear(g/255), B = toLinear(b/255);
+      const l = Math.cbrt(0.4122214708*R + 0.5363325363*G + 0.0514459929*B);
+      const m = Math.cbrt(0.2119034982*R + 0.6806995451*G + 0.1073969566*B);
+      const s = Math.cbrt(0.0883024619*R + 0.2817188376*G + 0.6299787005*B);
+      return [
+        0.2104542553*l + 0.7936177850*m - 0.0040720468*s,
+        1.9779984951*l - 2.4285922050*m + 0.4505937099*s,
+        0.0259040371*l + 0.7827717662*m - 0.8086757660*s,
+      ];
+    }
+    function labToRgb(L, a, b) {
+      const l_ = L + 0.3963377774*a + 0.2158037573*b;
+      const m_ = L - 0.1055613458*a - 0.0638541728*b;
+      const s_ = L - 0.0894841775*a - 1.2914855480*b;
+      const l = l_*l_*l_, m = m_*m_*m_, s = s_*s_*s_;
+      const r  = fromLinear(Math.max(0,  4.0767416621*l - 3.3077115913*m + 0.2309699292*s));
+      const g  = fromLinear(Math.max(0, -1.2684380046*l + 2.6097574011*m - 0.3413193965*s));
+      const bv = fromLinear(Math.max(0, -0.0041960863*l - 0.7034186147*m + 1.7076147010*s));
+      return [Math.min(255,Math.round(r*255)), Math.min(255,Math.round(g*255)), Math.min(255,Math.round(bv*255))];
+    }
+
+    const LAB = [
+      [0x01,0x87,0x8E],[0x2A,0xAD,0x7B],[0x4B,0xAF,0x5E],
+      [0xFF,0xC2,0x01],[0xFF,0xB8,0x00],[0xFE,0xA4,0x15],
+      [0xFD,0x71,0x23],[0xFD,0x66,0x68],[0xFB,0x54,0x8C],
+      [0xF3,0x4C,0x92],[0xDF,0x34,0x88],[0xA0,0x59,0xE3],
+      [0x39,0x74,0xF1],[0x05,0x92,0xF9],[0x00,0xBC,0xF9],
+    ].map(([r,g,b]) => rgbToLab(r,g,b));
+
+    function gradColor(t) {
+      const n = LAB.length;
+      const scaled = (((t % 1) + 1) % 1) * n;
+      const i = Math.floor(scaled) % n;
+      const f = scaled - Math.floor(scaled);
+      const a = LAB[i], b = LAB[(i + 1) % n];
+      const [r,g,bv] = labToRgb(
+        a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f,
+      );
+      return `rgb(${r},${g},${bv})`;
+    }
+
+    // ── Core path-following gradient builder ──────────────────────────────
+    function build(container, makeEl, N, sw) {
+      const probe = makeEl();
+      probe.setAttribute('fill', 'none');
+      probe.setAttribute('stroke', 'none');
+      container.appendChild(probe);
+      const L = probe.getTotalLength();
+      container.removeChild(probe);
+
+      const seg = L / N;
+      for (let i = 0; i < N; i++) {
+        const el = makeEl();
+        el.setAttribute('fill', 'none');
+        el.setAttribute('stroke', gradColor(i / N));
+        el.setAttribute('stroke-width', typeof sw === 'function' ? sw(i, N) : sw);
+        el.setAttribute('stroke-linecap', 'butt');
+        el.setAttribute('stroke-dasharray', `${seg + 1.5} ${L - seg - 1.5}`);
+        el.setAttribute('stroke-dashoffset', L - i * seg);
+        container.appendChild(el);
+      }
+    }
+
+    // ── Blob path ─────────────────────────────────────────────────────────
+    // Organic shape centred in the 400×400 viewBox with ~85px margin on
+    // each side. This margin is what lets the flood layer (stroke-width 240,
+    // extending 120px from the path) reach every corner of the icon.
+    // Each corner of the icon is therefore covered by the nearest blob
+    // segment's colour, creating a Voronoi-style rainbow fill across the
+    // entire background.
+    const BLOB = 'M 202 87'
+               + ' C 263 80 312 132 309 202'
+               + ' C 306 274 260 323 196 321'
+               + ' C 132 319 84 268 87 200'
+               + ' C 90 132 141 94 202 87 Z';
+
+    // ── Filled-blob builder ───────────────────────────────────────────────
+    // Three layers, each applied to the same blob path:
+    //
+    //  FLOOD — stroke-width 240 (extends ±120px from path, covering the
+    //          entire 400×400 canvas), heavily blurred. This layer colours
+    //          every pixel of the icon. Near-zero at icon edges because the
+    //          gradient is at low opacity; richer near the blob outline.
+    //
+    //  HALO  — medium stroke, moderate blur. Defines the immediate glow
+    //          around the outline and brightens the mid-range.
+    //
+    //  STROKE — thin crisp stroke, full opacity. The precise mark itself.
+    //
+    // Increasing floodOp / haloOp moves the design from "subtle tint" toward
+    // "fully saturated gradient field" — the four variants explore this range.
+
+    function buildFilledBlob(svgId, { mainSW, haloSW, haloBlur, haloOp, floodBlur, floodOp }) {
+      const svg = document.getElementById(svgId);
+
+      // Inject shared <defs> with both filters
+      const defs = document.createElementNS(NS, 'defs');
+      const mkFilter = (id, stdDev) => {
+        const f = document.createElementNS(NS, 'filter');
+        f.setAttribute('id', id);
+        // Generous bounds so the blurred output is never clipped by the filter region
+        f.setAttribute('x', '-150%'); f.setAttribute('y', '-150%');
+        f.setAttribute('width',  '400%'); f.setAttribute('height', '400%');
+        const b = document.createElementNS(NS, 'feGaussianBlur');
+        b.setAttribute('stdDeviation', stdDev);
+        f.appendChild(b);
+        return f;
+      };
+      defs.appendChild(mkFilter('fl-' + svgId, floodBlur));
+      defs.appendChild(mkFilter('hl-' + svgId, haloBlur));
+      svg.insertBefore(defs, svg.firstChild);
+
+      const makeBlob = () => {
+        const p = document.createElementNS(NS, 'path');
+        p.setAttribute('d', BLOB);
+        p.setAttribute('fill', 'none');
+        return p;
+      };
+
+      // Layer 1 — flood (fills entire icon)
+      const floodG = document.createElementNS(NS, 'g');
+      floodG.setAttribute('filter', `url(#fl-${svgId})`);
+      floodG.setAttribute('opacity', floodOp);
+      svg.appendChild(floodG);
+      build(floodG, makeBlob, 40, 240);
+
+      // Layer 2 — halo (immediate glow)
+      const haloG = document.createElementNS(NS, 'g');
+      haloG.setAttribute('filter', `url(#hl-${svgId})`);
+      haloG.setAttribute('opacity', haloOp);
+      svg.appendChild(haloG);
+      build(haloG, makeBlob, 80, haloSW);
+
+      // Layer 3 — crisp stroke
+      build(svg, makeBlob, 240, mainSW);
+    }
+
+    // All four variants are in the "soft but fully filled" zone —
+    // wider blur for a more atmospheric spread, lower opacity so the
+    // colours feel like watercolour washes rather than saturated fields.
+
+    // A — whisper: gradient barely breathes across the icon
+    buildFilledBlob('ba', { mainSW: 24, haloSW: 68, haloBlur: 26, haloOp: 0.30, floodBlur: 76, floodOp: 0.12 });
+
+    // B — soft: the whole field is lightly tinted, nothing harsh
+    buildFilledBlob('bb', { mainSW: 23, haloSW: 68, haloBlur: 26, haloOp: 0.36, floodBlur: 74, floodOp: 0.17 });
+
+    // C — gentle full fill: every pixel coloured, still airy and light
+    buildFilledBlob('bc', { mainSW: 22, haloSW: 68, haloBlur: 26, haloOp: 0.42, floodBlur: 72, floodOp: 0.22 });
+
+    // D — soft rich: most presence, still delicate — the previous "full" toned down
+    buildFilledBlob('bd', { mainSW: 21, haloSW: 70, haloBlur: 28, haloOp: 0.48, floodBlur: 70, floodOp: 0.28 });
+
+  })();
+  </script>
+</body>
+</html>

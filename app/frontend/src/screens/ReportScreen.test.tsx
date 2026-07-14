@@ -37,18 +37,19 @@ test("AC3 renders one row per instrument with the right timeline + badge", async
 })
 
 // AC4: summary + New recording invokes the prop once and does NOT start a recording.
-test("AC4 summary shows counts/model; New recording calls the prop, not the API", async () => {
+test("AC4 summary shows counts; New recording calls the prop, not the API", async () => {
   serveReport()
   const onNewRecording = vi.fn()
   const startSpy = vi.spyOn(api, "startRecording")
   render(<ReportScreen onNewRecording={onNewRecording} />)
 
   await screen.findByText("Instrument 1")
-  // duration 336 → 5:36, 3 instruments, 1 missing, model_version
+  // duration 336 → 5:36, and stat cards for 3 instruments / 1 missing.
   expect(screen.getByText("5:36")).toBeInTheDocument()
-  expect(screen.getByText(/3 instruments/)).toBeInTheDocument()
-  expect(screen.getByText(/1 missing/)).toBeInTheDocument()
-  expect(screen.getByText(demoReport.model_version)).toBeInTheDocument()
+  const instrumentsStat = screen.getByText("instruments").closest("div")!
+  expect(within(instrumentsStat).getByText("3")).toBeInTheDocument()
+  const missingStat = screen.getByText("missing").closest("div")!
+  expect(within(missingStat).getByText("1")).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole("button", { name: /new recording/i }))
   expect(onNewRecording).toHaveBeenCalledTimes(1)

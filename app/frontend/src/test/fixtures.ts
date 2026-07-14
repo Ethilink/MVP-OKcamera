@@ -11,12 +11,24 @@ const STOPPED_AT = "2026-07-20T10:36:40+02:00"
 
 const MODEL = "scenario-0.1"
 
+// A 1×1 transparent GIF data URI — a valid <img src> for tests that assert the
+// tiles render real crops, without shipping a real JPEG into the fixtures.
+const PIXEL =
+  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+
+/** Five detections with real thumbnails — exercises the crop-tile path. */
+const fiveDetections = [1, 2, 3, 4, 5].map((id) => ({
+  tracker_id: id,
+  label: `Instrument ${id}`,
+  thumbnail: PIXEL,
+}))
+
 /** setup phase, id-set not yet stable → Start must stay disabled. */
 export const setupUnstable: Status = {
   phase: "setup",
   capture_health: "ok",
   model_version: MODEL,
-  setup: { detected_count: 5, stable_for_s: 0.6 },
+  setup: { detected_count: 5, stable_for_s: 0.6, detections: fiveDetections },
   recording: null,
 }
 
@@ -25,7 +37,7 @@ export const setupStable: Status = {
   phase: "setup",
   capture_health: "ok",
   model_version: MODEL,
-  setup: { detected_count: 5, stable_for_s: 3.2 },
+  setup: { detected_count: 5, stable_for_s: 3.2, detections: fiveDetections },
   recording: null,
 }
 
@@ -34,7 +46,7 @@ export const captureStalled: Status = {
   phase: "setup",
   capture_health: "stalled",
   model_version: MODEL,
-  setup: { detected_count: 5, stable_for_s: 3.2 },
+  setup: { detected_count: 5, stable_for_s: 3.2, detections: fiveDetections },
   recording: null,
 }
 
@@ -54,6 +66,7 @@ export const recordingAllOn: Status = {
       on_table: true,
       off_since_s: null,
       pickup_count: 0,
+      thumbnail: PIXEL,
     })),
   },
 }
@@ -69,11 +82,12 @@ export const recordingOneOff: Status = {
     elapsed_s: 74.3,
     on_table_count: 4,
     instruments: [
-      { tracker_id: 1, label: "Instrument 1", on_table: true, off_since_s: null, pickup_count: 1 },
-      { tracker_id: 2, label: "Instrument 2", on_table: true, off_since_s: null, pickup_count: 0 },
-      { tracker_id: 3, label: "Instrument 3", on_table: false, off_since_s: 13.2, pickup_count: 2 },
-      { tracker_id: 4, label: "Instrument 4", on_table: true, off_since_s: null, pickup_count: 0 },
-      { tracker_id: 5, label: "Instrument 5", on_table: true, off_since_s: null, pickup_count: 0 },
+      { tracker_id: 1, label: "Instrument 1", on_table: true, off_since_s: null, pickup_count: 1, thumbnail: PIXEL },
+      { tracker_id: 2, label: "Instrument 2", on_table: true, off_since_s: null, pickup_count: 0, thumbnail: PIXEL },
+      // off the table this frame → no live crop (the app shows its last-seen one).
+      { tracker_id: 3, label: "Instrument 3", on_table: false, off_since_s: 13.2, pickup_count: 2, thumbnail: null },
+      { tracker_id: 4, label: "Instrument 4", on_table: true, off_since_s: null, pickup_count: 0, thumbnail: PIXEL },
+      { tracker_id: 5, label: "Instrument 5", on_table: true, off_since_s: null, pickup_count: 0, thumbnail: PIXEL },
     ],
   },
 }
@@ -86,7 +100,7 @@ export const finishedStatus: Status = {
   phase: "finished",
   capture_health: "ok",
   model_version: MODEL,
-  setup: { detected_count: 5, stable_for_s: 3.2 },
+  setup: { detected_count: 5, stable_for_s: 3.2, detections: fiveDetections },
   recording: null,
 }
 

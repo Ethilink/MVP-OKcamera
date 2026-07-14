@@ -93,6 +93,15 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** DetectionModel */
+        DetectionModel: {
+            /** Tracker Id */
+            tracker_id: number;
+            /** Label */
+            label: string;
+            /** Thumbnail */
+            thumbnail: string | null;
+        };
         /** InstrumentReportModel */
         InstrumentReportModel: {
             /** Tracker Id */
@@ -119,6 +128,8 @@ export interface components {
             off_since_s: number | null;
             /** Pickup Count */
             pickup_count: number;
+            /** Thumbnail */
+            thumbnail: string | null;
         };
         /** RecordingStatus */
         RecordingStatus: {
@@ -150,6 +161,8 @@ export interface components {
             detected_count: number;
             /** Stable For S */
             stable_for_s: number;
+            /** Detections */
+            detections: components["schemas"]["DetectionModel"][];
         };
         /** StartResponse */
         StartResponse: {

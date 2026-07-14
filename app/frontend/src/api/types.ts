@@ -12,6 +12,7 @@ type Schemas = components["schemas"]
 
 export type Status = Schemas["StatusResponse"]
 export type SetupStatus = Schemas["SetupStatus"]
+export type Detection = Schemas["DetectionModel"]
 export type InstrumentStatus = Schemas["InstrumentStatusModel"]
 export type RecordingStatus = Schemas["RecordingStatus"]
 export type UsageWindow = Schemas["UsageWindowModel"]

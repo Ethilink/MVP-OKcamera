@@ -10,6 +10,22 @@ import type { InstrumentReport, Report, Status } from "@/api/types"
 
 const MODEL = "scenario-0.1"
 
+// Distinct, GENERATED swatch "crops" so `dev:msw` can demonstrate the per-
+// instrument cut-outs without a camera (the real crops come from
+// `orc-demo --fake`). Each is a self-contained coloured SVG data-URI — a real
+// asset, not an empty/placeholder <img src>.
+const CROP_TINTS = ["#4b7a63", "#7a4b52", "#4b5f7a", "#7a6a4b", "#5f4b7a"]
+function fakeCrop(id: number): string {
+  const tint = CROP_TINTS[(id - 1) % CROP_TINTS.length]
+  const svg =
+    `<svg xmlns='http://www.w3.org/2000/svg' width='96' height='96'>` +
+    `<rect width='96' height='96' fill='${tint}'/>` +
+    `<rect x='30' y='18' width='36' height='60' rx='10' fill='rgba(255,255,255,0.16)'/>` +
+    `<text x='48' y='58' font-family='sans-serif' font-size='34' font-weight='600' ` +
+    `fill='rgba(255,255,255,0.92)' text-anchor='middle'>${id}</text></svg>`
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`
+}
+
 // Scripted choreography (seconds into the recording): instrument 1 is picked up
 // and returned (present, closed window); instrument 3 leaves and never returns
 // (missing, open window); the rest stay on the table.
@@ -39,6 +55,9 @@ function liveInstrument(id: number, t: number) {
     on_table: !open,
     off_since_s: open ? t - open.off : null,
     pickup_count: pickups,
+    // Live crop only while visible (on the table); off-table falls back to the
+    // last-seen crop client-side, mirroring the real backend.
+    thumbnail: open ? null : fakeCrop(id),
   }
 }
 
@@ -86,11 +105,21 @@ export const devHandlers = [
       })
     }
     // setup / finished: the id-set is "stable" once 2 s have passed here.
+    // Generated swatch crops stand in for the real camera crops (which come from
+    // `orc-demo --fake`), so the constellation + list show distinct cut-outs.
     return HttpResponse.json<Status>({
       phase,
       capture_health: "ok",
       model_version: MODEL,
-      setup: { detected_count: 5, stable_for_s: nowS(setupStart) },
+      setup: {
+        detected_count: 5,
+        stable_for_s: nowS(setupStart),
+        detections: IDS.map((id) => ({
+          tracker_id: id,
+          label: `Instrument ${id}`,
+          thumbnail: fakeCrop(id),
+        })),
+      },
       recording: null,
     })
   }),

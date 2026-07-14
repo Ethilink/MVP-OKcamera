@@ -24,6 +24,9 @@
     --color-ring: var(--ring);
     --color-input: var(--input);
     --color-border: var(--border);
+    --color-info: var(--info);
+    --color-warning: var(--warning);
+    --color-success: var(--success);
     --color-destructive: var(--destructive);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
@@ -31,6 +34,7 @@
     --color-muted: var(--muted);
     --color-secondary-foreground: var(--secondary-foreground);
     --color-secondary: var(--secondary);
+    --color-primary-soft: var(--primary-soft);
     --color-primary-foreground: var(--primary-foreground);
     --color-primary: var(--primary);
     --color-popover-foreground: var(--popover-foreground);
@@ -48,73 +52,101 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* ── Halo palette ──────────────────────────────────────────────────────────
+   Clinical near-white surface, dark readable ink, one confident teal for
+   interaction. The rainbow ring is the identity signature — it lives only in
+   the logo and the Track "halo" glow, never scattered across the UI.
+   Values follow app/docs/BRANDING.md §Implementation tokens. */
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
+    --background: oklch(1 0 0);                 /* #FFFFFF */
+    --foreground: oklch(0.22 0.025 205);        /* #16242A ink */
     --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
+    --card-foreground: oklch(0.22 0.025 205);
     --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
+    --popover-foreground: oklch(0.22 0.025 205);
+    --primary: oklch(0.45 0.08 198);            /* #006B70 ORC teal */
+    --primary-foreground: oklch(1 0 0);
+    --primary-soft: oklch(0.95 0.022 195);      /* #E3F3F3 selected / info tint */
+    --secondary: oklch(0.97 0.008 205);         /* soft neutral surface */
+    --secondary-foreground: oklch(0.28 0.025 205);
+    --muted: oklch(0.97 0.008 205);             /* #F4F7F8 */
+    --muted-foreground: oklch(0.47 0.025 205);  /* #52636A */
+    --accent: oklch(0.95 0.022 195);            /* teal-tinted hover surface */
+    --accent-foreground: oklch(0.34 0.05 198);
+    --success: oklch(0.52 0.10 162);            /* #167A59 */
+    --warning: oklch(0.55 0.11 75);             /* #9A5D00 */
+    --info: oklch(0.48 0.13 258);               /* #1E5BB8 */
+    --destructive: oklch(0.50 0.16 10);         /* #B22F52 */
+    --border: oklch(0.89 0.015 205);            /* #D7E0E3 */
+    --input: oklch(0.89 0.015 205);
+    --ring: oklch(0.65 0.13 200);               /* #00A7B0 focus cyan */
+    --chart-1: oklch(0.45 0.08 198);
+    --chart-2: oklch(0.55 0.10 220);
+    --chart-3: oklch(0.52 0.10 162);
+    --chart-4: oklch(0.55 0.11 75);
+    --chart-5: oklch(0.50 0.16 10);
     --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --sidebar: oklch(0.98 0.006 205);
+    --sidebar-foreground: oklch(0.22 0.025 205);
+    --sidebar-primary: oklch(0.45 0.08 198);
+    --sidebar-primary-foreground: oklch(1 0 0);
+    --sidebar-accent: oklch(0.95 0.022 195);
+    --sidebar-accent-foreground: oklch(0.34 0.05 198);
+    --sidebar-border: oklch(0.89 0.015 205);
+    --sidebar-ring: oklch(0.65 0.13 200);
+
+    /* Rainbow identity — sampled from logo_icon.svg. Used only in the logo mark
+       and the Track glow. */
+    --halo-1: #00a4b6;
+    --halo-2: #91cf38;
+    --halo-3: #ffd000;
+    --halo-4: #ff7c43;
+    --halo-5: #ef4d9a;
+    --halo-6: #8064e8;
+    --halo-7: #00a9dc;
+    --halo-conic: conic-gradient(
+        from 0deg,
+        var(--halo-1), var(--halo-2), var(--halo-3), var(--halo-4),
+        var(--halo-5), var(--halo-6), var(--halo-7), var(--halo-1)
+    );
 }
 
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --background: oklch(0.20 0.02 220);
+    --foreground: oklch(0.96 0.006 205);
+    --card: oklch(0.24 0.022 220);
+    --card-foreground: oklch(0.96 0.006 205);
+    --popover: oklch(0.24 0.022 220);
+    --popover-foreground: oklch(0.96 0.006 205);
+    --primary: oklch(0.68 0.11 195);
+    --primary-foreground: oklch(0.18 0.02 220);
+    --primary-soft: oklch(0.34 0.05 198);
+    --secondary: oklch(0.28 0.022 220);
+    --secondary-foreground: oklch(0.96 0.006 205);
+    --muted: oklch(0.28 0.022 220);
+    --muted-foreground: oklch(0.72 0.02 205);
+    --accent: oklch(0.32 0.03 198);
+    --accent-foreground: oklch(0.92 0.02 195);
+    --success: oklch(0.68 0.12 162);
+    --warning: oklch(0.75 0.12 75);
+    --info: oklch(0.70 0.11 245);
+    --destructive: oklch(0.68 0.16 12);
+    --border: oklch(1 0 0 / 12%);
+    --input: oklch(1 0 0 / 16%);
+    --ring: oklch(0.65 0.13 200);
+    --chart-1: oklch(0.68 0.11 195);
+    --chart-2: oklch(0.62 0.10 235);
+    --chart-3: oklch(0.68 0.12 162);
+    --chart-4: oklch(0.75 0.12 75);
+    --chart-5: oklch(0.68 0.16 12);
+    --sidebar: oklch(0.22 0.02 220);
+    --sidebar-foreground: oklch(0.96 0.006 205);
+    --sidebar-primary: oklch(0.68 0.11 195);
+    --sidebar-primary-foreground: oklch(0.18 0.02 220);
+    --sidebar-accent: oklch(0.32 0.03 198);
+    --sidebar-accent-foreground: oklch(0.92 0.02 195);
+    --sidebar-border: oklch(1 0 0 / 12%);
+    --sidebar-ring: oklch(0.65 0.13 200);
 }
 
 @layer base {
@@ -126,5 +158,305 @@
     }
   html {
     @apply font-sans;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
     }
+}
+
+/* ── Motion primitives ─────────────────────────────────────────────────────
+   Kept intentional and calm (product register). The halo glow doubles as a
+   readiness signal: it only breathes once Track is armed. */
+@keyframes halo-spin {
+  to { transform: rotate(1turn); }
+}
+@keyframes float-y {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-4px); }
+}
+@keyframes connector-flow {
+  to { stroke-dashoffset: -16; }
+}
+@keyframes tile-in {
+  from { opacity: 0; transform: scale(0.82); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* ── Track button: the one purposeful liquid-glass object ─────────────────
+   Apple "Liquid Glass", teal — a frosted pill whose own light is bent by an SVG
+   displacement lens, a specular that tracks the pointer, and a spring press. On
+   the white panel there is nothing behind to refract, so the glass lenses its
+   own highlight instead — it reads on any backdrop and in every engine.
+   Outside the pill: just glass, nothing glowing. The one flourish is a very
+   faint iridescent glint that drifts *inside* the glass while armed — the
+   spectral sheen you catch on wet glass in the rain — clipped to the pill,
+   blended in as light, small and slow. It only appears while Track is ready, so
+   even that whisper of motion is the readiness cue rather than decoration. */
+:root {
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Spectrum with the ORC teal (~205°) in it — saturated enough that a
+     low-opacity, normally-composited patch still reads as rainbow on the light
+     glass (a pastel/screen version just vanishes into the near-white fill). */
+  --track-spectrum:
+    oklch(0.72 0.18 25),
+    oklch(0.80 0.15 90),
+    oklch(0.78 0.16 150),
+    oklch(0.72 0.15 205),
+    oklch(0.66 0.18 288),
+    oklch(0.72 0.18 25);
+}
+
+/* Registered so the glint's hue can drift — a bare custom property can't tween
+   an <angle>, so without this the colours would jump instead of sliding. */
+@property --prism-angle {
+  syntax: "<angle>";
+  inherits: true;
+  initial-value: 0deg;
+}
+
+.track-cta {
+  --track-mx: 50%;    /* pointer-tracked specular position (set in JS) */
+  --track-my: -10%;
+  --prism-angle: 0deg; /* fallback for engines without @property (no drift, no break) */
+  position: relative;
+  display: inline-grid;
+  border-radius: 999px;
+  isolation: isolate;
+  /* The soft, teal-cast lift lives here (not on the clipped .track-button) so it
+     can extend past the pill. Scale on press (Motion) rides on top. */
+  box-shadow: 0 4px 12px oklch(0.45 0.02 240 / 0.08);
+  transition: box-shadow 240ms var(--ease-out-expo), transform 220ms var(--ease-out-expo);
+}
+
+.track-button {
+  position: relative;
+  overflow: hidden;                 /* clips the warped lens + the glint to the pill */
+  isolation: isolate;
+  border: 0;
+  border-radius: 999px;
+  color: var(--muted-foreground);   /* idle label */
+  /* Idle: a quiet, near-clear glass — barely any tint, clearly inert. */
+  background:
+    linear-gradient(180deg, oklch(1 0 0 / 0.5), oklch(1 0 0 / 0.04) 46%, transparent 64%),
+    linear-gradient(180deg, oklch(0.975 0.004 230 / 0.82), oklch(0.955 0.005 230 / 0.88));
+  /* Deliberately NO backdrop-filter. On the always-white panel it blurs nothing
+     (the glass "lenses its own light"), and a backdrop-filter element flashes
+     opaque-white for a frame under Motion's press transform in Chrome — that was
+     the "white background on press". Dropping it removes the flash at no cost. */
+  -webkit-tap-highlight-color: transparent;
+  box-shadow:
+    inset 0 1px 0.5px oklch(1 0 0 / 0.6),          /* bright top edge (specular) */
+    inset 0 -1px 1.5px oklch(0.42 0.015 235 / 0.14), /* soft bottom shade (thickness) */
+    inset 0 0 0 0.5px oklch(1 0 0 / 0.16);         /* thin glass casing */
+  transition:
+    color 240ms var(--ease-out-expo),
+    background 240ms var(--ease-out-expo),
+    box-shadow 240ms var(--ease-out-expo),
+    transform 220ms var(--ease-out-expo);
+}
+
+.track-button:disabled {
+  opacity: 1;   /* state is carried by fill/colour, never a flat 50% (BRANDING) */
+}
+
+/* The liquid layer: structured light (rim glints + a diagonal sheen) warped by
+   the displacement filter so it ripples like gel. Hidden until armed. */
+.track-button__lens {
+  position: absolute;
+  inset: -6px;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(56% 120% at 26% -10%, oklch(1 0 0 / 0.72), transparent 55%),
+    radial-gradient(48% 130% at 90% 112%, oklch(0.92 0.014 230 / 0.42), transparent 58%),
+    linear-gradient(122deg, transparent 26%, oklch(1 0 0 / 0.42) 50%, transparent 68%);
+  filter: url(#track-lens);
+  transition: opacity 360ms var(--ease-out-expo);
+}
+
+/* The pointer-tracked specular: a crisp, unwarped glint that follows the cursor
+   (resting at top-centre). */
+.track-button__specular {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(
+    130px 96px at var(--track-mx) var(--track-my),
+    oklch(1 0 0 / 0.55),
+    transparent 60%
+  );
+  mix-blend-mode: screen;
+  transition: opacity 360ms var(--ease-out-expo);
+}
+
+/* The wet-glass glint: a small, soft patch of pastel spectrum living *inside*
+   the pill (clipped by the glass), blended in as light. It drifts slowly and its
+   hue slides via --prism-angle, so it shimmers like a rainbow caught in rain
+   rather than sitting there. Kept faint (low opacity) and small on purpose. */
+.track-button__prism {
+  position: absolute;
+  z-index: 2;                     /* inside the glass, behind the label (z-10) */
+  top: 50%;
+  left: 50%;
+  width: 46%;
+  aspect-ratio: 1.5;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  background: conic-gradient(from var(--prism-angle), var(--track-spectrum));
+  filter: blur(8px) saturate(135%);
+  mix-blend-mode: normal;         /* pigment-in-glass; 'screen' washes out on white */
+  transition: opacity 520ms var(--ease-out-expo);
+}
+
+/* ── Armed / pending: the glass brightens (clear glass, NOT a teal fill) ─────
+   Per Apple's iOS 26 Liquid Glass tiles, the "on" cue is a clearer, brighter
+   frosted pane with a bright casing rim — the colour lives in the teal ink and
+   the drifting glint, never a coloured fill. */
+.track-cta.is-armed .track-button,
+.track-cta.is-pending .track-button {
+  color: var(--primary);   /* teal ink for brand + legibility; the fill stays clear */
+  background:
+    linear-gradient(180deg, oklch(1 0 0 / 0.62), oklch(1 0 0 / 0.08) 46%, transparent 64%),
+    linear-gradient(180deg, oklch(0.99 0.004 230 / 0.72), oklch(0.965 0.006 230 / 0.8));
+  box-shadow:
+    inset 0 1px 0.5px oklch(1 0 0 / 0.9),            /* bright top splay edge */
+    inset 0 -1px 1.5px oklch(0.45 0.02 235 / 0.16),  /* soft thickness shade */
+    inset 0 0 0 1px oklch(1 0 0 / 0.28);             /* bright glass casing rim */
+}
+
+.track-cta.is-armed {
+  box-shadow: 0 10px 24px oklch(0.45 0.02 240 / 0.20), 0 1px 2px oklch(0.4 0.02 240 / 0.12);
+}
+.track-cta.is-pending {
+  box-shadow: 0 7px 16px oklch(0.45 0.02 240 / 0.15);
+}
+
+/* ── Stop: the SAME lit liquid glass as an armed Track — clear brightened pane,
+   white specular + warped lens — but the ink is red and there is NO rainbow
+   glint (the Stop markup omits __prism). Stop is always live, so it always
+   wears the armed glass; only the colour of the light differs. ─────────────── */
+.track-cta--stop.is-armed .track-button {
+  color: var(--destructive);   /* red ink; the fill stays clear glass */
+}
+.track-cta--stop.is-armed {
+  box-shadow:
+    0 10px 24px color-mix(in oklch, var(--destructive) 22%, transparent),
+    0 1px 2px color-mix(in oklch, var(--destructive) 14%, transparent);
+}
+@media (hover: hover) {
+  .track-cta--stop.is-armed:hover {
+    box-shadow:
+      0 14px 30px color-mix(in oklch, var(--destructive) 28%, transparent),
+      0 1px 2px color-mix(in oklch, var(--destructive) 16%, transparent);
+  }
+}
+@media (prefers-contrast: more), (forced-colors: active) {
+  .track-cta--stop.is-armed .track-button {
+    background: var(--destructive);
+    color: var(--primary-foreground);
+  }
+}
+
+.track-cta.is-armed .track-button__lens,
+.track-cta.is-pending .track-button__lens {
+  opacity: 1;
+}
+
+.track-cta.is-armed .track-button__specular,
+.track-cta.is-pending .track-button__specular {
+  opacity: 1;
+}
+
+/* The glint appears only while ready, and drifts across the glass as its hue
+   slides (--prism-angle). Two slow, coprime durations so the wander never
+   obviously repeats. Faint on purpose — it should read as a sheen, not a light. */
+.track-cta.is-armed .track-button__prism,
+.track-cta.is-pending .track-button__prism {
+  opacity: 0.34;
+  animation:
+    track-prism-drift 9s ease-in-out infinite,
+    track-prism-hue 13s linear infinite;
+}
+.track-cta.is-pending .track-button__prism {
+  opacity: 0.44;   /* a hair brighter while the recording spins up */
+}
+
+@keyframes track-prism-drift {
+  0%   { transform: translate(-50%, -50%) translate(-26%, -14%); }
+  50%  { transform: translate(-50%, -50%) translate(28%,  16%); }
+  100% { transform: translate(-50%, -50%) translate(-26%, -14%); }
+}
+@keyframes track-prism-hue {
+  to { --prism-angle: 360deg; }
+}
+
+/* Pending: same lit glass, the glint gently breathing while we wait on the API. */
+.track-cta.is-pending .track-button__specular {
+  animation: track-wait 1.5s ease-in-out infinite;
+}
+
+@keyframes track-wait {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 1; }
+}
+
+@media (hover: hover) {
+  .track-cta.is-armed:hover .track-button {
+    transform: translateY(-1.5px);
+    background:
+      linear-gradient(180deg, oklch(1 0 0 / 0.7), oklch(1 0 0 / 0.1) 46%, transparent 64%),
+      linear-gradient(180deg, oklch(1 0.003 230 / 0.78), oklch(0.975 0.006 230 / 0.84));
+    box-shadow:
+      inset 0 1px 0.5px oklch(1 0 0 / 0.95),
+      inset 0 -1px 1.5px oklch(0.45 0.02 235 / 0.18),
+      inset 0 0 0 1px oklch(1 0 0 / 0.34);
+  }
+
+  .track-cta.is-armed:hover {
+    box-shadow: 0 14px 30px oklch(0.45 0.03 240 / 0.24), 0 1px 2px oklch(0.4 0.02 240 / 0.14);
+  }
+}
+
+/* Keyboard focus only (mouse clicks don't leave a ring). Our inset box-shadow on
+   .track-button overrides the base-ui ring, so the ring is drawn on the CTA. */
+.track-cta:has(:focus-visible) {
+  outline: 3px solid color-mix(in oklch, var(--ring) 55%, transparent);
+  outline-offset: 3px;
+}
+
+/* Reduced motion: keep the beautiful static glass, drop the live warp + pulse.
+   The glint stays lit (a still, faint spectral patch) but stops drifting — the
+   global rule below freezes its animations; the pointer-specular is JS-gated. */
+@media (prefers-reduced-motion: reduce) {
+  .track-button__lens { filter: none; }
+  .track-cta.is-pending .track-button__specular { animation: none; opacity: 0.8; }
+}
+
+/* High-contrast / forced colours: fall back to a solid, guaranteed-legible fill.
+   The glass is decoration; it never carries the meaning. */
+@media (prefers-contrast: more), (forced-colors: active) {
+  .track-cta.is-armed .track-button,
+  .track-cta.is-pending .track-button {
+    background: var(--primary);
+    color: var(--primary-foreground);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .track-button__lens,
+  .track-button__specular,
+  .track-button__prism { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
