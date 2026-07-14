@@ -79,8 +79,11 @@ class Frame:
         xyxy = np.array([ann.bbox.xyxy for ann in self.annotations], dtype=np.float32)
         mask = np.stack([ann.to_mask() for ann in self.annotations])
         descriptions = np.array([ann.description for ann in self.annotations])
+        tracker_id = np.array([ann.track_id for ann in self.annotations])
 
-        return sv.Detections(xyxy=xyxy, mask=mask, data={"description": descriptions})
+        return sv.Detections(
+            xyxy=xyxy, mask=mask, tracker_id=tracker_id, data={"description": descriptions}
+        )
 
 
 @dataclass(frozen=True)

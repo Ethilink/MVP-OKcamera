@@ -20,6 +20,14 @@ model/
 └── tests/
 ```
 
+> **`pipelines/` is currently a contract + stub, not the real tracker.**
+> `pipelines/tracking.py` defines the `InstrumentTracker` interface and a
+> `FakeInstrumentTracker` so `app/` can be built against a stable seam before
+> real tracking exists. It is not the tracker implementation that will ship —
+> that's still being designed (see `playground/trackers/`). Don't build on top
+> of it as if it were production tracking logic. Full contract in
+> [`docs/tracker-interface.md`](docs/tracker-interface.md).
+
 ## Setup
 
 ```
