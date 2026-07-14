@@ -23,15 +23,23 @@ from pydantic import BaseModel
 from backend.capture import CaptureLoop
 from backend.fakes import FakeCaptureSource, ScenarioTracker
 from backend.session import InvalidPhase, Phase, Session
+from backend.thumbnails import build_detections
 
 _STREAM_BOUNDARY = "frame"
 _STREAM_POLL_S = 0.02
 _VITE_DEV_ORIGIN = "http://localhost:5173"
 
 
+class DetectionModel(BaseModel):
+    tracker_id: int
+    label: str
+    thumbnail: str | None
+
+
 class SetupStatus(BaseModel):
     detected_count: int
     stable_for_s: float
+    detections: list[DetectionModel]
 
 
 class InstrumentStatusModel(BaseModel):
@@ -146,17 +154,34 @@ def create_app(
             ],
         )
 
+    def _setup_detections() -> list[DetectionModel]:
+        """Crop the current snapshot's boxes into API detections. Runs OUTSIDE
+        the session lock — the capture thread takes that lock on every frame, so
+        no image work may block it. `snapshot()` is immutable/thread-safe, and
+        `[]` is the honest answer before the first frame is published."""
+        snapshot = capture.snapshot()
+        if snapshot is None:
+            return []
+        # Detection (a plain dataclass) → DetectionModel by matching field names,
+        # so adding a field can't leave this mapping silently behind.
+        return [
+            DetectionModel.model_validate(detection, from_attributes=True)
+            for detection in build_detections(snapshot.frame_bgr, snapshot.detections)
+        ]
+
     @app.get("/status", response_model=StatusResponse)
     def get_status() -> StatusResponse:
+        # Read all session/capture state under the lock, but do NOTHING heavy
+        # here — the capture thread holds this same lock every frame. Thumbnail
+        # cropping happens after the lock is released (see below).
         with lock:
             t = clock()
             phase = session.phase
             capture_health = "ok" if capture.health == "ok" else "stalled"
 
-            setup = None
+            setup_meta: tuple[int, float] | None = None
             if phase in (Phase.SETUP, Phase.FINISHED):
-                detected_count, stable_for_s = session.setup_status(t)
-                setup = SetupStatus(detected_count=detected_count, stable_for_s=stable_for_s)
+                setup_meta = session.setup_status(t)
 
             recording = None
             if phase is Phase.RECORDING:
@@ -177,13 +202,22 @@ def create_app(
                     ],
                 )
 
-            return StatusResponse(
-                phase=phase,
-                capture_health=capture_health,
-                model_version=model_version,
-                setup=setup,
-                recording=recording,
+        setup = None
+        if setup_meta is not None:
+            detected_count, stable_for_s = setup_meta
+            setup = SetupStatus(
+                detected_count=detected_count,
+                stable_for_s=stable_for_s,
+                detections=_setup_detections(),
             )
+
+        return StatusResponse(
+            phase=phase,
+            capture_health=capture_health,
+            model_version=model_version,
+            setup=setup,
+            recording=recording,
+        )
 
     @app.get("/stream")
     async def get_stream() -> StreamingResponse:
@@ -248,7 +282,13 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.fake:
         tracker = ScenarioTracker(fps=10)
-        capture = CaptureLoop(tracker, 0, cap_factory=lambda _idx: FakeCaptureSource(fps=10.0))
+        # Share ONE ScenarioState so the drawn frames and the detections stay in
+        # lockstep (and re-align on Start, which resets the shared clock).
+        capture = CaptureLoop(
+            tracker,
+            0,
+            cap_factory=lambda _idx: FakeCaptureSource(fps=10.0, scenario=tracker.state),
+        )
     else:
         if args.camera is None or args.weights is None:
             parser.error("--camera and --weights are required without --fake")

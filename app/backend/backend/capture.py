@@ -33,6 +33,13 @@ class VideoCaptureLike(Protocol):
     def release(self) -> None: ...
 
 
+# One detection's raw crop material: its tracker_id plus its rectangular box as
+# plain Python (int, (x1, y1, x2, y2) floats) — NO numpy / sv.Detections kept
+# alive in the snapshot, so the setup-thumbnail helper (backend/thumbnails.py)
+# can crop lazily at poll time without touching the tracker or the capture lock.
+DetectionBox = tuple[int, tuple[float, float, float, float]]
+
+
 class Latest(NamedTuple):
     overlay_jpeg: bytes            # encoded 1080p overlay for /stream
     present_ids: frozenset[int]    # tracker_ids — BUILTIN int (cast from the
@@ -40,6 +47,13 @@ class Latest(NamedTuple):
                                    # T04 must not have to sanitize (see AC12)
     count: int                     # len(present_ids)
     t: float                       # monotonic seconds at capture
+    frame_bgr: np.ndarray          # the UN-annotated camera frame this snapshot
+                                   # owns (a read-only frame.copy() — the camera
+                                   # buffer may be reused; see D17). The source
+                                   # for lazily-cropped /status thumbnails.
+    detections: tuple[DetectionBox, ...]  # (tracker_id, xyxy) per detection,
+                                   # row-aligned with the same frame — plain
+                                   # ints/floats, sorting left to the consumer
 
 
 OnFrame = Callable[[float, frozenset[int]], None]   # (t, present_ids)
@@ -197,11 +211,21 @@ class CaptureLoop:
         overlay = self._render_fn(frame.copy(), dets)
         _, buffer = cv2.imencode(".jpg", overlay)
         present_ids = frozenset(int(tracker_id) for tracker_id in _tracker_ids(dets))
+
+        # Own a clean (un-annotated) copy of the frame for lazy thumbnail crops
+        # and mark it read-only: the snapshot is shared, immutable material for
+        # any number of concurrent /status readers (D17). `render` mutated its
+        # OWN copy above, so this copy is pristine.
+        frame_bgr = frame.copy()
+        frame_bgr.setflags(write=False)
+
         latest = Latest(
             overlay_jpeg=buffer.tobytes(),
             present_ids=present_ids,
             count=len(present_ids),
             t=t,
+            frame_bgr=frame_bgr,
+            detections=_detection_boxes(dets),
         )
         with self._lock:
             self._latest = latest
@@ -224,3 +248,16 @@ class CaptureLoop:
 
 def _tracker_ids(dets):
     return dets.tracker_id if dets.tracker_id is not None else ()
+
+
+def _detection_boxes(dets) -> tuple[DetectionBox, ...]:
+    """Row-aligned (tracker_id, xyxy) pairs from `dets`, as plain Python
+    int/float so the snapshot keeps no numpy alive (mirrors `present_ids`'
+    builtin-int contract, AC12). Empty when the tracker returns no ids or no
+    boxes — the setup thumbnail branch then simply has nothing to crop."""
+    if dets.tracker_id is None or dets.xyxy is None:
+        return ()
+    return tuple(
+        (int(tracker_id), (float(box[0]), float(box[1]), float(box[2]), float(box[3])))
+        for tracker_id, box in zip(dets.tracker_id, dets.xyxy)
+    )

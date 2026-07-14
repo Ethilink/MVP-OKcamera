@@ -30,14 +30,16 @@ against a runnable never-ending `StreamingResponse` before use here.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import json
 from datetime import datetime, timedelta, timezone
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.capture import Latest
+from backend.capture import DetectionBox, Latest
 from backend.main import create_app
 from backend.session import Phase, Session
 
@@ -81,10 +83,32 @@ class FakeCapture:
     def set_frame(self, generation: int, jpeg: bytes) -> None:
         # Mirror the real `CaptureLoop`: each publish rebinds a NEW `Latest`
         # (stored once here), and `snapshot()` returns that SAME object until
-        # the next publish — the identity `/stream` paces on (T03 AC4).
+        # the next publish — the identity `/stream` paces on (T03 AC4). Snapshot
+        # fields the setup branch reads (frame_bgr/detections) get complete, if
+        # empty, crop material — never optional-in-production placeholders.
         self.generation = generation
         self._frames[generation] = Latest(
-            overlay_jpeg=jpeg, present_ids=frozenset(), count=0, t=0.0
+            overlay_jpeg=jpeg,
+            present_ids=frozenset(),
+            count=0,
+            t=0.0,
+            frame_bgr=np.zeros((4, 4, 3), dtype=np.uint8),
+            detections=(),
+        )
+
+    def set_snapshot(
+        self, frame_bgr: np.ndarray, detections: tuple[DetectionBox, ...]
+    ) -> None:
+        """Publish a snapshot carrying real crop material (a frame + boxes) so
+        the setup branch of /status has something to crop."""
+        self.generation += 1
+        self._frames[self.generation] = Latest(
+            overlay_jpeg=b"",
+            present_ids=frozenset(int(tracker_id) for tracker_id, _ in detections),
+            count=len(detections),
+            t=0.0,
+            frame_bgr=frame_bgr,
+            detections=tuple(detections),
         )
 
     def snapshot(self) -> Latest | None:
@@ -320,6 +344,87 @@ class TestAC4RestartAfterFinishedDiscardsReport:
         assert client.post("/recording/stop").status_code == 200
 
         assert client.get("/report").status_code == 200
+
+
+class TestSetupDetections:
+    """`/status` setup block carries per-detection crops (data-URI thumbnails),
+    sorted by tracker_id, derived from the capture snapshot — independent of the
+    session's detected_count. A missing snapshot yields an empty list, and the
+    whole body stays JSON-native (no numpy leaks through the crop path)."""
+
+    @staticmethod
+    def _frame() -> np.ndarray:
+        # A non-black frame so crops actually encode to JPEG.
+        return np.full((120, 160, 3), 90, dtype=np.uint8)
+
+    def test_setup_detections_sorted_with_labels_and_data_uri_thumbnails(self) -> None:
+        capture = FakeCapture()
+        capture.set_snapshot(
+            self._frame(),
+            ((2, (60.0, 20.0, 110.0, 80.0)), (1, (10.0, 10.0, 50.0, 60.0))),
+        )
+        app = create_app(capture, Session(), "test-model")
+        client = TestClient(app)
+
+        setup = client.get("/status").json().get("setup") or {}
+        detections = setup.get("detections")
+
+        assert [d["tracker_id"] for d in detections] == [1, 2]  # sorted
+        assert [d["label"] for d in detections] == ["Instrument 1", "Instrument 2"]
+        for detection in detections:
+            assert detection["thumbnail"].startswith("data:image/jpeg;base64,")
+            # the payload after the comma is valid base64
+            base64.b64decode(detection["thumbnail"].split(",", 1)[1], validate=True)
+
+    def test_detected_count_is_independent_of_detections_length(self) -> None:
+        session = Session()
+        session.observe(0.0, frozenset({1, 2, 3, 4, 5}))  # count comes from here
+        capture = FakeCapture()
+        capture.set_snapshot(self._frame(), ((1, (10.0, 10.0, 50.0, 60.0)),))  # one tile
+        app = create_app(capture, session, "test-model")
+        client = TestClient(app)
+
+        setup = client.get("/status").json()["setup"]
+
+        assert setup["detected_count"] == 5
+        assert len(setup["detections"]) == 1  # snapshot may lag the id-set by a frame
+
+    def test_no_snapshot_yields_empty_detections(self) -> None:
+        app = create_app(FakeCapture(), Session(), "test-model")  # never published
+        client = TestClient(app)
+
+        setup = client.get("/status").json()["setup"]
+
+        assert setup["detections"] == []
+
+    def test_finished_phase_also_carries_detections(self) -> None:
+        session = Session()
+        clock = _Clock(0.0)
+        capture = FakeCapture()
+        app = create_app(capture, session, "test-model", clock=clock)
+        client = TestClient(app)
+
+        client.post("/recording/start")
+        session.observe(1.0, frozenset({1}))
+        session.observe(2.5, frozenset({1}))
+        clock.set(5.0)
+        client.post("/recording/stop")
+        capture.set_snapshot(self._frame(), ((1, (10.0, 10.0, 50.0, 60.0)),))
+
+        body = client.get("/status").json()
+
+        assert body["phase"] == "finished"
+        assert body["setup"]["detections"][0]["tracker_id"] == 1
+
+    def test_status_body_is_json_native_through_the_crop_path(self) -> None:
+        capture = FakeCapture()
+        capture.set_snapshot(self._frame(), ((1, (10.0, 10.0, 50.0, 60.0)),))
+        app = create_app(capture, Session(), "test-model")
+        client = TestClient(app)
+
+        body = client.get("/status").json()
+
+        assert json.loads(json.dumps(body)) == body
 
 
 def _content_type(start_message: dict | None) -> str:

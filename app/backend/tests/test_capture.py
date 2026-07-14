@@ -506,6 +506,53 @@ class TestAC5OverlayJpegDecodesToFrameSize:
         assert decoded.shape[:2] == (_FRAME_SIZE[1], _FRAME_SIZE[0])
 
 
+class TestLatestCarriesCropMaterial:
+    """D17: each published `Latest` carries an owned, read-only camera frame plus
+    row-aligned `(tracker_id, xyxy)` boxes as plain int/float — the raw material
+    the `/status` setup branch crops lazily. Kept JSON-native so T04 never
+    sanitizes it (mirrors the `present_ids` builtin-int contract, AC12)."""
+
+    def test_frame_bgr_is_an_owned_read_only_frame_of_capture_size(self) -> None:
+        cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
+        counter = _Counter()
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids: counter.hit())
+
+        loop.start()
+        try:
+            assert counter.wait_for(1)
+            latest = loop.snapshot()
+        finally:
+            loop.stop()
+
+        assert latest is not None
+        assert isinstance(latest.frame_bgr, np.ndarray)
+        assert latest.frame_bgr.shape == (_FRAME_SIZE[1], _FRAME_SIZE[0], 3)
+        assert latest.frame_bgr.flags.writeable is False  # immutability is real
+
+    def test_detections_are_json_native_and_aligned_with_present_ids(self) -> None:
+        cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
+        counter = _Counter()
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids: counter.hit())
+
+        loop.start()
+        try:
+            assert counter.wait_for(1)
+            latest = loop.snapshot()
+        finally:
+            loop.stop()
+
+        assert latest is not None
+        assert len(latest.detections) == len(latest.present_ids)
+        assert {tracker_id for tracker_id, _ in latest.detections} == set(latest.present_ids)
+        for tracker_id, box in latest.detections:
+            assert type(tracker_id) is int
+            assert len(box) == 4
+            assert all(type(coord) is float for coord in box)
+        # the whole detections payload round-trips through JSON unchanged
+        payload = [[tid, list(box)] for tid, box in latest.detections]
+        assert json.loads(json.dumps(payload)) == payload
+
+
 class TestAC6StaleDetectionAndRecovery:
     """AC6: no publication for > stale_after_s (failed reads OR tracker
     exceptions every tick) flips health to "stale" without killing the
