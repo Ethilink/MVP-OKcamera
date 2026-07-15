@@ -57,7 +57,10 @@ export function InstrumentPanel({
                   label={inst.label}
                   onTable={inst.on_table}
                 />
-                <span className="truncate font-medium">{inst.label}</span>
+                <span className="flex min-w-0 items-center gap-2.5">
+                  <InstrumentSwatch colour={inst.colour} />
+                  <span className="truncate font-medium">{inst.label}</span>
+                </span>
                 {inst.on_table ? (
                   <Badge
                     variant="outline"
@@ -76,6 +79,28 @@ export function InstrumentPanel({
         </ul>
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * The instrument's mask colour — the same hex the overlay draws its mask with
+ * (the backend derives both from the id and the frozen roster), so a row can be
+ * paired with a shape on the video at a glance and the two can never drift.
+ *
+ * It marks identity, not state: it stays lit while the instrument is off the
+ * table, because it is still that instrument. Nothing is communicated by colour
+ * alone — the label names the row and the badge carries ON/OFF TABLE — and a
+ * hue is meaningless to a screen reader, so the swatch stays out of the a11y
+ * tree rather than announcing a duplicate name.
+ */
+function InstrumentSwatch({ colour }: { colour: string }) {
+  return (
+    <span
+      data-testid="instrument-swatch"
+      aria-hidden="true"
+      style={{ backgroundColor: colour }}
+      className="size-2.5 shrink-0 rounded-full ring-1 ring-border"
+    />
   )
 }
 

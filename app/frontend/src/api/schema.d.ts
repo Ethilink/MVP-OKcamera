@@ -130,6 +130,8 @@ export interface components {
             pickup_count: number;
             /** Thumbnail */
             thumbnail: string | null;
+            /** Colour */
+            colour: string;
         };
         /** RecordingStatus */
         RecordingStatus: {

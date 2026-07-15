@@ -1,11 +1,13 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { expect, test, vi } from "vitest"
 import { BASE } from "@/api/client"
+import type { Status } from "@/api/types"
 import {
   demoReport,
   finishedStatus,
   recordingAllOn,
+  recordingOneOff,
   setupStable,
 } from "@/test/fixtures"
 import App from "./App"
@@ -168,6 +170,51 @@ test("AC5 poll failure shows a banner, keeps the panel, clears on recovery", asy
   expect(screen.getByText("Instrument 1")).toBeInTheDocument()
   // recovers → banner clears
   await waitFor(() => expect(screen.queryByRole("alert")).toBeNull())
+})
+
+// T10: an instrument that leaves the table and comes back keeps its original
+// mask colour. The backend derives the colour from the id and the frozen roster
+// and the linker re-emits the original id, so "regains its colour" holds across
+// the absence; the panel's job is to stay a pure pass-through of that field
+// (no caching it by row, no re-deriving it on a fresh poll).
+test("T10 an instrument that goes absent and returns keeps its swatch colour", async () => {
+  let status: Status = recordingAllOn
+  server.use(http.get(`${BASE}/status`, () => HttpResponse.json(status)))
+
+  const swatchOfThree = () => {
+    const row = screen
+      .getAllByRole("listitem")
+      .find((li) => within(li).queryByText("Instrument 3"))!
+    return within(row).getByTestId("instrument-swatch").style.backgroundColor
+  }
+  const badgeOfThree = (text: RegExp) =>
+    waitFor(() =>
+      expect(
+        screen
+          .getAllByRole("listitem")
+          .find((li) => within(li).queryByText("Instrument 3"))!,
+      ).toHaveTextContent(text),
+    )
+
+  render(<App pollMs={POLL} />)
+
+  // On the table: note the colour the API actually served (never a literal —
+  // the palette is the backend's to retune).
+  await waitFor(() => expect(screen.getByText("Instrument 3")).toBeInTheDocument())
+  const before = swatchOfThree()
+  expect(before).not.toBe("")
+
+  // Picked up: the row stays, greys nothing about its identity.
+  status = recordingOneOff
+  await badgeOfThree(/OFF TABLE/)
+  const whileOff = swatchOfThree()
+
+  // Returned.
+  status = recordingAllOn
+  await badgeOfThree(/ON TABLE/)
+
+  expect(whileOff).toBe(before)
+  expect(swatchOfThree()).toBe(before)
 })
 
 // AC6: a 409 on Start surfaces non-fatally; no crash; polling continues.

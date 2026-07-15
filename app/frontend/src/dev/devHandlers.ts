@@ -29,6 +29,22 @@ function fakeCrop(id: number): string {
 // Scripted choreography (seconds into the recording): instrument 1 is picked up
 // and returned (present, closed window); instrument 3 leaves and never returns
 // (missing, open window); the rest stay on the table.
+// The fixed mask colours the real backend derives per roster instrument
+// (backend/render.py ROSTER_PALETTE, keyed by index in the sorted roster —
+// contiguous ids here, so slot = id - 1). Mirrored so `dev:msw` shows the same
+// swatch↔mask pairing the real overlay does.
+const MASK_PALETTE = [
+  "#4285f4",
+  "#34a853",
+  "#fbbc04",
+  "#ea4335",
+  "#a142f4",
+  "#24c1e0",
+  "#ff6d01",
+  "#f538a0",
+]
+const maskColour = (id: number) => MASK_PALETTE[(id - 1) % MASK_PALETTE.length]
+
 const SCRIPT: Record<number, { off: number; on: number | null }[]> = {
   1: [{ off: 5, on: 12 }],
   2: [],
@@ -58,6 +74,8 @@ function liveInstrument(id: number, t: number) {
     // Live crop only while visible (on the table); off-table falls back to the
     // last-seen crop client-side, mirroring the real backend.
     thumbnail: open ? null : fakeCrop(id),
+    // Keyed off the id, so an instrument that leaves and returns keeps its hue.
+    colour: maskColour(id),
   }
 }
 

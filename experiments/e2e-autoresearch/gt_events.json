@@ -1,0 +1,274 @@
+{
+  "A": {
+    "expected_roster": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "baseline_raw_binds": {
+      "1": 1,
+      "2": 7,
+      "3": 4,
+      "4": 2,
+      "5": 8,
+      "6": 5,
+      "7": 6,
+      "8": 3
+    },
+    "raw_labels": {
+      "9": {
+        "label": "noop",
+        "baseline": "unknown"
+      },
+      "15": {
+        "label": "link",
+        "baseline": "linked:8"
+      },
+      "14": {
+        "label": "link",
+        "baseline": "linked:6"
+      },
+      "13": {
+        "label": "link",
+        "baseline": "linked:7"
+      },
+      "19": {
+        "label": "link",
+        "baseline": "linked:2"
+      },
+      "21": {
+        "label": "link",
+        "baseline": "linked:7"
+      },
+      "27": {
+        "label": "noop",
+        "baseline": "unknown"
+      },
+      "26": {
+        "label": "noop",
+        "baseline": "unknown"
+      },
+      "28": {
+        "label": "link",
+        "baseline": "linked:7"
+      },
+      "34": {
+        "label": "link",
+        "baseline": "linked:5"
+      },
+      "41": {
+        "label": "link",
+        "baseline": "linked:8"
+      },
+      "49": {
+        "label": "noop",
+        "baseline": "unknown"
+      },
+      "57": {
+        "label": "link",
+        "baseline": "linked:7"
+      },
+      "63": {
+        "label": "link",
+        "baseline": "linked:1"
+      },
+      "64": {
+        "label": "link",
+        "baseline": "linked:7"
+      },
+      "67": {
+        "label": "link",
+        "baseline": "linked:8"
+      },
+      "70": {
+        "label": "link",
+        "baseline": "linked:3"
+      },
+      "77": {
+        "label": "link",
+        "baseline": "linked:3"
+      },
+      "82": {
+        "label": "noop",
+        "baseline": "unknown"
+      },
+      "88": {
+        "label": "noop",
+        "baseline": "unknown"
+      },
+      "89": {
+        "label": "link",
+        "baseline": "linked:8"
+      }
+    }
+  },
+  "B": {
+    "expected_roster": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "baseline_raw_binds": {
+      "1": 1,
+      "2": 2,
+      "3": 7,
+      "4": 5,
+      "5": 4,
+      "6": 3,
+      "7": 8,
+      "8": 6
+    },
+    "raw_labels": {
+      "12": {
+        "label": "foreign",
+        "baseline": "unknown"
+      },
+      "13": {
+        "label": "noop",
+        "baseline": "unknown"
+      },
+      "16": {
+        "label": "noop",
+        "baseline": "unknown"
+      },
+      "17": {
+        "label": "link",
+        "baseline": "linked:4"
+      },
+      "19": {
+        "label": "link",
+        "baseline": "linked:8"
+      },
+      "21": {
+        "label": "noop",
+        "baseline": "unknown"
+      },
+      "3": {
+        "label": "link",
+        "baseline": "linked:7"
+      },
+      "25": {
+        "label": "foreign",
+        "baseline": "unknown"
+      },
+      "26": {
+        "label": "foreign",
+        "baseline": "unknown"
+      },
+      "30": {
+        "label": "foreign",
+        "baseline": "unknown"
+      },
+      "28": {
+        "label": "foreign",
+        "baseline": "unknown"
+      },
+      "31": {
+        "label": "noop",
+        "baseline": "unknown"
+      },
+      "34": {
+        "label": "link",
+        "baseline": "linked:7"
+      },
+      "36": {
+        "label": "foreign",
+        "baseline": "unknown"
+      },
+      "37": {
+        "label": "link",
+        "baseline": "linked:5"
+      },
+      "40": {
+        "label": "link",
+        "baseline": "linked:6"
+      },
+      "41": {
+        "label": "link",
+        "baseline": "linked:7"
+      },
+      "44": {
+        "label": "noop",
+        "baseline": "unknown"
+      },
+      "45": {
+        "label": "link",
+        "baseline": "linked:8"
+      },
+      "47": {
+        "label": "link",
+        "baseline": "linked:8"
+      },
+      "49": {
+        "label": "noop",
+        "baseline": "unknown"
+      },
+      "53": {
+        "label": "noop",
+        "baseline": "unknown"
+      },
+      "54": {
+        "label": "noop",
+        "baseline": "unknown"
+      },
+      "55": {
+        "label": "link",
+        "baseline": "linked:7"
+      },
+      "56": {
+        "label": "link",
+        "baseline": "linked:8"
+      },
+      "59": {
+        "label": "link",
+        "baseline": "linked:1"
+      },
+      "60": {
+        "label": "link",
+        "baseline": "linked:2"
+      },
+      "63": {
+        "label": "link",
+        "baseline": "linked:2"
+      },
+      "71": {
+        "label": "link",
+        "baseline": "linked:1"
+      },
+      "72": {
+        "label": "hardcase",
+        "baseline": "unknown"
+      },
+      "73": {
+        "label": "link",
+        "baseline": "linked:8"
+      },
+      "77": {
+        "label": "link",
+        "baseline": "linked:8"
+      },
+      "82": {
+        "label": "link",
+        "baseline": "linked:8"
+      },
+      "86": {
+        "label": "link",
+        "baseline": "linked:8"
+      },
+      "88": {
+        "label": "hardcase",
+        "baseline": "unknown"
+      }
+    }
+  }
+}

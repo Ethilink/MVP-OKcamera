@@ -16,6 +16,33 @@ const MODEL = "scenario-0.1"
 const PIXEL =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
 
+// The fixed mask colours the backend hands out (T10): a palette slot per
+// instrument, keyed by its position in the frozen roster, so the panel swatch is
+// always the same hex the video overlay draws that instrument's mask with.
+// Mirrors `backend/render.py`'s ROSTER_PALETTE. The hexes themselves are a
+// backend TUNABLE — tests must read a row's colour off the fixture rather than
+// hard-coding one, or they break the next time the palette is retuned.
+const MASK_PALETTE = [
+  "#4285f4",
+  "#34a853",
+  "#fbbc04",
+  "#ea4335",
+  "#a142f4",
+  "#24c1e0",
+  "#ff6d01",
+  "#f538a0",
+]
+
+/**
+ * The mask colour for a roster instrument, mirroring `roster_colour(...)`: the
+ * palette slot at its index in the sorted roster. The fixtures roster ids 1..n
+ * contiguously, so the index is simply `id - 1`. Colour follows the *id*, which
+ * is what lets a returned instrument regain its original colour.
+ */
+function maskColour(trackerId: number): string {
+  return MASK_PALETTE[(trackerId - 1) % MASK_PALETTE.length]
+}
+
 /** Five detections with real thumbnails — exercises the crop-tile path. */
 const fiveDetections = [1, 2, 3, 4, 5].map((id) => ({
   tracker_id: id,
@@ -67,6 +94,7 @@ export const recordingAllOn: Status = {
       off_since_s: null,
       pickup_count: 0,
       thumbnail: PIXEL,
+      colour: maskColour(id),
     })),
   },
 }
@@ -82,12 +110,14 @@ export const recordingOneOff: Status = {
     elapsed_s: 74.3,
     on_table_count: 4,
     instruments: [
-      { tracker_id: 1, label: "Instrument 1", on_table: true, off_since_s: null, pickup_count: 1, thumbnail: PIXEL },
-      { tracker_id: 2, label: "Instrument 2", on_table: true, off_since_s: null, pickup_count: 0, thumbnail: PIXEL },
-      // off the table this frame → no live crop (the app shows its last-seen one).
-      { tracker_id: 3, label: "Instrument 3", on_table: false, off_since_s: 13.2, pickup_count: 2, thumbnail: null },
-      { tracker_id: 4, label: "Instrument 4", on_table: true, off_since_s: null, pickup_count: 0, thumbnail: PIXEL },
-      { tracker_id: 5, label: "Instrument 5", on_table: true, off_since_s: null, pickup_count: 0, thumbnail: PIXEL },
+      { tracker_id: 1, label: "Instrument 1", on_table: true, off_since_s: null, pickup_count: 1, thumbnail: PIXEL, colour: maskColour(1) },
+      { tracker_id: 2, label: "Instrument 2", on_table: true, off_since_s: null, pickup_count: 0, thumbnail: PIXEL, colour: maskColour(2) },
+      // Off the table this frame → no live crop (the app shows its last-seen one).
+      // Its colour is unchanged by the absence: the backend keys it off the id,
+      // so the swatch still matches the mask when it comes back (T10).
+      { tracker_id: 3, label: "Instrument 3", on_table: false, off_since_s: 13.2, pickup_count: 2, thumbnail: null, colour: maskColour(3) },
+      { tracker_id: 4, label: "Instrument 4", on_table: true, off_since_s: null, pickup_count: 0, thumbnail: PIXEL, colour: maskColour(4) },
+      { tracker_id: 5, label: "Instrument 5", on_table: true, off_since_s: null, pickup_count: 0, thumbnail: PIXEL, colour: maskColour(5) },
     ],
   },
 }

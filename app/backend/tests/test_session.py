@@ -10,6 +10,12 @@ also spelled out by the ACs themselves): `off_debounce_s=1.5`,
 thresholds (>=1.5x margin) rather than probing the exact boundary, since the
 ACs care about *behavior* (a debounced flip happens / doesn't happen), not
 the precise tunable value.
+
+T10 (B-S) widens `observe` to `observe(t, present_ids, roster=None)`. The
+default keeps every test above it semantically untouched — an omitted roster
+still means "filter nothing" — so the AC1-AC11 suites are unmigrated by design,
+and `TestBS2` below pins that default down as a promise rather than an
+accident.
 """
 
 from __future__ import annotations
@@ -533,6 +539,196 @@ class TestAC11FinishedGateAndReportImmutability:
 
         assert session.report() == report_at_stop
         assert report_at_stop.instruments  # sanity: comparison isn't vacuous
+
+
+def _recorded_ids(session: Session, t: float) -> set[int]:
+    _, instruments = session.recording_status(t)
+    return {instrument.tracker_id for instrument in instruments}
+
+
+class TestBS1RecordingIsFilteredByTheRoster:
+    """B-S1: only the RECORDING half of `observe` changes. It uses
+    `present_ids & roster`, so a not-in-roster id never becomes a track, never
+    confirms, and never reaches `recording_status()`, the report, or
+    `on_table_count`. The Start gate (`setup_status`) keeps using the FULL
+    `present_ids` — it is the operator's judgment on everything detected."""
+
+    def test_b_s1_a_not_in_roster_id_never_enters_the_live_recording_status(
+        self,
+    ) -> None:
+        session = Session()
+        session.start(0.0)
+        session.observe(1.0, frozenset({1, 9}), frozenset({1}))
+        session.observe(3.0, frozenset({1, 9}), frozenset({1}))  # 2.0s > 1.0 debounce
+
+        assert _recorded_ids(session, 3.0) == {1}
+
+    def test_b_s1_a_not_in_roster_id_never_reaches_the_report(self) -> None:
+        session = Session()
+        session.start(0.0)
+        session.observe(1.0, frozenset({1, 9}), frozenset({1}))
+        session.observe(3.0, frozenset({1, 9}), frozenset({1}))
+        session.observe(20.0, frozenset({1, 9}), frozenset({1}))
+
+        report = session.stop(30.0)
+
+        assert {ir.tracker_id for ir in report.instruments} == {1}
+
+    def test_b_s1_a_not_in_roster_id_never_counts_toward_the_on_table_count(
+        self,
+    ) -> None:
+        # `on_table_count` is derived from these statuses, so a foreign object
+        # must not swell it: three on the tray plus a phone is still three.
+        session = Session()
+        session.start(0.0)
+        roster = frozenset({1, 2, 3})
+        session.observe(1.0, frozenset({1, 2, 3, 9}), roster)
+        session.observe(3.0, frozenset({1, 2, 3, 9}), roster)
+
+        _, instruments = session.recording_status(3.0)
+
+        assert sum(1 for instrument in instruments if instrument.on_table) == 3
+
+    def test_b_s1_a_not_in_roster_id_leaving_creates_no_usage_window(self) -> None:
+        session = Session()
+        session.start(0.0)
+        roster = frozenset({1})
+        session.observe(1.0, frozenset({1, 9}), roster)
+        session.observe(3.0, frozenset({1, 9}), roster)
+        session.observe(10.0, frozenset({1, 9}), roster)  # id 9 last seen
+        session.observe(12.0, frozenset({1}), roster)  # ... and gone for good
+
+        report = session.stop(20.0)
+
+        by_id = {ir.tracker_id: ir for ir in report.instruments}
+        assert set(by_id) == {1}
+        assert by_id[1].completeness == "present"
+        assert by_id[1].usage == ()  # id 9's exit did not smear onto id 1
+
+    def test_b_s1_the_start_gate_still_counts_every_detected_id(self) -> None:
+        # The roster is the LINKER's judgment about a recording; the Start gate
+        # is the OPERATOR's judgment about the table. A foreign object sitting
+        # on the tray must still show up in the count they are looking at.
+        session = Session()
+        session.observe(10.0, frozenset({1, 2, 9}), frozenset({1, 2}))
+        session.observe(11.0, frozenset({1, 2, 9}), frozenset({1, 2}))
+
+        assert session.setup_status(11.0) == (3, 1.0)
+
+    def test_b_s1_the_id_set_stability_clock_still_watches_every_detected_id(
+        self,
+    ) -> None:
+        session = Session()
+        roster = frozenset({1, 2})
+        session.observe(10.0, frozenset({1, 2}), roster)
+        session.observe(11.0, frozenset({1, 2}), roster)
+
+        session.observe(12.0, frozenset({1, 2, 9}), roster)  # a foreign id lands
+
+        assert session.setup_status(12.0) == (3, 0.0)  # stability reset, not ignored
+
+
+class TestBS2RosterDefaultsToUnfiltered:
+    """B-S2: `roster=None` (the default) preserves today's unfiltered
+    behaviour, so existing callers and tests are untouched semantically."""
+
+    def test_b_s2_omitting_the_roster_lets_every_present_id_confirm(self) -> None:
+        session = Session()
+        session.start(0.0)
+        session.observe(1.0, frozenset({1, 9}))
+        session.observe(3.0, frozenset({1, 9}))
+
+        assert _recorded_ids(session, 3.0) == {1, 9}
+
+    def test_b_s2_an_explicit_none_roster_is_the_same_as_omitting_it(self) -> None:
+        session = Session()
+        session.start(0.0)
+        session.observe(1.0, frozenset({1, 9}), None)
+        session.observe(3.0, frozenset({1, 9}), None)
+
+        assert _recorded_ids(session, 3.0) == {1, 9}
+
+
+class TestBS3SessionStaysPure:
+    """B-S3 (D11): the roster arrives as data, per call — the session holds no
+    clock, no thread, and no tracker reference, so it can neither look the
+    roster up nor remember the last one it saw."""
+
+    def test_b_s3_the_roster_filters_per_call_not_retroactively(self) -> None:
+        # An id that joins the roster late starts its entry debounce THEN — the
+        # frames before it were filtered out, so they cannot count toward it.
+        session = Session()
+        session.start(0.0)
+        session.observe(1.0, frozenset({1, 5}), frozenset({1}))  # 5 filtered out
+        session.observe(2.0, frozenset({1, 5}), frozenset({1, 5}))  # 5's run starts
+
+        assert _recorded_ids(session, 2.8) == {1}  # only 0.8s in: not yet confirmed
+
+        session.observe(3.5, frozenset({1, 5}), frozenset({1, 5}))  # 1.5s > 1.0
+        assert _recorded_ids(session, 3.5) == {1, 5}
+
+    def test_b_s3_a_roster_is_not_remembered_by_the_next_observe(self) -> None:
+        session = Session()
+        session.start(0.0)
+        session.observe(1.0, frozenset({1, 9}), frozenset({1}))  # 9 filtered
+        session.observe(2.0, frozenset({1, 9}))  # no roster: 9's run starts here
+        session.observe(3.5, frozenset({1, 9}))  # 1.5s > 1.0 -> 9 confirms
+
+        assert _recorded_ids(session, 3.5) == {1, 9}
+
+    def test_b_s3_the_same_script_yields_the_same_report_every_time(self) -> None:
+        def run() -> object:
+            session = Session()
+            session.start(0.0)
+            roster = frozenset({1, 2})
+            session.observe(1.0, frozenset({1, 2, 9}), roster)
+            session.observe(3.0, frozenset({1, 2, 9}), roster)
+            session.observe(10.0, frozenset({2, 9}), roster)
+            session.observe(12.0, frozenset({2, 9}), roster)
+            return session.stop(20.0)
+
+        first, second = run(), run()
+
+        assert first == second
+        assert first.instruments  # sanity: not vacuously equal-empty
+
+
+class TestBS5EmptyRosterWhileRecording:
+    """B-S5: the linker's roster is empty for ~0.7s after Start (its enrolment
+    freeze hasn't fired yet). Those frames pass nothing through the filter —
+    which is harmless precisely because that window is SHORTER than the 1.0s
+    entry debounce, so the report comes out the same either way."""
+
+    def test_b_s5_an_empty_roster_confirms_nothing_while_it_lasts(self) -> None:
+        session = Session()
+        session.start(0.0)
+        session.observe(1.0, frozenset({1, 2, 3}), frozenset())
+        session.observe(5.0, frozenset({1, 2, 3}), frozenset())  # 4s, way past debounce
+
+        _, instruments = session.recording_status(5.0)
+
+        assert instruments == ()
+
+    def test_b_s5_the_pre_freeze_window_leaves_the_report_unchanged(self) -> None:
+        def run(pre_freeze_roster: frozenset[int]) -> object:
+            session = Session()
+            session.start(0.0)
+            roster = frozenset({1, 2})
+            # ~0.7s of pre-freeze frames, then the roster arrives
+            session.observe(0.1, frozenset({1, 2}), pre_freeze_roster)
+            session.observe(0.4, frozenset({1, 2}), pre_freeze_roster)
+            session.observe(0.7, frozenset({1, 2}), pre_freeze_roster)
+            session.observe(1.0, frozenset({1, 2}), roster)
+            session.observe(3.0, frozenset({1, 2}), roster)
+            session.observe(20.0, frozenset({1}), roster)  # id 2 walks off
+            session.observe(22.0, frozenset({1}), roster)
+            return session.stop(30.0)
+
+        with_freeze_window = run(frozenset())  # the real pre-freeze roster
+        without = run(frozenset({1, 2}))  # a hypothetical instant freeze
+
+        assert with_freeze_window == without
+        assert {ir.tracker_id for ir in without.instruments} == {1, 2}  # sanity
 
 
 class TestStaleAccessorsDoNotRewindDurableState:

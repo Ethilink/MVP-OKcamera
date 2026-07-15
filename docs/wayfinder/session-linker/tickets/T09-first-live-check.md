@@ -29,25 +29,41 @@ further than that.**
 
 Both model downloads are lazily fetched on first use. An offline demo room with a
 cold cache means `load_tracker()` **hangs at startup**, and no amount of linker
-correctness saves you.
+correctness saves you. **Bram confirmed the venue has NO internet (2026-07-16),
+so this is THE demo-day killer — a cold cache is unrecoverable on site.**
 
-- [ ] `facebook/dinov2-base` present in `~/.cache/huggingface/hub/`
-- [ ] `mobilenet_v3_small-047dcff4.pth` present in `~/.cache/torch/hub/checkpoints/`
-      (Deep OC-SORT's `TorchvisionEmbedder` pulls it from download.pytorch.org)
-- [ ] Verify by running with the network **off**, not by listing the directory.
-- [ ] Weights path is `model/weights/checkpoint_best_regular.onnx` — **`.onnx`,
-      not `.pt`**, and absolute.
+- [x] `facebook/dinov2-base` present in `~/.cache/huggingface/hub/` — verified 2026-07-16
+- [x] `mobilenet_v3_small-047dcff4.pth` present in `~/.cache/torch/hub/checkpoints/`
+      (Deep OC-SORT's `TorchvisionEmbedder`) — verified 2026-07-16
+- [x] Weights `model/weights/checkpoint_best_regular.onnx` present (144 MB) — verified 2026-07-16
+- [x] **Forced-offline `load_tracker()` succeeds in 16.6 s** (`HF_HUB_OFFLINE=1
+      TRANSFORMERS_OFFLINE=1`, 8 galleries, CoreML+CPU) — verified 2026-07-16
+      **⚠ ON THIS MACHINE.** If the demo runs on a *different* box, re-run this
+      offline check there — with the network actually off — before leaving.
 
 ## The run
 
 ```
 cd app/backend && uv run python -m backend.main --camera 0 \
-  --weights ../../model/weights/checkpoint_best_regular.onnx
+  --weights ../../model/weights/checkpoint_best_regular.onnx --debug
 ```
+
+**`--debug` (added 2026-07-16) prints a readable, event-level pipeline narrative**
+to the console — gallery load, an ENROLMENT FREEZE block showing **`raw track → specimen`
++ bind score** (thin binds flagged `⚠`), and each link / unknown / deferral / death.
+This is the console to watch during the run. Off by default; `ORC_DEBUG=1` also enables it.
 
 Lay the tray, hit Start, let enrolment freeze, then: pick one instrument up and
 put it back; remove several at once and return them out of order; put a foreign
-object (phone, keys) on the table.
+object (phone, keys) on the table. **Do at least one full dress-rehearsal of the
+actual demo choreography, timed** (snapshot → remove several at once → return out
+of order → foreign object) — rehearse the demo, not a proxy.
+
+**Gallery: the demo binds session 1 (`model/data/instruments/`, the default).**
+Do not point `--instruments-dir` at session 2 or a merged set — the bake-off
+(2026-07-16, `demo-validation.md`) showed merging loses a return. Watch whether
+**instrument 3 binds or drops to session-only** under live light (its Take A bind
+cleared τ by only 0.0007); either is fine, a *mis-bind* is not.
 
 ## What to record
 

@@ -1,26 +1,28 @@
 """SessionLinker — raw tracker ids in, session ids out.
 
 Sits after Deep OC-SORT in `load_tracker()`'s composition. Enrols a frozen
-roster at Start, keeps per-identity appearance galleries (session-only, v1),
-embeds only at track birth/death/batch-decision events (never per frame), and
-re-identifies returning instruments via the injected SRC matcher behind an
-open-set gate. See `model/docs/linker-design.md` for the current contract and
-rationale.
+roster at Start, binds each enrolled identity to its physical specimen, keeps
+per-identity appearance galleries, embeds only at track birth/death/batch-
+decision events (never per frame), and re-identifies returning instruments via
+the injected SRC matcher behind an open-set gate. See
+`model/docs/linker-design.md` for the current contract and rationale.
+
+Gallery binding (linker-design.md §3, wayfinder T08) runs ONCE, inside the
+enrolment freeze. Each identity's Start crops are scored with the matcher
+against the COMPLETE dict of persistent specimen galleries -- pre-captured
+photo sets embedded once by `persistent_gallery.load_persistent_galleries()`
+and only ever read here, never re-embedded. An identity binds only when its
+best score clears `bind_tau` AND beats its second-best specimen by
+`bind_margin`; contested specimens are awarded greedily, best score first, and
+a losing identity falls back to session-only rather than to its second-choice
+specimen (a wrong bind poisons every later decision; session-only merely has
+fewer views). A bound identity wears its specimen number as its session id and
+matches on `persistent u Start (u last-seen)`. An unbound one is still a
+first-class identity: it gets the next small number above the loaded specimen
+numbers and matches on session views only. With no persistent galleries at all
+the roster is still renumbered from 1 and everything runs session-only.
 
 Out of scope for v1 (see `model/docs/linker-design.md`):
-    TODO(linker-design §3 -> wayfinder T08): persistent reference galleries +
-        one-to-one binding against pre-captured specimen photos. v1 galleries
-        are session-only, so `session_id` is just the raw OC-SORT counter and
-        the tray shows arbitrary numbers. NOTE: this TODO used to claim "T07's
-        photos don't exist yet" -- that was stale. They do:
-        `model/data/instruments/instrument{1..8}/images/` (15 views each) +
-        `model/data/other_objects/` (60 negatives). What is unconfirmed is
-        whether they are the same physical specimens as the demo tray (T07).
-        Build notes live in the T08 ticket: use SRC scores (NOT §3's stale
-        cosine -- §6 superseded it), and Hungarian is unreachable through
-        `accept()`'s one-decision-per-row seam without assembling the matrix
-        yourself. Until T08 lands, galleries stay session-only (Start crops +
-        last-seen crops).
     TODO(linker-design §5): stability-gated session-refresh ring. Galleries
         are frozen at Start/death; no live crop is ever added to a gallery
         mid-recording.
@@ -78,7 +80,9 @@ class _Crop(NamedTuple):
 
 @dataclass
 class _Identity:
-    """A frozen roster identity. `active_raw_id` is None while Missing."""
+    """A frozen roster identity. `active_raw_id` is None while Missing.
+    `bound_specimen` is the persistent specimen bound at the freeze, or None
+    for a session-only identity."""
 
     session_id: int
     active_raw_id: int | None
@@ -86,6 +90,7 @@ class _Identity:
     start_views: np.ndarray | None = None
     last_seen_views: np.ndarray | None = None
     absence_streak: int = 0
+    bound_specimen: int | None = None
 
 
 @dataclass
@@ -99,6 +104,11 @@ class _PendingTrack:
     not_before_frame: int = 0
 
 
+DEFAULT_BIND_TAU = 0.30
+DEFAULT_BIND_MARGIN = 0.02
+DEFAULT_UNKNOWN_ID_OFFSET = 1000
+
+
 class SessionLinker:
     """Remaps Deep OC-SORT's raw `tracker_id`s to stable session ids that
     survive absence. See the module docstring and `linker-design.md`."""
@@ -108,6 +118,10 @@ class SessionLinker:
         matcher,
         *,
         fps: float,
+        persistent_galleries: dict[int, ChampionGallery] | None = None,
+        bind_tau: float = DEFAULT_BIND_TAU,
+        bind_margin: float = DEFAULT_BIND_MARGIN,
+        unknown_id_offset: int = DEFAULT_UNKNOWN_ID_OFFSET,
         enrolment_window_s: float = 0.5,
         evidence_window_s: float = 0.5,
         evidence_frames: int = 3,
@@ -115,6 +129,12 @@ class SessionLinker:
         min_mask_area_px: int = 200,
         logger: logging.Logger | None = None,
     ) -> None:
+        # Already embedded by `persistent_gallery.load_persistent_galleries()`
+        # and held resident across reset() -- never re-embedded here.
+        self._persistent_galleries = persistent_galleries or {}
+        self._bind_tau = bind_tau
+        self._bind_margin = bind_margin
+        self._unknown_id_offset = unknown_id_offset
         self._matcher = matcher
         self._evidence_frames = evidence_frames
         self._min_mask_area_px = min_mask_area_px
@@ -170,6 +190,15 @@ class SessionLinker:
 
         output = detections[np.arange(len(detections))]
         output.tracker_id = emitted
+        # A row is *resolving* iff, after this frame's batch decision, its raw id
+        # is still an undecided pending track -- which includes a deferred one,
+        # since `_run_batch_decision` puts deferred raw ids straight back into
+        # `_pending`. A winner (now a roster id) and a settled Unknown have both
+        # been removed from `_pending`, so both read False. This is the truthful
+        # wait-state the overlay spinner gates on (grilled 2026-07-16).
+        output.data["resolving"] = np.array(
+            [int(raw_id) in self._pending for raw_id in detections.tracker_id], dtype=bool
+        )
         return output
 
     def _process_row(self, detections: sv.Detections, frame: np.ndarray, raw_id: int, i: int) -> int:
@@ -186,7 +215,7 @@ class SessionLinker:
             return session_id
 
         if raw_id in self._settled_unknown:
-            return raw_id
+            return raw_id + self._unknown_id_offset
 
         pending = self._pending.get(raw_id)
         if pending is None:
@@ -198,7 +227,10 @@ class SessionLinker:
         pending.absence_streak = 0
         if crop is not None and crop.ok:
             pending.crop_buffer.append((crop.rgb, crop.mask))
-        return raw_id
+        # Not (yet) a roster identity: emit in the offset id space, so the
+        # roster and the unknown/pending ranges stay disjoint forever. Internal
+        # state stays keyed by the raw id.
+        return raw_id + self._unknown_id_offset
 
     # -- B6: crop extraction ---------------------------------------------
 
@@ -248,7 +280,39 @@ class SessionLinker:
 
         if is_empty:
             return sv.Detections.empty()
-        return detections[np.arange(len(detections))]
+        output = detections[np.arange(len(detections))]
+        if self._enrolled:
+            # B-N5: the freeze frame ITSELF emits session ids -- every frame
+            # before it passed raw ids through untouched, but `_freeze_roster()`
+            # has just published `self._roster`, and callers sample `roster` and
+            # the emitted ids in the SAME tick. Leaving raw ids on this frame
+            # would let them collide with session ids and book presence for the
+            # wrong instruments. Anything not on the roster emits in the offset
+            # id space, exactly like every other post-freeze frame (B-N4).
+            #
+            # Only the id remap runs here. `_pending` is empty entering the
+            # freeze, so the pending/batch passes really are no-ops, and this
+            # frame's crops are already in the enrolment buffers. The age-out
+            # pass is SKIPPED rather than no-op: an identity majority-qualified
+            # but absent on this final enrolment frame would be charged an
+            # absence on the very frame it enrolled, which is worse than not
+            # counting the frame -- and no clause requires counting it.
+            output.tracker_id = np.array(
+                [
+                    self._raw_to_session.get(int(raw_id), int(raw_id) + self._unknown_id_offset)
+                    for raw_id in detections.tracker_id
+                ],
+                dtype=int,
+            )
+        # During enrolment nothing has a settled identity yet, so every track is
+        # resolving; on the freeze frame the roster members flip to settled
+        # (in-roster) while any not-in-roster track stays resolving. `_roster` is
+        # empty pre-freeze, so `id not in roster` is True for the whole window --
+        # the same wait-state the post-freeze path emits.
+        output.data["resolving"] = np.array(
+            [int(session_id) not in self._roster for session_id in output.tracker_id], dtype=bool
+        )
+        return output
 
     def _freeze_roster(self) -> None:
         majority = self._enrolment_frames_seen / 2
@@ -257,36 +321,150 @@ class SessionLinker:
         )
 
         t0 = time.monotonic()
-        identities: dict[int, _Identity] = {}
-        view_counts: dict[int, int] = {}
+        start_crops: dict[int, list[_Crop]] = {}
+        start_views: dict[int, np.ndarray] = {}
         for raw_id in roster_ids:
             best_crops = sorted(
                 self._enrolment_crops.get(raw_id, []), key=lambda c: c.quality, reverse=True
             )[:3]
-            start_views = None
-            if best_crops:
-                gallery = self._matcher.build_gallery(
-                    [c.rgb for c in best_crops], [c.mask for c in best_crops],
-                    {"identity": raw_id},
-                )
-                start_views = gallery.views
-            identities[raw_id] = _Identity(
-                session_id=raw_id,
-                active_raw_id=raw_id,
-                crop_buffer=deque(maxlen=self._evidence_frames),
-                start_views=start_views,
+            if not best_crops:
+                continue  # no usable Start crops -> session-only, never binds
+            start_crops[raw_id] = best_crops
+            gallery = self._matcher.build_gallery(
+                [c.rgb for c in best_crops], [c.mask for c in best_crops],
+                {"identity": raw_id},
             )
-            self._raw_to_session[raw_id] = raw_id
-            view_counts[raw_id] = 0 if start_views is None else len(start_views)
+            start_views[raw_id] = gallery.views
+
+        bound, bind_scores = self._bind_specimens(roster_ids, start_crops)
+        session_ids = self._assign_session_ids(roster_ids, bound)
         build_ms = (time.monotonic() - t0) * 1000
 
-        self._identities = identities
-        self._roster = frozenset(roster_ids)
+        self._identities = {
+            session_ids[raw_id]: _Identity(
+                session_id=session_ids[raw_id],
+                active_raw_id=raw_id,
+                crop_buffer=deque(maxlen=self._evidence_frames),
+                start_views=start_views.get(raw_id),
+                bound_specimen=bound.get(raw_id),
+            )
+            for raw_id in roster_ids
+        }
+        self._raw_to_session = {raw_id: session_ids[raw_id] for raw_id in roster_ids}
+        self._roster = frozenset(session_ids.values())
         self._enrolled = True
+        # B-O1: `bound` keyed by session id is tautological (session_id == specimen
+        # for every bound identity), so it reveals nothing about which RAW tracker
+        # id claimed which photo set. `raw_binds` is the diagnostic a live mis-bind
+        # actually needs -> raw tracker id -> specimen.
+        raw_binds = {raw: specimen for raw, specimen in sorted(bound.items())}
         self._logger.info(
-            "enrolment freeze: roster_size=%d views=%s build_ms=%.1f",
-            len(roster_ids), view_counts, build_ms,
+            "enrolment freeze: roster_size=%d views=%s bound=%s raw_binds=%s session_only=%s "
+            "bind_scores=%s build_ms=%.1f",
+            len(roster_ids),
+            {session_ids[r]: len(start_views.get(r, ())) for r in roster_ids},
+            {session_ids[r]: specimen for r, specimen in sorted(bound.items())},
+            raw_binds,
+            sorted(session_ids[r] for r in roster_ids if r not in bound),
+            {
+                session_ids[r]: (round(best, 4), round(second, 4))
+                for r, (best, second) in sorted(bind_scores.items())
+            },
+            build_ms,
+            # Structured payload for the app's optional --debug console (backend.debug).
+            # Ignored by every default handler; carries no behaviour.
+            extra={
+                "orc": {
+                    "event": "freeze",
+                    "build_ms": round(build_ms, 1),
+                    "bind_tau": self._bind_tau,
+                    "roster": [
+                        {
+                            "session_id": session_ids[r],
+                            "raw_id": r,
+                            "specimen": bound.get(r),
+                            "score": (
+                                round(bind_scores[r][0], 4) if r in bind_scores else None
+                            ),
+                        }
+                        for r in roster_ids
+                    ],
+                }
+            },
         )
+
+    def _bind_specimens(
+        self, roster_ids: list[int], start_crops: dict[int, list[_Crop]]
+    ) -> tuple[dict[int, int], dict[int, tuple[float, float]]]:
+        """Bind enrolled identities one-to-one to persistent specimens.
+
+        Greedy, not Hungarian, and deliberately so (linker-design.md §3 says
+        "Hungarian"; §6.5's shipped philosophy wins): a global optimum would
+        push a losing identity onto its second-choice specimen. A wrong bind
+        poisons every later decision, while session-only merely means fewer
+        views -- so a contested loser falls back, it never settles for second.
+
+        Every identity is scored against the COMPLETE loaded gallery dict; the
+        comparison set is never shrunk to the unclaimed specimens, and no
+        second round is run (the same relative-SCI trap as
+        `_comparison_galleries`).
+        """
+        galleries = self._persistent_galleries
+        if not galleries:
+            return {}, {}
+
+        proposals: list[tuple[float, int, int]] = []  # (score, raw_id, specimen)
+        bind_scores: dict[int, tuple[float, float]] = {}
+        for raw_id in roster_ids:  # ascending raw-id order
+            crops = start_crops.get(raw_id)
+            if not crops:
+                continue
+            scores = self._matcher.score(
+                [c.rgb for c in crops], [c.mask for c in crops], {}, galleries
+            )
+            if not scores:
+                continue
+            ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+            specimen, best = ranked[0]
+            second = ranked[1][1] if len(ranked) > 1 else 0.0
+            bind_scores[raw_id] = (float(best), float(second))
+            if best < self._bind_tau:
+                continue
+            if len(galleries) > 1 and best - second < self._bind_margin:
+                continue  # ambiguous -> session-only, never a coin-flip bind
+            proposals.append((float(best), raw_id, specimen))
+
+        bound: dict[int, int] = {}
+        claimed: set[int] = set()
+        for _score, raw_id, specimen in sorted(proposals, key=lambda p: (-p[0], p[1])):
+            if specimen in claimed:
+                continue  # outbid -> session-only, NOT its second choice
+            claimed.add(specimen)
+            bound[raw_id] = specimen
+        return bound, bind_scores
+
+    def _assign_session_ids(self, roster_ids: list[int], bound: dict[int, int]) -> dict[int, int]:
+        """Bound identity -> its specimen number; session-only identity -> the
+        next number above every LOADED specimen number, so a specimen number is
+        never worn by an identity that didn't confidently bind."""
+        base = max(self._persistent_galleries) if self._persistent_galleries else 0
+        session_ids: dict[int, int] = {}
+        next_session_only = base
+        for raw_id in roster_ids:  # ascending raw-id order
+            if raw_id in bound:
+                session_ids[raw_id] = bound[raw_id]
+                continue
+            next_session_only += 1
+            session_ids[raw_id] = next_session_only
+
+        collisions = sorted(s for s in session_ids.values() if s >= self._unknown_id_offset)
+        if collisions:
+            self._logger.warning(
+                "session ids %s reach unknown_id_offset=%d -- roster and unknown id "
+                "ranges are no longer disjoint",
+                collisions, self._unknown_id_offset,
+            )
+        return session_ids
 
     # -- B3: death (Active -> Missing) ------------------------------------
 
@@ -316,6 +494,7 @@ class SessionLinker:
         self._logger.info(
             "death: identity=%d crops_used=%d build_ms=%.1f",
             identity.session_id, len(crops), build_ms,
+            extra={"orc": {"event": "death", "session_id": identity.session_id}},
         )
 
     # -- B4: birth & evidence window ---------------------------------------
@@ -346,6 +525,10 @@ class SessionLinker:
     def _comparison_galleries(self) -> dict[int, ChampionGallery]:
         """Return every usable frozen-roster gallery.
 
+        A bound identity matches on `persistent u Start (u last-seen)` -- the
+        persistent views are the cached vectors from the freeze, not a re-embed.
+        An unbound identity has session views only.
+
         Gallery membership is deliberately independent of Active/Missing
         state.  SRC's SCI gate is a relative statistic calibrated against the
         complete roster; removing Active identities would collapse the normal
@@ -353,7 +536,10 @@ class SessionLinker:
         """
         galleries: dict[int, ChampionGallery] = {}
         for session_id, identity in self._identities.items():
-            views = [v for v in (identity.start_views, identity.last_seen_views) if v is not None]
+            views = []
+            if identity.bound_specimen is not None:
+                views.append(self._persistent_galleries[identity.bound_specimen].views)
+            views += [v for v in (identity.start_views, identity.last_seen_views) if v is not None]
             if not views:
                 continue
             merged = views[0] if len(views) == 1 else np.concatenate(views, axis=0)
@@ -421,18 +607,23 @@ class SessionLinker:
             self._pending[raw_id] = pending
 
         total_ms = (time.monotonic() - t_start) * 1000
+        outcomes = {
+            **{
+                raw_id: ("unknown" if sid is None else f"linked:{sid}")
+                for raw_id, sid in resolved.items()
+            },
+            **{raw_id: f"deferred:{sid}" for raw_id, sid in deferred.items()},
+        }
         self._logger.info(
             "batch decision: rows=%d comparison_galleries=%d eligible_missing=%d "
-            "score_ms=%.1f collision_ms=%.1f total_ms=%.1f outcomes=%s",
+            "atom_counts=%s score_ms=%.1f collision_ms=%.1f total_ms=%.1f outcomes=%s",
             len(rows), len(comparison_galleries), len(eligible_missing_ids),
+            # Per-candidate dictionary size: exposes the bound-vs-unbound
+            # asymmetry (~18 atoms vs ~3) that biases SRC's score.
+            {sid: int(g.views.shape[0]) for sid, g in sorted(comparison_galleries.items())},
             score_ms, assignment_ms, total_ms,
-            {
-                **{
-                    raw_id: ("unknown" if sid is None else f"linked:{sid}")
-                    for raw_id, sid in resolved.items()
-                },
-                **{raw_id: f"deferred:{sid}" for raw_id, sid in deferred.items()},
-            },
+            outcomes,
+            extra={"orc": {"event": "decision", "outcomes": outcomes}},
         )
         return resolved
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import threading
 import time
 from datetime import datetime
@@ -20,6 +21,7 @@ from pydantic import BaseModel
 
 from backend.capture import CaptureLoop
 from backend.fakes import FakeCaptureSource, ScenarioTracker
+from backend.render import OverlayRenderer, roster_colour
 from backend.session import InvalidPhase, Phase, Session
 from backend.thumbnails import build_detections
 
@@ -52,6 +54,9 @@ class InstrumentStatusModel(BaseModel):
     # the app keeps showing its last-seen crop, so a missing instrument's tile
     # never blanks out.
     thumbnail: str | None
+    # The instrument's fixed mask colour (hex) — same value the overlay draws,
+    # so the panel swatch and the video can never drift (T10/D8a).
+    colour: str
 
 
 class RecordingStatus(BaseModel):
@@ -135,11 +140,17 @@ def create_app(
     lock = threading.Lock()
     timestamps: dict[str, str | None] = {"started_at": None, "stopped_at": None}
 
-    def _on_frame(t: float, present_ids: frozenset[int]) -> None:
+    def _on_frame(t: float, present_ids: frozenset[int], roster: frozenset[int]) -> None:
         with lock:
-            session.observe(t, present_ids)
+            session.observe(t, present_ids, roster)
 
     capture.set_on_frame(_on_frame)
+
+    # create_app owns the renderer because it owns the phase: the start/stop
+    # handlers below are the only things that know when a recording begins, and
+    # the overlay only goes roster-aware while one is running (T10/B-V6).
+    renderer = OverlayRenderer()
+    capture.set_render_fn(renderer)
 
     def _report_response(report) -> ReportResponse:
         return ReportResponse(
@@ -214,6 +225,12 @@ def create_app(
             # they get `thumbnail=None` and the app falls back to their last-seen
             # crop. Cropped outside the lock (see `_snapshot_detections`).
             crops = {det.tracker_id: det.thumbnail for det in _snapshot_detections()}
+            # The roster the overlay is drawing with right now, so a panel swatch
+            # and its mask are the same hex by construction. Before the first
+            # frame (or the linker's enrolment freeze) there is no roster yet and
+            # every colour resolves to the gray — transient and harmless (B-A1).
+            snapshot = capture.snapshot()
+            roster = snapshot.roster if snapshot is not None else frozenset()
             recording = RecordingStatus(
                 started_at=timestamps["started_at"],
                 elapsed_s=elapsed_s,
@@ -226,6 +243,7 @@ def create_app(
                         off_since_s=status.off_since_s,
                         pickup_count=status.pickup_count,
                         thumbnail=crops.get(status.tracker_id),
+                        colour=roster_colour(roster, status.tracker_id),
                     )
                     for status in statuses
                 ],
@@ -264,6 +282,7 @@ def create_app(
             if session.phase not in (Phase.SETUP, Phase.FINISHED):
                 raise HTTPException(status_code=409, detail=f"cannot start from {session.phase}")
             session.start(clock())
+            renderer.set_recording(True)
             timestamps["started_at"] = now().isoformat()
             timestamps["stopped_at"] = None
             return StartResponse(started_at=timestamps["started_at"])
@@ -274,7 +293,9 @@ def create_app(
             try:
                 report = session.stop(clock())
             except InvalidPhase as exc:
+                # A wrong-phase stop changes nothing, the overlay included.
                 raise HTTPException(status_code=409, detail=str(exc))
+            renderer.set_recording(False)
             timestamps["stopped_at"] = now().isoformat()
             return _report_response(report)
 
@@ -296,7 +317,21 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--fake", action="store_true")
     parser.add_argument("--camera", type=int)
     parser.add_argument("--weights", type=str)
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="print a readable, event-level pipeline narrative to the console "
+        "(enrolment freeze, each link/unknown/deferral, track deaths). "
+        "Off by default; also enabled by ORC_DEBUG=1. Behaviour-free.",
+    )
     args = parser.parse_args(argv)
+
+    # Configure the debug console BEFORE load_tracker() so its startup logs
+    # (galleries loaded, binding-disabled) are captured too.
+    if args.debug or os.environ.get("ORC_DEBUG"):
+        from backend.debug import configure_debug_logging
+
+        configure_debug_logging()
 
     session = Session()
 

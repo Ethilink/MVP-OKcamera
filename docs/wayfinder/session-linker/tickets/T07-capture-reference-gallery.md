@@ -2,7 +2,7 @@
 id: T07
 title: Capture the demo-set multi-view reference and negative gallery
 type: wayfinder:task
-status: open
+status: closed
 assignee: bram
 blocked-by: []
 ---
@@ -62,3 +62,34 @@ specimen, not to an instrument type, so this is load-bearing:
 This does **not** block T08 from being built: §3 degrades gracefully by design —
 no usable persistent gallery means everyone runs session-only and the linker
 still works. The answer decides whether T08 *helps*, not whether it *runs*.
+
+## Resolution
+
+Closed 2026-07-16 (grilling, Bram) — **the one open question is answered: YES.**
+`model/data/instruments/instrument{1..8}` are the **exact physical specimens**
+that go on the UZ Leuven demo tray (Bram confirmed, he has them in hand). So
+binding genuinely *helps* — it is not merely degrading-gracefully theatre. T08 is
+vindicated with the data in hand.
+
+**Correction the wayfinder was missing — there are two capture sessions, 30
+views per specimen, not 15:**
+
+- `model/data/instruments/` — **session 1**, 8 × 15 views, `date_created`
+  2026-07-14 ~16:49. This is `DEFAULT_INSTRUMENTS_DIR` → **what the demo binds.**
+- `model/data/instruments_session2/` — **session 2**, 8 × 15 views, 2026-07-15
+  ~13:38 (same day as takes `001/002`). Freshly discovered; used by no code path,
+  named in no doc until now.
+- `model/data/other_objects/` — 60 negative crops across 5 frames (benchmark
+  asset, not a runtime input; the "60 negatives" figure was crops, not images).
+
+Both sessions are of the same 8 physical specimens under (Bram) different
+conditions, both representative of the demo table.
+
+**Which gallery the demo uses was grilled and measured — see the bake-off in
+`model/docs/demo-validation.md` and MAP Decisions (2026-07-16). Verdict: keep
+session 1. Do NOT merge to 30** — merging fattens instrument 3's knife-edge bind
+(+0.0007 → +0.0958) but *loses a genuine return re-identification* (instrument 1
+at Take A t=180.4s flips `linked:1` → `unknown`), and the lost return is the
+demo's money-shot while the thin bind fails safe to session-only. Session 2 and
+merged-30 are documented post-demo experiments; the merged builder + all six
+bake-off traces live in the session scratchpad (volatile).

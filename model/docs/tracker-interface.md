@@ -12,15 +12,26 @@ class InstrumentTracker(Protocol):
     def update(self, frame: np.ndarray) -> sv.Detections: ...
     def reset(self) -> None: ...
     @property
+    def roster(self) -> frozenset[int]: ...
+    @property
     def class_names(self) -> dict[int, str]: ...
     @property
     def model_version(self) -> str: ...
 ```
 
+This contract has taken two deliberate widenings since it was pinned:
+`roster` (2026-07-15; see § "Identity semantics" → "The roster crosses the
+seam"), and the per-detection `data["resolving"]` flag (2026-07-16; see
+§ "Identity semantics" → "The resolving flag splits the Unknown range").
+
 `load_tracker(weights_path, confidence=0.5, ...)` builds the real RF-DETR →
-workspace filter → Deep OC-SORT → SessionLinker composition. A lightweight
-`FakeInstrumentTracker` implements the same protocol without loading ML
-dependencies.
+workspace filter → Deep OC-SORT → SessionLinker composition. It also loads and
+embeds the persistent specimen galleries eagerly, from `instruments_dir`
+(default: the shipped `model/data/instruments`; pass `None` to disable binding).
+A missing or empty directory logs and proceeds with no galleries — it never
+raises. A lightweight `FakeInstrumentTracker` implements the same protocol
+without loading ML dependencies; its `roster` is `frozenset(range(n_instruments))`,
+since the fake enrols instantly.
 
 ## Input
 
@@ -44,7 +55,8 @@ row-aligned:
 | `mask` | bool `(N, H, W)` | full-frame instance mask |
 | `confidence` | float32 `(N,)` | detector confidence |
 | `class_id` | int `(N,)` | key into `class_names` |
-| `tracker_id` | int `(N,)` | stable session identity or Unknown raw ID |
+| `tracker_id` | int `(N,)` | stable session identity (∈ `roster`), or an offset Unknown ID (see § "Identity semantics") |
+| `data["resolving"]` | bool `(N,)` | `True` while the linker is still deciding this track (pending in its evidence window, or deferred); `False` for a settled roster id and for a settled Unknown (see § "Identity semantics") |
 
 An empty result is `sv.Detections.empty()`, never `None`. Valid frames do not
 raise merely because nothing was detected.
@@ -56,13 +68,118 @@ Detector boxes may extend outside the frame; consumers clamp before indexing.
 
 The frozen Start roster defines the known physical objects for one recording.
 An enrolled instrument that leaves and returns is re-emitted under its original
-session ID after the link decision. A new, foreign, rejected, or ambiguous
-track keeps its raw ID and is Unknown because that ID is absent from the frozen
-roster.
+session ID after the link decision. A new, foreign, rejected, or still-undecided
+track is Unknown, because its emitted ID is absent from the frozen roster.
 
 The comparison/eligibility and open-set rules are specified in
 [`linker-design.md`](./linker-design.md). Consumers must not maintain their own
 alias map or retroactively rewrite IDs.
+
+### The roster crosses the seam
+
+`roster` is a read-only `frozenset[int]` of the session IDs enrolled at the
+linker's Start freeze. It is **empty before that freeze and immediately after
+`reset()`**, then constant for the rest of the recording. Consumers test
+membership against it and derive Unknown from that test — nothing else.
+
+Three rules consumers must not break:
+
+- **Do not derive your own roster.** That was route (a), and it was rejected by
+  grilling (Bram, 2026-07-15, wayfinder T10): a consumer's own Start snapshot and
+  the linker's enrolment freeze are different instants roughly 0.7 s apart, and
+  any disagreement between the two sets corrupts every Unknown decision for the
+  whole recording. Reading the property removes the coordination entirely.
+- **Do not assume contiguity, or that it starts at 1.** Session IDs come from
+  gallery binding: a bound identity wears its specimen number, a session-only
+  identity gets the next reserved number above the loaded specimens. A partial
+  bind therefore yields a gapped roster such as `{1, 2, 5, 9, 10}`
+  (`linker-design.md` §3, "Session numbering"). `> N` is not a valid test.
+- **Sample it in the same tick as the detections you are judging.** The property
+  and the emitted IDs are consistent per `update()` call — across calls, only if
+  you read both from the same one.
+
+This is a deliberate widening of this contract and of `app/docs/DESIGN.md` D8.
+The seam still carries no status field and no alias map. It does expose exactly
+one per-detection flag, `data["resolving"]` (a later widening — see below), but
+that flag reports only whether a decision is still *pending*; it never pre-empts
+the "is this ours?" roster-membership test, which stays the sole identity gate.
+
+### Two disjoint emitted ID ranges
+
+`update()` emits IDs from two ranges that never overlap:
+
+| track | emitted `tracker_id` |
+|---|---|
+| mapped to a roster identity | its **session ID**, unchanged (∈ `roster`) |
+| **not** mapped to a roster identity — pending in its evidence window, deferred, or settled Unknown | `raw_id + unknown_id_offset` (default **1000**) |
+
+The offset applies to the *emitted* ID only; the linker's internal state stays
+keyed by raw tracker IDs. Because renumbering pulls session IDs down into a small
+integer range (`{1…8}` on the demo tray) while raw OC-SORT IDs live in the same
+range (a tray of 8 commonly freezes as `{3,5,7,9,10,11,12,14}`), the two would
+otherwise **collide** — an unknown emitting raw ID 3 would be indistinguishable
+from roster identity 3. The offset keeps the ranges disjoint forever, which is
+what makes "Unknown = not in `roster`" exact rather than approximate.
+
+Raw tracker IDs never cross the seam in any form. If an assigned session ID ever
+reached `unknown_id_offset` the linker logs a warning; demo-scale rosters do not
+get near it.
+
+### The resolving flag splits the Unknown range
+
+The offset range above covers three states a consumer draws differently: a
+track *pending* in its evidence window, a track *deferred* behind a still-
+coasting active id, and a *settled Unknown*. `data["resolving"]` (bool, row-
+aligned) splits them: `True` for the first two — the linker is still deciding —
+and `False` once the track has settled, whether it settled into a roster id
+(linked, so its emitted id also flips into `roster`) or into a permanent
+Unknown. Roster ids are always `False`; during the pre-freeze enrolment window
+every track reads `True`, since nothing has a settled identity yet.
+
+This exists so a consumer can show a "resolving" spinner that follows the
+linker's *actual* decision instead of a local timer. Before it, the app timed
+the spinner off its own first-seen clock; a track deferred longer than that
+clock (the normal coasting-handoff path) flickered to a settled "Unknown" and
+then snapped to its instrument once it linked. Reading the flag removes that
+disagreement entirely — the spinner clears exactly when, and only when, the
+linker settles the track. Widening grilled with Bram 2026-07-16 (the wait-state
+fix); it retires T10's renderer-owned `pending_s` timer and first-seen map
+(`T10-BACKEND-SPEC.md` B-V3/B-V5).
+
+A track with no `resolving` key at all (a bare test double, or any producer
+that predates this widening) is read as settled — the safe default: no spurious
+spinner.
+
+### The freeze frame itself emits session IDs
+
+Frames **strictly before** the enrolment freeze pass raw IDs through, as they
+always have. **The freeze frame itself already emits session IDs** — the flip
+happens on the very `update()` call in which the roster freezes, not on the
+following one. On that frame, tracks that are not roster identities already emit
+in the offset range, exactly like every later frame. So `roster` and the emitted
+IDs sampled from the same call are **always** consistent, including the call that
+creates the roster. This is the seam's consistency guarantee, and it is why
+reading the property is safe.
+
+> **Flag — this was a spec ambiguity the T08 orchestrator resolved, not something
+> Bram grilled.** The original wording ("at the freeze the emitted ids flip") let
+> the freeze frame read as either side of the boundary; the test-writer and the
+> coder both read it leniently (flip on the *next* frame), Codex read it strictly.
+> Ruled **strict**, and `T08-SPEC.md` §B-N5 was amended, for two reasons:
+>
+> 1. **The spec's own timing only works strict.** At the pinned 3 fps the
+>    enrolment window is two frames: the freeze frame is t≈0.67 s, the next is
+>    t≈1.0 s. Only flipping on the freeze frame is "~0.7 s in, inside the app's
+>    1 s entry debounce" — the lenient reading lands the flip exactly *at* the
+>    debounce boundary and destroys the safety argument.
+> 2. **The lenient reading is a live cross-seam bug, not cosmetic lag.** The
+>    freeze publishes the session-ID roster *before* the frame returns, and the
+>    app samples `roster` and the emitted IDs in the same tick and intersects
+>    them. Emitting raw IDs on that one frame lets them collide with session IDs:
+>    raw `{3,5,7,9,10,11,12,14}` ∩ roster `{1…8}` = `{3,5,7}` — presence booked
+>    against three instruments that are not on the table. Exposing the roster
+>    exists to remove exactly that class of bug; the lenient reading reintroduces
+>    it for a frame.
 
 ## Mutable confidence
 
@@ -73,7 +190,11 @@ spawn or retire raw tracks, so the demo should normally leave it fixed.
 ## Session boundary
 
 `reset()` starts a new identity namespace. It clears OC-SORT and all
-SessionLinker state while preserving loaded detector and embedding models.
+SessionLinker state while preserving loaded detector and embedding models —
+**and the persistent specimen galleries**, which are read from disk and embedded
+exactly once at `load_tracker()` time and are reused by every later enrolment.
+`roster` reads empty from the moment `reset()` returns until the next enrolment
+freeze, roughly 0.7 s of frames later.
 
 ## Metadata
 
@@ -85,7 +206,8 @@ SessionLinker state while preserving loaded detector and embedding models.
 The model does not encode thumbnails, serve HTTP, write capture datasets, or
 build reports. Consumers already own the frame and derive UI crops from
 `frame + xyxy/mask/tracker_id`. The app owns roster-based usage/completeness
-reporting and must not promote Unknown raw IDs into the frozen roster.
+reporting, reads the roster from `roster`, and must never promote an Unknown ID
+into it.
 
 ## Example
 

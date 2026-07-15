@@ -137,6 +137,14 @@ def main() -> int:
                     help="capture per-row linker scores and K=1 cosine-gate decisions")
     ap.add_argument("--cos-tau", type=float, default=None, help="override the K=1 gate threshold")
     ap.add_argument(
+        "--instruments-dir",
+        default=None,
+        help="persistent specimen photos the linker binds to (default: the shipped "
+             "model/data/instruments). Pass a directory holding a SUBSET of the "
+             "instrument{N} folders to force a partial bind, or 'none' to disable "
+             "binding entirely -- both are how the T08 atom-count asymmetry is measured.",
+    )
+    ap.add_argument(
         "--workspace-max-center-y-ratio",
         type=float,
         default=0.88,
@@ -177,6 +185,10 @@ def main() -> int:
     lg = logging.getLogger("orc_model.session_linker")
     lg.setLevel(logging.DEBUG if args.log_gate else logging.INFO)
     lg.addHandler(Capture())
+    # T08: how many specimens actually embedded, and the per-specimen view counts.
+    plg = logging.getLogger("orc_model.persistent_gallery")
+    plg.setLevel(logging.INFO)
+    plg.addHandler(Capture())
     if args.log_gate:
         mlg = logging.getLogger("orc_model.matching")
         mlg.setLevel(logging.DEBUG)
@@ -185,11 +197,17 @@ def main() -> int:
     from orc_model.pipelines.tracking import load_tracker
 
     t0 = time.monotonic()
+    load_kwargs = {}
+    if args.instruments_dir is not None:
+        load_kwargs["instruments_dir"] = (
+            None if args.instruments_dir.lower() == "none" else Path(args.instruments_dir)
+        )
     tracker = load_tracker(
         WEIGHTS,
         confidence=args.confidence,
         fps=eff_fps,
         workspace_max_center_y_ratio=args.workspace_max_center_y_ratio,
+        **load_kwargs,
     )
     if args.cos_tau is not None:
         tracker._session_linker._matcher.cos_tau = args.cos_tau

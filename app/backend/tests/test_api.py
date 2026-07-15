@@ -14,6 +14,17 @@ draws between the capture thread and the session lock.
 per AC7) via the small `_Clock` double and plain fixed-value lambdas, so
 every timestamp/duration in this suite is deterministic.
 
+MIGRATED for T10: `Latest` carries a `roster`, so `FakeCapture` publishes one;
+`_on_frame` takes `(t, present_ids, roster)`; and recording rows carry a
+`colour`. The one exception to the "`capture` is always `FakeCapture`" rule
+above is `TestBV6`, which needs a REAL `CaptureLoop` + `OverlayRenderer`: B-V6
+is a wiring claim about the start/stop handlers reaching the renderer, and the
+spec leaves the route between them free — so that test asserts the only thing
+that is actually contracted, the published overlay's own pixels. It is also the
+one test that lets `clock` default to `time.monotonic`: the session and the real
+capture thread must read the SAME clock or `start()` would rewind time. It still
+never waits on that clock — it waits on `capture.generation`.
+
 `/stream` (AC5) is the one endpoint that must, in the CORRECT
 implementation, stream forever (paced by `capture.generation`) -- but in
 this dependency stack `httpx`'s ASGI transport (used by both
@@ -33,15 +44,22 @@ import asyncio
 import base64
 import contextlib
 import json
+import re
+import time
 from datetime import datetime, timedelta, timezone
 
+import cv2
 import numpy as np
 import pytest
+import supervision as sv
 from fastapi.testclient import TestClient
 
-from backend.capture import DetectionBox, Latest
+from backend.capture import CaptureLoop, DetectionBox, Latest
+from backend.fakes import FakeCaptureSource
 from backend.main import create_app
+from backend.render import ROSTER_PALETTE, roster_colour
 from backend.session import Phase, Session
+from tests.overlay_probe import GRAY_CHROMA_MAX, chroma_ratio, hex_to_bgr
 
 
 class _Clock:
@@ -60,9 +78,20 @@ class _Clock:
 
 
 class FakeCapture:
-    """Test double for the `capture` collaborator: only the surface
-    `create_app` needs from a `CaptureLoop` (`reset_tracker`, `health`,
-    `generation`, `snapshot`) -- never a real camera or background thread.
+    """Test double for the `capture` collaborator: the surface `create_app`
+    needs from a `CaptureLoop` (`reset_tracker`, `health`, `generation`,
+    `snapshot`, plus the `set_on_frame`/`set_render_fn`/`set_recording`
+    handoffs) -- never a real camera or background thread.
+
+    The renderer handoffs are deliberately PERMISSIVE, not prescriptive. B-V6
+    says only that `set_recording` is called by the HTTP handlers; it does not
+    say how a handler reaches the loop's renderer. Accepting a `render_fn` here
+    (and no-op'ing `set_recording`) keeps that route genuinely free rather than
+    closing it by omission: a double that raised AttributeError on a legal
+    wiring choice would be pinning an interface the spec left open. Nothing in
+    this class asserts on the handoffs -- `TestBV6` (real `CaptureLoop` + real
+    `OverlayRenderer`) is what proves the wiring actually works, through the
+    published overlay's pixels.
 
     `calls` is an optionally-SHARED list so a test can interleave
     `reset_tracker`'s call with another spy (e.g. `_SpySession.start`) and
@@ -76,9 +105,20 @@ class FakeCapture:
         self._frames: dict[int, Latest] = {}
         self._reset_error: BaseException | None = None
         self.on_frame = None
+        self.render_fn = None
+        self.recording = False
 
     def set_on_frame(self, cb) -> None:
         self.on_frame = cb
+
+    def set_render_fn(self, render_fn) -> None:
+        self.render_fn = render_fn
+
+    def set_recording(self, recording: bool) -> None:
+        # Accepted and recorded, never asserted on: see the class docstring.
+        # A handler may reach the renderer through the capture object or hold
+        # it directly -- both are legal, so neither is pinned here.
+        self.recording = recording
 
     def set_frame(self, generation: int, jpeg: bytes) -> None:
         # Mirror the real `CaptureLoop`: each publish rebinds a NEW `Latest`
@@ -94,21 +134,32 @@ class FakeCapture:
             t=0.0,
             frame_bgr=np.zeros((4, 4, 3), dtype=np.uint8),
             detections=(),
+            roster=frozenset(),
         )
 
     def set_snapshot(
-        self, frame_bgr: np.ndarray, detections: tuple[DetectionBox, ...]
+        self,
+        frame_bgr: np.ndarray,
+        detections: tuple[DetectionBox, ...],
+        roster: frozenset[int] | None = None,
     ) -> None:
         """Publish a snapshot carrying real crop material (a frame + boxes) so
-        the setup branch of /status has something to crop."""
+        the setup branch of /status has something to crop.
+
+        `roster` defaults to the detected ids — the ordinary live case, where
+        the tray in front of the camera IS the roster. Tests that care about
+        the roster/colour seam pass it explicitly.
+        """
+        detected = frozenset(int(tracker_id) for tracker_id, _ in detections)
         self.generation += 1
         self._frames[self.generation] = Latest(
             overlay_jpeg=b"",
-            present_ids=frozenset(int(tracker_id) for tracker_id, _ in detections),
+            present_ids=detected,
             count=len(detections),
             t=0.0,
             frame_bgr=frame_bgr,
             detections=tuple(detections),
+            roster=detected if roster is None else roster,
         )
 
     def snapshot(self) -> Latest | None:
@@ -739,3 +790,392 @@ class TestAC8OpenApiDocsAndResponseSchema:
 
         properties = set(schema.get("properties", {}))
         assert {"phase", "capture_health", "model_version", "setup", "recording"} <= properties
+
+
+# --- T10: the roster crosses the seam ----------------------------------------
+
+def _status_frame() -> np.ndarray:
+    """A non-black frame, so the crop path actually encodes JPEGs."""
+    return np.full((120, 160, 3), 90, dtype=np.uint8)
+
+
+def _confirm_recording(session: Session, ids: frozenset[int], roster: frozenset[int]) -> None:
+    """Two observes past the 1.0s entry debounce, so `ids & roster` is
+    confirmed on the table before the test reads /status."""
+    session.observe(1.0, ids, roster)
+    session.observe(3.0, ids, roster)
+
+
+class _RecordingSession(Session):
+    """A real `Session` that also records the exact arguments the wiring handed
+    `observe` — B-S4 is a claim about what main.py forwards, and the roster's
+    effect is already Session's own tested business (test_session.py)."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.observed: list[tuple[float, frozenset[int], frozenset[int] | None]] = []
+
+    def observe(self, t, present_ids, roster=None) -> None:
+        self.observed.append((t, present_ids, roster))
+        super().observe(t, present_ids, roster)
+
+
+class TestBS4OnFrameForwardsTheRoster:
+    """B-S4: `main._on_frame` forwards the roster from the capture callback
+    into `session.observe`, under the existing lock."""
+
+    def test_b_s4_on_frame_forwards_the_roster_it_was_given_into_session_observe(
+        self,
+    ) -> None:
+        capture = FakeCapture()
+        session = _RecordingSession()
+        create_app(capture, session, "test-model", clock=_Clock(0.0))
+
+        capture.on_frame(1.0, frozenset({1, 9}), frozenset({1}))
+
+        assert session.observed == [(1.0, frozenset({1, 9}), frozenset({1}))]
+
+    def test_b_s4_every_published_frame_forwards_its_own_roster(self) -> None:
+        # The roster is empty for ~0.7s after Start (the linker's enrolment
+        # freeze hasn't fired) and populated afterwards: the wiring must relay
+        # each frame's own value, not the first one it ever saw.
+        capture = FakeCapture()
+        session = _RecordingSession()
+        create_app(capture, session, "test-model", clock=_Clock(0.0))
+
+        capture.on_frame(1.0, frozenset({1, 2}), frozenset())
+        capture.on_frame(2.0, frozenset({1, 2}), frozenset({1, 2}))
+
+        assert [roster for _, _, roster in session.observed] == [
+            frozenset(),
+            frozenset({1, 2}),
+        ]
+
+
+class TestBA1StatusCarriesTheRosterColour:
+    """B-A1: every `/status` recording entry carries `colour` =
+    `roster_colour(roster, tracker_id)` with the roster taken from the current
+    capture snapshot — so the panel swatch and the overlay mask can never
+    drift. With no snapshot yet, a gray placeholder stands in."""
+
+    def test_b_a1_recording_entries_carry_the_colour_roster_colour_reports(
+        self,
+    ) -> None:
+        roster = frozenset({1, 2, 3})
+        capture = FakeCapture()
+        capture.set_snapshot(
+            _status_frame(),
+            ((1, (10.0, 10.0, 50.0, 60.0)), (2, (60.0, 10.0, 100.0, 60.0))),
+            roster=roster,
+        )
+        session = Session()
+        app = create_app(capture, session, "test-model", clock=_Clock(0.0))
+        client = TestClient(app)
+
+        client.post("/recording/start")
+        _confirm_recording(session, frozenset({1, 2}), roster)
+
+        instruments = client.get("/status").json()["recording"]["instruments"]
+        assert {i["tracker_id"]: i["colour"] for i in instruments} == {
+            1: roster_colour(roster, 1),
+            2: roster_colour(roster, 2),
+        }
+
+    def test_b_a1_a_full_tray_gets_eight_distinct_swatches(self) -> None:
+        # OC-SORT hands out a raw counter, so a tray of 8 is any 8 ids.
+        roster = frozenset({3, 5, 7, 9, 10, 11, 12, 14})
+        capture = FakeCapture()
+        capture.set_snapshot(_status_frame(), (), roster=roster)
+        session = Session()
+        app = create_app(capture, session, "test-model", clock=_Clock(0.0))
+        client = TestClient(app)
+
+        client.post("/recording/start")
+        _confirm_recording(session, roster, roster)
+
+        instruments = client.get("/status").json()["recording"]["instruments"]
+        assert len(instruments) == 8  # sanity: the whole tray confirmed
+        assert len({i["colour"] for i in instruments}) == 8
+
+    def test_b_a1_an_instruments_colour_survives_an_absence(self) -> None:
+        # The linker re-emits original session ids, so a returned instrument
+        # must come back wearing the same swatch it left with.
+        roster = frozenset({1, 2, 3})
+        capture = FakeCapture()
+        capture.set_snapshot(_status_frame(), (), roster=roster)
+        session = Session()
+        app = create_app(capture, session, "test-model", clock=_Clock(0.0))
+        client = TestClient(app)
+
+        client.post("/recording/start")
+        _confirm_recording(session, frozenset({1, 2}), roster)
+        before = {i["tracker_id"]: i["colour"] for i in client.get("/status").json()["recording"]["instruments"]}
+
+        session.observe(20.0, frozenset({1}), roster)  # id 2 is picked up
+        session.observe(22.0, frozenset({1}), roster)
+        session.observe(40.0, frozenset({1, 2}), roster)  # ... and comes back
+        session.observe(42.0, frozenset({1, 2}), roster)
+
+        after = {i["tracker_id"]: i["colour"] for i in client.get("/status").json()["recording"]["instruments"]}
+        assert after == before
+        assert len(set(before.values())) == 2  # sanity: not one colour for both
+
+    def test_b_a1_colour_falls_back_to_a_gray_placeholder_before_the_first_frame(
+        self,
+    ) -> None:
+        capture = FakeCapture()  # nothing published yet
+        session = Session()
+        app = create_app(capture, session, "test-model", clock=_Clock(0.0))
+        client = TestClient(app)
+
+        client.post("/recording/start")
+        _confirm_recording(session, frozenset({3}), frozenset({3}))
+
+        assert capture.snapshot() is None  # sanity: the fallback is what's exercised
+        response = client.get("/status")
+        assert response.status_code == 200  # a transient, HARMLESS placeholder
+        colour = response.json()["recording"]["instruments"][0]["colour"]
+        assert re.fullmatch(r"#[0-9a-fA-F]{6}", colour), colour
+        # A placeholder must not impersonate a real swatch, and must read gray.
+        assert colour not in ROSTER_PALETTE
+        assert chroma_ratio(hex_to_bgr(colour)) <= GRAY_CHROMA_MAX
+
+
+class TestBA2UnknownsAreAbsentFromTheApi:
+    """B-A2: no other endpoint or shape changes. Unknown ids are absent from
+    `/status` entirely — B-S1 guarantees it, so main.py filters nothing."""
+
+    def test_b_a2_a_not_in_roster_id_never_appears_in_status(self) -> None:
+        capture = FakeCapture()
+        session = Session()
+        app = create_app(capture, session, "test-model", clock=_Clock(0.0))
+        client = TestClient(app)
+
+        client.post("/recording/start")
+        # Driven through the real capture callback — the path the capture
+        # thread takes on every published frame.
+        capture.on_frame(1.0, frozenset({1, 9}), frozenset({1}))
+        capture.on_frame(3.0, frozenset({1, 9}), frozenset({1}))
+
+        recording = client.get("/status").json()["recording"]
+        assert [i["tracker_id"] for i in recording["instruments"]] == [1]
+        assert recording["on_table_count"] == 1
+
+    def test_b_a2_the_status_instrument_row_gains_only_the_colour_field(self) -> None:
+        app = create_app(FakeCapture(), Session(), "test-model")
+        client = TestClient(app)
+
+        openapi = client.get("/openapi.json").json()
+        schema = openapi.get("components", {}).get("schemas", {}).get("InstrumentStatusModel", {})
+
+        assert set(schema.get("properties", {})) == {
+            "tracker_id",
+            "label",
+            "on_table",
+            "off_since_s",
+            "pickup_count",
+            "thumbnail",
+            "colour",
+        }
+
+
+class TestBA3TheReportIsUnchanged:
+    """B-A3: the report keeps its exact shape; its instruments are roster-only
+    purely as a consequence of B-S1."""
+
+    def test_b_a3_report_instruments_are_roster_only(self) -> None:
+        capture = FakeCapture()
+        session = Session()
+        clock = _Clock(0.0)
+        app = create_app(capture, session, "test-model", clock=clock)
+        client = TestClient(app)
+
+        client.post("/recording/start")
+        capture.on_frame(1.0, frozenset({1, 9}), frozenset({1}))
+        capture.on_frame(3.0, frozenset({1, 9}), frozenset({1}))
+        clock.set(10.0)
+
+        report = client.post("/recording/stop").json()
+
+        assert [i["tracker_id"] for i in report["instruments"]] == [1]
+
+    def test_b_a3_the_report_shape_is_untouched_by_t10(self) -> None:
+        session = Session()
+        clock = _Clock(0.0)
+        app = create_app(FakeCapture(), session, "test-model", clock=clock)
+        client = TestClient(app)
+
+        client.post("/recording/start")
+        _confirm_recording(session, frozenset({1}), frozenset({1}))
+        clock.set(10.0)
+
+        body = client.post("/recording/stop").json()
+
+        assert set(body) == {
+            "started_at",
+            "stopped_at",
+            "duration_s",
+            "model_version",
+            "instruments",
+        }
+        assert body["instruments"]  # sanity: there is a row to inspect
+        for instrument in body["instruments"]:
+            # No `colour` here: the swatch is a live-panel concern, and the
+            # report's shape is frozen by the contract.
+            assert set(instrument) == {"tracker_id", "label", "completeness", "usage"}
+
+
+_OVERLAY_SIZE = (320, 240)  # (width, height)
+_ROSTER_BOX = (20, 60, 110, 150)
+_FOREIGN_BOX = (170, 60, 260, 150)
+
+
+class _FixedRosterTracker:
+    """A tracker with a fixed roster and a fixed pair of boxes: instrument 1
+    (in the roster) and object 9 (not). Fixed geometry is what lets a test
+    decode the published overlay and look at exactly the pixels it means."""
+
+    def __init__(self) -> None:
+        self.confidence = 0.5
+
+    @property
+    def class_names(self) -> dict[int, str]:
+        return {0: "surgical_instrument"}
+
+    @property
+    def model_version(self) -> str:
+        return "test-0.1"
+
+    @property
+    def roster(self) -> frozenset[int]:
+        return frozenset({1})
+
+    def reset(self) -> None:
+        pass
+
+    def update(self, frame: np.ndarray) -> sv.Detections:
+        height, width = frame.shape[:2]
+        boxes = [_ROSTER_BOX, _FOREIGN_BOX]
+        mask = np.zeros((2, height, width), dtype=bool)
+        for i, (x1, y1, x2, y2) in enumerate(boxes):
+            mask[i, y1:y2, x1:x2] = True
+        return sv.Detections(
+            xyxy=np.array(boxes, dtype=np.float32),
+            mask=mask,
+            confidence=np.full(2, 0.9, dtype=np.float32),
+            class_id=np.zeros(2, dtype=int),
+            tracker_id=np.array([1, 9], dtype=int),
+        )
+
+
+def _advance_frames(capture: CaptureLoop, n: int = 3, timeout: float = 2.0) -> bool:
+    """Wait until `n` more frames have been published. Paced by the capture's
+    OWN generation counter, never by a wall-clock guess at frame timing."""
+    target = capture.generation + n
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if capture.generation >= target:
+            return True
+        time.sleep(0.005)
+    return capture.generation >= target
+
+
+def _overlay_chroma(capture: CaptureLoop, box: tuple[int, int, int, int]) -> float:
+    """Decode the published overlay and measure how far the pixels inside `box`
+    are from gray — the one thing B-V6 can observe without knowing HOW the
+    handlers reach the renderer (the spec leaves that route free)."""
+    latest = capture.snapshot()
+    assert latest is not None, "nothing published yet"
+    frame = cv2.imdecode(np.frombuffer(latest.overlay_jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
+    x1, y1, x2, y2 = box
+    region = frame[y1 + 10 : y2 - 10, x1 + 10 : x2 - 10]
+    return chroma_ratio(region.reshape(-1, 3).astype(np.float64).mean(axis=0))
+
+
+class TestBV6TheHttpHandlersFlipTheRenderer:
+    """B-V6: `set_recording(True)` right after `session.start()` succeeds, and
+    `set_recording(False)` right after `session.stop()`. Wrong-phase (409)
+    paths must not flip it.
+
+    Asserted end-to-end against the real `CaptureLoop` + its default
+    `OverlayRenderer`, through the published overlay: a not-in-roster object is
+    drawn in an instrument colour during setup, and gray while recording. That
+    is the only contracted observable — the spec does not say HOW a handler
+    reaches the renderer, so no test here may assume one route.
+    """
+
+    def _app(self):
+        cap = FakeCaptureSource(size=_OVERLAY_SIZE, fps=None)
+        capture = CaptureLoop(
+            _FixedRosterTracker(), 0, cap_factory=lambda _idx: cap, frame_size=_OVERLAY_SIZE
+        )
+        session = Session()
+        # The real capture thread stamps `t` with time.monotonic, so the
+        # session must read the same clock or start() would rewind time.
+        return capture, TestClient(create_app(capture, session, "test-model"))
+
+    def test_b_v6_start_flips_the_overlay_into_recording_and_stop_flips_it_back(
+        self,
+    ) -> None:
+        capture, client = self._app()
+
+        capture.start()
+        try:
+            assert _advance_frames(capture, 2)
+            setup_chroma = _overlay_chroma(capture, _FOREIGN_BOX)
+
+            assert client.post("/recording/start").status_code == 200
+            assert _advance_frames(capture, 3)
+            recording_chroma = _overlay_chroma(capture, _FOREIGN_BOX)
+
+            assert client.post("/recording/stop").status_code == 200
+            assert _advance_frames(capture, 3)
+            finished_chroma = _overlay_chroma(capture, _FOREIGN_BOX)
+        finally:
+            capture.stop()
+
+        # Setup: today's overlay — id 9 is just another coloured track.
+        assert setup_chroma > GRAY_CHROMA_MAX
+        # Recording: id 9 is not in the roster, so it goes gray.
+        assert recording_chroma <= GRAY_CHROMA_MAX
+        # Finished: back to today's overlay.
+        assert finished_chroma > GRAY_CHROMA_MAX
+
+    def test_b_v6_a_roster_instrument_keeps_a_colour_through_the_whole_run(
+        self,
+    ) -> None:
+        # The mirror of the test above, on the id that IS in the roster: Start
+        # must not gray out the tray, only what is foreign to it.
+        capture, client = self._app()
+
+        capture.start()
+        try:
+            assert _advance_frames(capture, 2)
+            assert client.post("/recording/start").status_code == 200
+            assert _advance_frames(capture, 3)
+            recording_chroma = _overlay_chroma(capture, _ROSTER_BOX)
+        finally:
+            capture.stop()
+
+        assert recording_chroma > GRAY_CHROMA_MAX
+
+    def test_b_v6_a_wrong_phase_409_never_flips_the_overlay(self) -> None:
+        capture, client = self._app()
+
+        capture.start()
+        try:
+            assert _advance_frames(capture, 2)
+            assert client.post("/recording/stop").status_code == 409  # not recording
+            assert _advance_frames(capture, 3)
+            after_bad_stop = _overlay_chroma(capture, _FOREIGN_BOX)
+
+            assert client.post("/recording/start").status_code == 200
+            assert _advance_frames(capture, 3)
+            assert client.post("/recording/start").status_code == 409  # already recording
+            assert _advance_frames(capture, 3)
+            after_bad_start = _overlay_chroma(capture, _FOREIGN_BOX)
+        finally:
+            capture.stop()
+
+        assert after_bad_stop > GRAY_CHROMA_MAX  # a refused stop left setup alone
+        assert after_bad_start <= GRAY_CHROMA_MAX  # a refused start left recording alone

@@ -21,39 +21,43 @@ file, set `status: closed`, add one line under Decisions-so-far here.
 > The original destination ("ready to hand to implementation") was reached: the
 > linker is built, composed in `load_tracker()`, and replay-validated. T01/T02/
 > T04/T05 closed together on 2026-07-15 — they described the road to v1 and had
-> gone stale against a shipped build. One thing remains genuinely unbuilt, and
-> it now carries the frontier: **[T08 — gallery binding](tickets/T08-gallery-binding.md)**.
+> gone stale against a shipped build.
+>
+> **Updated 2026-07-15 (evening): [T08](tickets/T08-gallery-binding.md) and
+> [T10](tickets/T10-app-side-unknown.md) shipped and closed.** Nothing
+> load-bearing is unbuilt any more. The frontier is now
+> **[T09 — first live camera check](tickets/T09-first-live-check.md)** alone —
+> everything the demo needs exists, and none of it has met a live camera.
 
 A **demo-ready session linker** means "Instrument N" identifies the *specimen*
-and survives absence. Start-time enrolment, open-set SRC matching, and real-time
-linking behind `InstrumentTracker` are **built and replay-validated** on both
-takes. The last load-bearing gap is §3 gallery binding (T08): until it lands, the
-session id is Deep OC-SORT's raw counter, so the tray shows arbitrary numbers
-("Instrument 10" on a tray of 8) and returns rematch against ≤3 Start crops
-instead of 15 known views. UZ Leuven demo **2026-07-20**.
+and survives absence. Start-time enrolment, open-set SRC matching, §3 gallery
+binding, and real-time linking behind `InstrumentTracker` are **built and
+replay-validated** on both takes; the app renders foreign objects gray and keeps
+them out of Completeness (§7). "Instrument N" now means the specimen — the session
+id is the bound specimen number, not Deep OC-SORT's raw counter, and returns
+rematch against `persistent ∪ Start` instead of ≤3 Start crops. What is left is
+**proving it live**. UZ Leuven demo **2026-07-20**.
 
-**The frontier is three independent tickets** (plus [T07](tickets/T07-capture-reference-gallery.md),
-a one-question confirmation for Bram that gates whether T08 *helps*):
+**The frontier is now one ticket.** [T07](tickets/T07-capture-reference-gallery.md)
+**closed 2026-07-16: the photos ARE the demo specimens (Bram), binding helps.**
+That leaves [T09](tickets/T09-first-live-check.md) alone:
 
 - **[T09 — first live camera check](tickets/T09-first-live-check.md)** — validate
-  what is already built. Every validation to date is replay (cached detections)
+  what is built. Every validation to date is replay (cached detections)
   or fake mode; no *validated* live run exists — no live fps pin, no pre-flight
-  cache check. ⚠️ T08 cites a live symptom ("Instrument 10" on a tray of 8), so
+  cache check. ⚠️ T08 cited a live symptom ("Instrument 10" on a tray of 8), so
   an **informal** live glance did happen; T09 carries the exact wording and
   Bram should correct it if that run went further.
-- **[T08 — gallery binding](tickets/T08-gallery-binding.md)** — build what is
-  left in the model (§3): make "Instrument N" mean the specimen.
-- **[T10 — app-side Unknown & Pending](tickets/T10-app-side-unknown.md)** — build
-  what is left in the app (§7). T06 decided it; nobody built it. **The audience
-  will trigger this on purpose** by putting a phone on the table.
 
-None blocks another, but two ordering facts matter:
+Two facts carry into T09:
 
-- **T09's fps number lands first if it differs materially from the pinned 3.0** —
-  every `*_s` window and OC-SORT's `max_age` derive from it, so T08's binding
-  thresholds would otherwise be tuned against a wrong clock.
-- **T09 will surface T10 live** ("the phone said Instrument 12"). That is T10, not
-  a linker bug — don't debug the matcher for it.
+- **Its fps number lands first if it differs materially from the pinned 3.0** —
+  every `*_s` window, OC-SORT's `max_age`, and the 2-frame enrolment window derive
+  from it, so T08's binding thresholds (and the freeze-frame timing argument behind
+  B-N5) would otherwise rest on a wrong clock.
+- **T09 is the first live test of T10's Unknown path** — a phone on the tray should
+  render gray "Unknown" and stay out of Completeness. If it still says "Instrument
+  12", that is a T10 regression, not a linker bug — don't debug the matcher for it.
 
 ## Notes
 
@@ -98,11 +102,14 @@ None blocks another, but two ordering facts matter:
   override of wayfinder's plan-only default. Both external inputs have landed:
   detector weights are on the demo machine
   (`model/weights/checkpoint_best_regular.onnx`, **`.onnx` not `.pt`**), and the
-  specimen photos exist (`model/data/instruments/instrument{1..8}/images/`,
-  15 views each + 60 negatives in `model/data/other_objects/`). The one
-  unconfirmed thing about the photos is whether they are the **same physical
-  specimens** as the demo tray — that is [T07](tickets/T07-capture-reference-gallery.md),
-  and it decides whether binding *helps*, not whether it *runs*.
+  specimen photos exist. **There are TWO capture sessions of the same 8 specimens,
+  30 views total** (corrected 2026-07-16): `model/data/instruments/` (**session 1**,
+  15 views, the `DEFAULT_INSTRUMENTS_DIR` the demo binds) and
+  `model/data/instruments_session2/` (**session 2**, 15 views, used by no code path);
+  plus 60 negative crops in `model/data/other_objects/`. **[T07](tickets/T07-capture-reference-gallery.md)
+  is CLOSED (2026-07-16): the photos are the demo specimens, binding helps.** The
+  gallery choice was grilled + measured — **keep session 1, do not merge to 30**
+  (§ Decisions 2026-07-16 and `model/docs/demo-validation.md`).
 - **Replay is the fast loop:** `model/scripts/replay_session.py --from-cache`
   re-runs tracker+linker over cached detections in ~2 min instead of ~25 min of
   inference. Detection caches for both 2026-07-15 takes live in
@@ -137,6 +144,40 @@ Charted 2026-07-14 (grilling session, Bram):
   follow-up): the matcher only decides "same physical object as one that
   left?" — never which catalog instrument it is. Multi-removal + foreign
   objects in the demo make it load-bearing; heuristic-only rejected.
+
+Grilled 2026-07-16 (remote-control session, Bram):
+
+- **[T07](tickets/T07-capture-reference-gallery.md) closed YES + a data
+  correction.** The `instrument{1..8}` photos are the exact demo-tray specimens
+  (Bram), so binding helps. Discovered in the same pass: there are **two capture
+  sessions, 30 views total** — `instruments/` (session 1, what the demo binds) and
+  the previously-undocumented `instruments_session2/` (session 2). The wayfinder's
+  "15 views" was per-session.
+- **Gallery for the demo = session 1; do NOT merge to 30 (measured).** A three-way
+  cached bake-off on both takes (session 1 / session 2 / merged-30) settled the
+  "mix them" instinct empirically: on Take B all three are decision-identical;
+  on Take A merging **rescues instrument 3's knife-edge bind** (+0.0007 → +0.0958)
+  **but loses a genuine return** (instrument 1 at t=180.4s flips `linked:1` →
+  `unknown`). Both failures are fail-safe, but session 1's weakness (thin bind →
+  session-only) is audience-invisible while merged's (a return going Unknown) is
+  the demo's money-shot. Session 2 / merged are post-demo experiments. Full table
+  in `model/docs/demo-validation.md`.
+- **Offline cold-start verified — the demo-day killer is cleared (this machine).**
+  With no internet at the venue (Bram), a cold model cache would hang
+  `load_tracker()` at startup. Forced-offline construction succeeds in **16.6 s**
+  (DINOv2 + mobilenet embedder + ONNX all cache-resident, 8 galleries). ⚠️ Verified
+  on *this* machine — re-run with the network actually off on the demo box if it
+  differs. This is [T09](tickets/T09-first-live-check.md)'s gating pre-flight.
+- **`orc-demo --debug` built (T09 prep) + B-O1 fixed.** A behaviour-free,
+  off-by-default event console (`backend/debug.py`) renders the pipeline narrative
+  — gallery load, an ENROLMENT FREEZE block, each link/unknown/deferral, deaths —
+  from structured `record.orc` payloads on the `orc_model` loggers. The freeze log
+  now exposes **`raw_id → specimen`** (T08 flag B-O1: the old `{session_id:specimen}`
+  was tautological), so a live mis-bind is diagnosable. `ORC_DEBUG=1` also enables
+  it. Model 125 / backend 209 green.
+- **Nothing blocks T09** — it can run once the offline pre-flight is confirmed on
+  the demo machine; Bram runs it. The eight T08/T10 engineering flags are ratify/
+  defer/demo-polish, none gating (dispositions being recorded on the tickets).
 
 <!-- one line per closed ticket below -->
 
@@ -200,6 +241,29 @@ Charted 2026-07-14 (grilling session, Bram):
   has the frozen roster `{1…N}`") is **false on both halves** — no roster exists,
   and ids are OC-SORT's raw counter, not `{1…N}`. ⇒ [T10](tickets/T10-app-side-unknown.md),
   which carries a seam-contract choice that needs Bram, not a coder.
+- **[§3 gallery binding shipped — "Instrument N" now means the specimen](tickets/T08-gallery-binding.md)**
+  (2026-07-15) — persistent galleries embedded **once** at `load_tracker()` (2926 ms,
+  startup only); greedy one-to-one bind at the freeze; bound gallery =
+  `persistent ∪ Start`; uncertain → session-only. Both takes bind **8/8**, roster
+  renumbered `{1..8}`, batch counts (24/46) and both fail-closed rejects unchanged.
+  **Renumbering, not binding, is the visible win** — it fixes "Instrument 10" even
+  with no photos loaded, while binding itself buys exactly **one** rescued
+  re-identification on Take B. Trap 4 measured (mixed bind = 10× atom spread, **0**
+  decision differences ⇒ no mitigation); freeze `build_ms` 260 → 496 ms, still 2× inside
+  the 1.0 s contract ⇒ §9 stays closed. **Eight ungrilled engineering calls flagged in
+  the resolution — read #1 first: an ambiguous B-N5 clause was resolved *strict* and
+  the SPEC amended by the orchestrator.**
+- **[§7 app-side Unknown & Pending shipped — the roster crosses the seam](tickets/T10-app-side-unknown.md)**
+  (2026-07-15, grilling) — **route (b)**: `tracker.roster` is on the protocol and
+  sampled in the **same tick** as `present_ids`, which kills route (a)'s coordination
+  risk and, with it, §7's "nothing new crosses the seam". Unknowns are **video-only**
+  (gray mask + resolving spinner, then gray "Unknown"; no panel row, out of
+  Usage/Completeness); each roster instrument's `/status` entry carries a **`colour`**
+  so the panel swatch and the overlay mask are the same hex and a return regains its
+  hue. Backend **and** frontend halves both shipped. **Seven ungrilled calls flagged in
+  the resolution**, including a named-and-accepted renderer race, a pre-existing
+  monotonic-clock race in `orc-demo` today, and a BRANDING.md conflict over the 8-hue
+  palette.
 
 ## Not yet specified
 
@@ -212,11 +276,22 @@ Charted 2026-07-14 (grilling session, Bram):
   still unspecified is whether the operator does anything else, and that now waits
   on [T09](tickets/T09-first-live-check.md)'s live failure *rates* rather than on
   design. **Do not lower `tau` to hide these** — see `demo-validation.md`.
+- **§8 rotation/mirror augmentation — a real gap, no longer a hypothesis.** T08's
+  brief assumed "§3's 15 real poses largely subsume §8" and asked for evidence either
+  way. The evidence is **negative** (2026-07-15, measured): with all 15 persistent
+  views bound, Take B's **368.0 s flipped instrument still settles Unknown** instead
+  of identity 6. §3 does not cover §8; the gap is unaddressed. It fails **safe**, so
+  it does not block the demo — ticket it if flip-returns ever have to link, or if
+  [T09](tickets/T09-first-live-check.md)'s live failure *rates* say it matters.
+  (**Do not lower `tau` to make it pass** — same rule as the two rejects above.)
 - **Evaluation harness on labelled data** — the only labelled real returns
   (31, video `09-07-26-003`, `assets/T04/labels_09-07-26-003.json` + `score_reid.py`)
   went unused; §6.5 was validated by reading traces on unlabelled July-15 takes.
-  Without a scored baseline, every §3 claim in T08 (15 views beat 3 crops; atom
-  asymmetry bites or doesn't) is decided by argument rather than measurement.
+  Without a scored baseline, T08's §3 claims were settled by **trace-reading on two
+  unlabelled takes**, not by scoring: "15 views beat 3 crops" is worth exactly **one**
+  rescued re-identification there, and the atom-asymmetry mitigation rests on **zero
+  decision differences** across 46 batches of one forced-partial configuration. Both
+  are honest measurements of a very narrow sample.
   Sharp enough to ticket **the moment the demo stops setting the clock** — it is
   the natural first step of any post-demo linker work.
 - **Shared embedding package (post-demo)** — the linker in `model/` and the

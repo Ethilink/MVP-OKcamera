@@ -13,7 +13,7 @@ from typing import Callable, NamedTuple, Protocol
 import cv2
 import numpy as np
 
-from backend.render import render as _default_render
+from backend.render import OverlayRenderer
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +54,12 @@ class Latest(NamedTuple):
     detections: tuple[DetectionBox, ...]  # (tracker_id, xyxy) per detection,
                                    # row-aligned with the same frame — plain
                                    # ints/floats, sorting left to the consumer
+    roster: frozenset[int]         # tracker.roster sampled the SAME tick as
+                                   # present_ids (builtin ints) — T10/D8a
 
 
-OnFrame = Callable[[float, frozenset[int]], None]   # (t, present_ids)
+OnFrame = Callable[[float, frozenset[int], frozenset[int]], None]
+"""(t, present_ids, roster) — roster sampled same-tick as present_ids."""
 
 
 class CaptureLoop:
@@ -68,7 +71,7 @@ class CaptureLoop:
         cap_factory: Callable[[int], VideoCaptureLike] = cv2.VideoCapture,
         frame_size: tuple[int, int] = (1920, 1080),
         stale_after_s: float = 2.0,
-        render_fn=_default_render,
+        render_fn=None,
     ) -> None:
         self._tracker = tracker
         self._camera_index = camera_index
@@ -76,7 +79,7 @@ class CaptureLoop:
         self._cap_factory = cap_factory
         self._frame_size = frame_size
         self._stale_after_s = stale_after_s
-        self._render_fn = render_fn
+        self._render_fn = render_fn if render_fn is not None else OverlayRenderer()
 
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -95,6 +98,12 @@ class CaptureLoop:
         """Register (or clear) the per-publication callback. Public so wiring
         code (T04's `create_app`) never has to poke the private attribute."""
         self._on_frame = cb
+
+    def set_render_fn(self, render_fn) -> None:
+        """Register the per-frame overlay renderer. Public for the same reason
+        as `set_on_frame`: `create_app` owns the `OverlayRenderer` it flips into
+        recording state (T10), so it needs to hand that same object to the loop."""
+        self._render_fn = render_fn
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -208,7 +217,11 @@ class CaptureLoop:
 
         t = time.monotonic()
         dets = self._tracker.update(frame)
-        overlay = self._render_fn(frame.copy(), dets)
+        # Sample the roster in the SAME tick as the detections (T10/D8a): render,
+        # snapshot and session all then judge one instant. Builtin ints, like
+        # present_ids, so /status JSON-encodes without sanitizing (AC12).
+        roster = frozenset(int(session_id) for session_id in self._tracker.roster)
+        overlay = self._render_fn(frame.copy(), dets, roster, t)
         _, buffer = cv2.imencode(".jpg", overlay)
         present_ids = frozenset(int(tracker_id) for tracker_id in _tracker_ids(dets))
 
@@ -226,20 +239,21 @@ class CaptureLoop:
             t=t,
             frame_bgr=frame_bgr,
             detections=_detection_boxes(dets),
+            roster=roster,
         )
         with self._lock:
             self._latest = latest
             self._generation += 1
             self._last_publish = time.monotonic()
 
-        self._notify(t, present_ids)
+        self._notify(t, present_ids, roster)
         return True
 
-    def _notify(self, t: float, present_ids: frozenset[int]) -> None:
+    def _notify(self, t: float, present_ids: frozenset[int], roster: frozenset[int]) -> None:
         if self._on_frame is None:
             return
         try:
-            self._on_frame(t, present_ids)
+            self._on_frame(t, present_ids, roster)
         except Exception:
             # AC8: an on_frame exception must not kill the loop. The publication
             # already happened, so this frame still counts.

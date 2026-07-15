@@ -20,6 +20,12 @@ time is thread *synchronization*, never business-timing:
 All fakes/doubles other than `FakeCaptureSource`/`ScenarioTracker` (from
 T01's `backend/fakes.py`) are defined locally below — they exist purely to
 control failure/exception/blocking behavior the T01 fakes don't provide.
+
+MIGRATED for T10 (B-C): the seam widened by one value — the roster. Every
+local tracker double now carries the `roster` attribute the tracker interface
+guarantees, every `on_frame` callback takes `(t, present_ids, roster)`, and
+`render_fn` takes `(frame, dets, roster, t)`. Nothing else about T03's ACs
+changed, so their tests are otherwise untouched.
 """
 
 from __future__ import annotations
@@ -39,6 +45,11 @@ from backend.fakes import FakeCaptureSource, ScenarioTracker
 
 _FRAME_SIZE = (64, 48)  # (width, height) — tiny on purpose, keeps ticks cheap
 _WAIT = 1.0             # generous per-test synchronization timeout
+
+# Every tracker double answers `roster` — the T10 seam guarantees it (B-C2), so
+# `CaptureLoop` reads it without a fallback. The VALUE is irrelevant to T03's
+# ACs; only the T10 B-C tests below use a double that controls it.
+_DOUBLE_ROSTER = frozenset({1, 2, 3})
 
 
 class _Counter:
@@ -203,6 +214,10 @@ class _OrderedSingleIdTracker:
     def model_version(self) -> str:
         return "test-0.1"
 
+    @property
+    def roster(self) -> frozenset[int]:
+        return _DOUBLE_ROSTER
+
     def reset(self) -> None:
         self._n = 0
 
@@ -230,6 +245,10 @@ class _RetainingTracker:
     def model_version(self) -> str:
         return "test-0.1"
 
+    @property
+    def roster(self) -> frozenset[int]:
+        return _DOUBLE_ROSTER
+
     def reset(self) -> None:
         pass
 
@@ -241,7 +260,9 @@ class _RetainingTracker:
 _MUTATION_SENTINEL = 111
 
 
-def _mutating_render(frame: np.ndarray, dets: sv.Detections) -> np.ndarray:
+def _mutating_render(
+    frame: np.ndarray, dets: sv.Detections, roster: frozenset[int], t: float
+) -> np.ndarray:
     frame[:] = _MUTATION_SENTINEL
     return frame
 
@@ -265,6 +286,10 @@ class _FlakyTracker:
     @property
     def model_version(self) -> str:
         return self._base.model_version
+
+    @property
+    def roster(self) -> frozenset[int]:
+        return self._base.roster
 
     def reset(self) -> None:
         self._n = 0
@@ -297,6 +322,10 @@ class _CrashingTracker:
     def model_version(self) -> str:
         return "test-0.1"
 
+    @property
+    def roster(self) -> frozenset[int]:
+        return _DOUBLE_ROSTER
+
     def reset(self) -> None:
         pass
 
@@ -321,6 +350,10 @@ class _ResetTrackingTracker:
     @property
     def model_version(self) -> str:
         return "test-0.1"
+
+    @property
+    def roster(self) -> frozenset[int]:
+        return _DOUBLE_ROSTER
 
     def reset(self) -> None:
         self.reset_call_threads.append(threading.get_ident())
@@ -362,7 +395,7 @@ class TestAC1CapturePropsOnStart:
     def test_ac1_start_sets_frame_size_and_buffersize_on_the_capture(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
-        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids: counter.hit())
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster: counter.hit())
 
         loop.start()
         try:
@@ -396,7 +429,7 @@ class TestAC2OneThreadInCaptureOrder:
         seen: list[frozenset[int]] = []
         counter = _Counter()
 
-        def on_frame(t: float, present_ids: frozenset[int]) -> None:
+        def on_frame(t: float, present_ids: frozenset[int], roster: frozenset[int]) -> None:
             seen.append(present_ids)
             counter.hit()
 
@@ -425,7 +458,7 @@ class TestAC3RenderFnReceivesAnIndependentCopy:
         loop = _make_loop(
             tracker,
             cap,
-            on_frame=lambda t, ids: counter.hit(),
+            on_frame=lambda t, ids, roster: counter.hit(),
             render_fn=_mutating_render,
         )
 
@@ -447,7 +480,7 @@ class TestAC4GenerationAndSnapshot:
     def test_ac4_snapshot_none_before_start_then_populated_after_publish(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
-        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids: counter.hit())
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster: counter.hit())
 
         assert loop.snapshot() is None
 
@@ -466,7 +499,7 @@ class TestAC4GenerationAndSnapshot:
         generations_seen: list[int] = []
         counter = _Counter()
 
-        def on_frame(t: float, ids: frozenset[int]) -> None:
+        def on_frame(t: float, ids: frozenset[int], roster: frozenset[int]) -> None:
             generations_seen.append(loop.generation)
             counter.hit()
 
@@ -489,7 +522,7 @@ class TestAC5OverlayJpegDecodesToFrameSize:
     def test_ac5_overlay_jpeg_decodes_to_frame_size_dimensions(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
-        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids: counter.hit())
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster: counter.hit())
 
         loop.start()
         try:
@@ -515,7 +548,7 @@ class TestLatestCarriesCropMaterial:
     def test_frame_bgr_is_an_owned_read_only_frame_of_capture_size(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
-        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids: counter.hit())
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster: counter.hit())
 
         loop.start()
         try:
@@ -532,7 +565,7 @@ class TestLatestCarriesCropMaterial:
     def test_detections_are_json_native_and_aligned_with_present_ids(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
-        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids: counter.hit())
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster: counter.hit())
 
         loop.start()
         try:
@@ -568,7 +601,7 @@ class TestAC6StaleDetectionAndRecovery:
         loop = _make_loop(
             ScenarioTracker(),
             cap,
-            on_frame=lambda t, ids: counter.hit(),
+            on_frame=lambda t, ids, roster: counter.hit(),
             stale_after_s=1.0,
         )
 
@@ -622,7 +655,7 @@ class TestAC7TrackerExceptionHandling:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         tracker = _FlakyTracker(ScenarioTracker(), fail_on={2})
         counter = _Counter()
-        loop = _make_loop(tracker, cap, on_frame=lambda t, ids: counter.hit())
+        loop = _make_loop(tracker, cap, on_frame=lambda t, ids, roster: counter.hit())
 
         loop.start()
         try:
@@ -641,7 +674,7 @@ class TestAC7TrackerExceptionHandling:
         tracker = _FlakyTracker(ScenarioTracker(), fail_on={3})
         counter = _Counter()
         loop = _make_loop(
-            tracker, cap, on_frame=lambda t, ids: counter.hit(), stale_after_s=1.0
+            tracker, cap, on_frame=lambda t, ids, roster: counter.hit(), stale_after_s=1.0
         )
 
         loop.start()
@@ -662,7 +695,7 @@ class TestAC7TrackerExceptionHandling:
         tracker = _FlakyTracker(ScenarioTracker())
         counter = _Counter()
         loop = _make_loop(
-            tracker, cap, on_frame=lambda t, ids: counter.hit(), stale_after_s=1.0
+            tracker, cap, on_frame=lambda t, ids, roster: counter.hit(), stale_after_s=1.0
         )
 
         loop.start()
@@ -694,7 +727,7 @@ class TestAC8OnFrameContract:
         seen_t: list[float] = []
         counter = _Counter()
 
-        def on_frame(t: float, ids: frozenset[int]) -> None:
+        def on_frame(t: float, ids: frozenset[int], roster: frozenset[int]) -> None:
             seen_t.append(t)
             counter.hit()
 
@@ -714,7 +747,7 @@ class TestAC8OnFrameContract:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
 
-        def flaky_on_frame(t: float, ids: frozenset[int]) -> None:
+        def flaky_on_frame(t: float, ids: frozenset[int], roster: frozenset[int]) -> None:
             counter.hit()
             if counter.value == 2:
                 raise RuntimeError("boom in on_frame")
@@ -737,7 +770,7 @@ class TestAC9StopJoinsReleasesAndReportsDead:
     def test_ac9_stop_joins_releases_capture_and_reports_dead(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
-        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids: counter.hit())
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster: counter.hit())
 
         loop.start()
         assert counter.wait_for(1)
@@ -758,7 +791,7 @@ class TestStartRejectsASecondStart:
     def test_second_start_while_running_raises_runtime_error(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
-        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids: counter.hit())
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster: counter.hit())
 
         loop.start()
         try:
@@ -816,7 +849,7 @@ class TestAC11ResetTracker:
         counts: list[int] = []
         counter = _Counter()
 
-        def on_frame(t: float, ids: frozenset[int]) -> None:
+        def on_frame(t: float, ids: frozenset[int], roster: frozenset[int]) -> None:
             counts.append(len(ids))
             counter.hit()
 
@@ -841,7 +874,7 @@ class TestAC11ResetTracker:
     def test_ac11_reset_before_start_is_a_safe_noop(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
-        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids: counter.hit())
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster: counter.hit())
 
         loop.reset_tracker(timeout_s=0.2)  # must not raise
 
@@ -869,6 +902,203 @@ class TestAC11ResetTracker:
             loop.stop()
 
 
+class _RosterTracker:
+    """A tracker whose roster and present_ids are both dictated by the test.
+    `roster` deliberately hands back numpy ints — what the real linker's
+    frozenset carries — so B-C1's builtin-int cast is observable."""
+
+    def __init__(self, roster: set[int], present: set[int]) -> None:
+        self.confidence = 0.5
+        self._roster = frozenset(np.int64(i) for i in roster)
+        self._present = sorted(present)
+
+    @property
+    def class_names(self) -> dict[int, str]:
+        return {0: "surgical_instrument"}
+
+    @property
+    def model_version(self) -> str:
+        return "test-0.1"
+
+    @property
+    def roster(self) -> frozenset:
+        return self._roster
+
+    def reset(self) -> None:
+        pass
+
+    def update(self, frame: np.ndarray) -> sv.Detections:
+        return _growing_ids_detection(len(self._present), frame.shape[:2])
+
+
+class _EnrollingTracker:
+    """Enrols one more instrument per `update()`: the Nth call reports
+    present_ids == {N} and roster == {1..N}. The pair is a fingerprint of WHEN
+    the roster was sampled — reading it a tick early (before `update()`) or a
+    tick late puts the two out of step by exactly one, which no single-frame
+    assertion could see."""
+
+    def __init__(self) -> None:
+        self.confidence = 0.5
+        self._n = 0
+
+    @property
+    def class_names(self) -> dict[int, str]:
+        return {0: "surgical_instrument"}
+
+    @property
+    def model_version(self) -> str:
+        return "test-0.1"
+
+    @property
+    def roster(self) -> frozenset[int]:
+        return frozenset(range(1, self._n + 1))
+
+    def reset(self) -> None:
+        self._n = 0
+
+    def update(self, frame: np.ndarray) -> sv.Detections:
+        self._n += 1
+        return _single_id_detection(self._n, frame.shape[:2])
+
+
+class _RosterlessTracker:
+    """A tracker with NO `roster` attribute at all."""
+
+    def __init__(self) -> None:
+        self.confidence = 0.5
+
+    @property
+    def class_names(self) -> dict[int, str]:
+        return {0: "surgical_instrument"}
+
+    @property
+    def model_version(self) -> str:
+        return "test-0.1"
+
+    def reset(self) -> None:
+        pass
+
+    def update(self, frame: np.ndarray) -> sv.Detections:
+        return _single_id_detection(1, frame.shape[:2])
+
+
+class TestBC1CaptureSamplesTheRoster:
+    """B-C1: `_capture_tick` reads `tracker.roster` once per tick, right after
+    `update()`, casts its members to builtin int, stores it in `Latest.roster`,
+    and passes it to BOTH the render call and `on_frame`."""
+
+    def test_b_c1_latest_carries_the_trackers_roster_as_builtin_ints(self) -> None:
+        cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
+        counter = _Counter()
+        tracker = _RosterTracker(roster={3, 5, 7, 9}, present={3, 5})
+        loop = _make_loop(tracker, cap, on_frame=lambda t, ids, roster: counter.hit())
+
+        loop.start()
+        try:
+            assert counter.wait_for(1)
+            latest = loop.snapshot()
+        finally:
+            loop.stop()
+
+        assert latest is not None
+        assert latest.roster == frozenset({3, 5, 7, 9})
+        assert all(type(member) is int for member in latest.roster)
+        # ... and it JSON-encodes without T04 having to sanitize it (cf. AC12)
+        assert json.loads(json.dumps(sorted(latest.roster))) == [3, 5, 7, 9]
+
+    def test_b_c1_on_frame_receives_the_roster(self) -> None:
+        cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
+        counter = _Counter()
+        seen: list[frozenset[int]] = []
+
+        def on_frame(t: float, ids: frozenset[int], roster: frozenset[int]) -> None:
+            seen.append(roster)
+            counter.hit()
+
+        loop = _make_loop(_RosterTracker(roster={2, 4}, present={2}), cap, on_frame=on_frame)
+        loop.start()
+        try:
+            assert counter.wait_for(3)
+        finally:
+            loop.stop()
+
+        assert seen[:3] == [frozenset({2, 4})] * 3
+
+    def test_b_c1_render_fn_receives_the_roster_with_the_frames_own_t(self) -> None:
+        cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
+        counter = _Counter()
+        calls: list[tuple[frozenset[int], float]] = []
+
+        def spy_render(frame, dets, roster, t):
+            calls.append((roster, t))
+            return frame
+
+        loop = _make_loop(
+            _RosterTracker(roster={2, 4}, present={2}),
+            cap,
+            on_frame=lambda t, ids, roster: counter.hit(),
+            render_fn=spy_render,
+        )
+        loop.start()
+        try:
+            assert counter.wait_for(2)
+            latest = loop.snapshot()
+        finally:
+            loop.stop()
+
+        assert latest is not None
+        assert calls
+        rosters = [roster for roster, _ in calls]
+        assert rosters[:2] == [frozenset({2, 4})] * 2
+        # the render call and the snapshot describe the same instant
+        assert latest.t in [t for _, t in calls]
+
+    def test_b_c1_roster_is_sampled_in_the_same_tick_as_present_ids(self) -> None:
+        cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
+        counter = _Counter()
+        pairs: list[tuple[frozenset[int], frozenset[int]]] = []
+
+        def on_frame(t: float, ids: frozenset[int], roster: frozenset[int]) -> None:
+            pairs.append((ids, roster))
+            counter.hit()
+
+        loop = _make_loop(_EnrollingTracker(), cap, on_frame=on_frame)
+        loop.start()
+        try:
+            assert counter.wait_for(5)
+        finally:
+            loop.stop()
+
+        for present_ids, roster in pairs[:5]:
+            enrolled_so_far = frozenset(range(1, max(present_ids) + 1))
+            assert roster == enrolled_so_far, f"roster {sorted(roster)} lags {sorted(present_ids)}"
+
+
+class TestBC2NoRosterFallback:
+    """B-C2: the seam guarantees `roster`, so `CaptureLoop` must NOT carry
+    defensive fallback code for a tracker that lacks it. An invented empty
+    roster is not a safe default — downstream it means "nothing is an
+    instrument", turning the whole tray gray and emptying `/status`."""
+
+    def test_b_c2_a_tracker_without_a_roster_is_not_papered_over_with_an_empty_one(
+        self,
+    ) -> None:
+        cap = _SwitchableCapture()
+        loop = _make_loop(_RosterlessTracker(), cap)
+
+        loop.start()
+        try:
+            assert _wait_until(lambda: cap.read_count >= 3)  # ticks are happening
+            snapshot = loop.snapshot()
+            health = loop.health
+        finally:
+            loop.stop()
+
+        assert snapshot is None  # the tick raised and was skipped — nothing invented
+        assert health != "dead"  # ... and the loop itself soldiers on (AC7)
+
+
 class TestAC12PresentIdsAreBuiltinInts:
     """AC12: every element of Latest.present_ids is a builtin int, so a raw
     json.dumps of a status dict built from it round-trips."""
@@ -876,7 +1106,7 @@ class TestAC12PresentIdsAreBuiltinInts:
     def test_ac12_present_ids_are_builtin_ints_and_json_round_trips(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
-        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids: counter.hit())
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster: counter.hit())
 
         loop.start()
         try:

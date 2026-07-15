@@ -98,13 +98,24 @@ class Session:
     def phase(self) -> Phase:
         return self._phase
 
-    def observe(self, t: float, present_ids: frozenset[int]) -> None:
+    def observe(
+        self,
+        t: float,
+        present_ids: frozenset[int],
+        roster: frozenset[int] | None = None,
+    ) -> None:
+        """`roster` (T10/D8a) filters the RECORDING half only: an id outside it
+        is not an instrument, so it never becomes a track, never confirms, and
+        never reaches the report. The Start gate below deliberately keeps using
+        the FULL `present_ids` — it is the operator's judgment on everything
+        detected, made before any roster exists. `roster=None` means unfiltered."""
         self._advance(t, strict=True)
         if present_ids != self._idset:
             self._idset = present_ids
             self._idset_since_t = t
         if self._phase is Phase.RECORDING:
-            self._observe_recording(t, present_ids)
+            recorded_ids = present_ids if roster is None else present_ids & roster
+            self._observe_recording(t, recorded_ids)
 
     def setup_status(self, t: float) -> tuple[int, float]:
         if self._phase not in (Phase.SETUP, Phase.FINISHED):

@@ -89,6 +89,8 @@ setup ──POST /recording/start──▶ recording ──POST /recording/stop�
       {
         "tracker_id": 3,
         "label": "Instrument 3",     // single class today; label comes from backend
+        "colour": "#4285f4",         // required; the hex this instrument's mask
+                                     // is drawn with on /stream (see below)
         "on_table": false,
         "off_since_s": 61.0,         // null when on_table
         "pickup_count": 2
@@ -120,11 +122,44 @@ Frontend enables **Start** when `phase == "setup" | "finished"`,
 `capture_health == "ok"`, `detected_count ≥ 1`, and `stable_for_s ≥ 2` — the
 operator confirms visually on the overlay that everything is detected.
 
+**`recording.instruments[].colour`** (required, since 2026-07-15 / T10) is a hex
+string like `"#4285f4"`: the instrument's fixed mask colour, and **the exact same
+value the overlay draws that instrument's mask with** on `/stream`. That identity
+is the whole point of shipping it over the wire — the panel swatch and the video
+are the same number from the same source, so they cannot drift. Render the swatch
+straight from this field; never re-derive a colour from `tracker_id` on the
+frontend.
+
+Properties the frontend may rely on:
+
+- **Distinct and stable.** The backend holds a palette of 8 colours and assigns
+  one per roster instrument, derived from its id and the roster frozen at Start.
+  Distinct within a recording, and stable for the whole of it — an instrument
+  picked up and returned comes back with the same colour, because the linker
+  re-emits its original id and the colour is a pure function of that id.
+- **The hexes themselves are a TUNABLE.** Assert *distinctness* and *stability*;
+  never assert specific hex values. The palette will be re-tuned against the
+  branding and the real camera.
+- **Unknown and foreign ids are absent from `/status` entirely.** A phone or a
+  hand on the table renders gray "Unknown" on the video and gets **no
+  `instruments` entry**, no Usage, no Completeness — so no colour question
+  arises. This falls out of the roster filter in `Session` (D8a); there is no
+  filtering code in `main.py` and the frontend needs no filter of its own.
+- **One transient:** before the first frame, and during the ~0.7 s between Start
+  and the linker's enrolment freeze, there is no roster yet and **every colour
+  resolves to the gray `"#9ca3af"`**. Harmless and self-correcting — the entry
+  debounce means no instrument row exists to look wrong for long. Don't special-
+  case it; just don't be surprised by a gray flash in a fresh recording.
+
 ### `GET /stream` — MJPEG
 
-Live frames with the tracker overlay drawn (boxes + masks, coloured by
-`tracker_id`, live count burned in or not — overlay content is backend's call
-and NOT part of this contract).
+Live frames with the tracker overlay drawn (boxes + masks, live count burned in
+or not — overlay content is backend's call and NOT part of this contract, with
+one exception: while `phase == "recording"`, a roster instrument's mask is drawn
+in exactly the `colour` `/status` reports for it. Outside `recording` the overlay
+is per-track colours and `"Instrument {id}"` labels, as before; not-in-roster
+objects are gray, with a ~1 s resolving spinner before they settle to
+`"Unknown"`).
 
 ### `POST /recording/start` → `200 {"started_at": ...}`
 
@@ -175,6 +210,14 @@ don't overlap and are sorted; an instrument never picked up has `usage: []`.
   present for `> ON_DEBOUNCE` (~1.0 s). Otherwise detector flicker becomes fake
   pickups. Config values, not API.
 - **Identity = `tracker_id`.** The report trusts the tracker's ids completely.
+- **The roster filters recording, not setup.** The model freezes a roster of
+  enrolled identities ~0.7 s after Start and exposes it across the model seam;
+  the backend admits only those ids into recording state, which is what keeps
+  foreign objects out of `instruments`, Usage and Completeness. The `setup` block
+  is deliberately **not** filtered — `detected_count` / `stable_for_s` count
+  *everything* detected, because the Start gate is the operator's judgment on the
+  whole table and is made before any roster exists. Config and internals, not
+  API; see DESIGN D8a.
 - **Detection previews are presentation data, not model output.** The backend
   owns the original frame passed to `InstrumentTracker.update()` and derives
   `/status` thumbnails from that frame plus the returned `xyxy` and

@@ -12,6 +12,7 @@ See `docs/tracker-interface.md` for the full contract and rationale.
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
@@ -19,10 +20,17 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 import numpy as np
 import supervision as sv
 
+from orc_model.pipelines.persistent_gallery import (
+    DEFAULT_INSTRUMENTS_DIR,
+    load_persistent_galleries,
+)
+
 if TYPE_CHECKING:
     from orc_model.components.detector.detector import Detector
     from orc_model.pipelines.deep_ocsort.tracker import DeepOCSortTracker
     from orc_model.pipelines.session_linker import SessionLinker
+
+_log = logging.getLogger("orc_model.tracking")
 
 DEFAULT_PROCESSING_FPS = 3.0
 DEFAULT_WORKSPACE_MAX_CENTER_Y_RATIO = 0.88
@@ -35,11 +43,23 @@ class InstrumentTracker(Protocol):
     `update(frame)` returns the tracked detections for THIS frame as an
     `sv.Detections` with these fields guaranteed populated:
 
-        xyxy        float32 (N, 4)      pixel coords in the frame's OWN space
-        confidence  float32 (N,)        per detection
-        class_id    int     (N,)        key into `class_names`
-        tracker_id  int     (N,)        stable & unique per instance this session
-        mask        bool    (N, H, W)   full-frame instance masks
+        xyxy              float32 (N, 4)    pixel coords in the frame's OWN space
+        confidence        float32 (N,)      per detection
+        class_id          int     (N,)      key into `class_names`
+        tracker_id        int     (N,)      stable & unique per instance this session
+        mask              bool    (N, H, W) full-frame instance masks
+        data["resolving"] bool    (N,)      True while the linker is still
+                                            deciding this track's identity
+                                            (pending in its evidence window, or
+                                            deferred); False for a settled roster
+                                            id and for a settled Unknown.
+
+    `data["resolving"]` splits the offset (not-in-roster) id range into the two
+    states a consumer draws differently: a *resolving* track shows the
+    "resolving" spinner, a settled one the "Unknown" label. It is driven by the
+    linker's actual decision, not a consumer-side timer, so the spinner can never
+    disagree with when the identity is really settled. (Seam widening grilled
+    with Bram 2026-07-16 — the wait-state fix; see `tracker-interface.md`.)
 
     Treat `frame` as read-only: do not mutate its pixels or retain a mutable
     reference. Every output field is row-aligned for this exact input frame;
@@ -79,6 +99,13 @@ class InstrumentTracker(Protocol):
         every saved frame so a dataset is traceable to the model that made it."""
         ...
 
+    @property
+    def roster(self) -> frozenset[int]:
+        """Frozen Start roster of session ids. Empty before the enrolment
+        freeze and immediately after reset(). (Seam widening grilled with
+        Bram 2026-07-15 — wayfinder T10 route (b).)"""
+        ...
+
 
 class FakeInstrumentTracker:
     """A dependency-free stand-in that honours the `InstrumentTracker` contract,
@@ -102,6 +129,10 @@ class FakeInstrumentTracker:
     @property
     def model_version(self) -> str:
         return "fake-0.1"
+
+    @property
+    def roster(self) -> frozenset[int]:
+        return frozenset(range(self.n_instruments))  # the fake enrols instantly
 
     def reset(self) -> None:
         self._frame = 0
@@ -150,7 +181,12 @@ class FakeInstrumentTracker:
             confidence=np.array(confidences, dtype=np.float32),
             class_id=np.zeros(len(boxes), dtype=int),
             tracker_id=np.array(tracker_ids, dtype=int),
-            data={"class_name": np.array(["surgical_instrument"] * len(boxes))},
+            data={
+                "class_name": np.array(["surgical_instrument"] * len(boxes)),
+                # The fake enrols instantly and never re-identifies, so every
+                # emitted track is a settled roster id -- nothing is resolving.
+                "resolving": np.zeros(len(boxes), dtype=bool),
+            },
         )
 
 
@@ -162,6 +198,7 @@ def load_tracker(
     max_age_seconds: float = 1.0,
     absent_death_s: float | None = None,
     workspace_max_center_y_ratio: float | None = DEFAULT_WORKSPACE_MAX_CENTER_Y_RATIO,
+    instruments_dir: str | Path | None = DEFAULT_INSTRUMENTS_DIR,
 ) -> InstrumentTracker:
     """Compose the real `InstrumentTracker`: RF-DETR detector -> Deep OC-SORT
     -> SessionLinker, per `model/docs/linker-design.md` "Where it composes".
@@ -198,6 +235,14 @@ def load_tracker(
     roster while retaining the instrument row. Pass `None` for an uncropped
     installation or calibrate the ratio when the camera framing changes.
 
+    `instruments_dir` holds the pre-captured specimen photos the linker binds
+    enrolled identities to (`instrument{N}/images` + COCO annotations). They are
+    loaded and embedded ONCE here, at startup, and cached for the process's
+    life -- embedding ~15 views per specimen per enrolment would push the
+    freeze from ~260 ms toward seconds. Pass `None` to disable binding
+    (everything links session-only); a missing or empty directory logs and
+    degrades the same way, never raises.
+
     Constructs the SRC matcher (`ChampionMethod`) eagerly, which loads
     DINOv2-B from the local HF cache -- so this call fails fast at startup on
     a missing/mismatched cache instead of on the first tracked frame.
@@ -222,7 +267,21 @@ def load_tracker(
     from orc_model.pipelines.session_linker import SessionLinker
 
     matcher = ChampionMethod()  # loads DINOv2-B eagerly -- fail fast, not on first frame
-    session_linker = SessionLinker(matcher, fps=fps, absent_death_s=absent_death_s)
+    galleries = None
+    if instruments_dir is None:
+        _log.info("instruments_dir=None -- specimen binding disabled, linking session-only")
+    else:
+        # Embed the specimen photos ONCE, here, and hand the vectors to the
+        # linker; reset() must never re-load or re-embed them.
+        galleries = load_persistent_galleries(matcher, instruments_dir) or None
+        if galleries is None:
+            _log.info("no persistent galleries under %s -- linking session-only", instruments_dir)
+    session_linker = SessionLinker(
+        matcher,
+        fps=fps,
+        absent_death_s=absent_death_s,
+        persistent_galleries=galleries,
+    )
 
     return _RealInstrumentTracker(
         detector=detector,
@@ -349,6 +408,10 @@ class _RealInstrumentTracker:
     @property
     def model_version(self) -> str:
         return self._model_version
+
+    @property
+    def roster(self) -> frozenset[int]:
+        return self._session_linker.roster
 
     def reset(self) -> None:
         self._deep_ocsort = self._new_deep_ocsort()

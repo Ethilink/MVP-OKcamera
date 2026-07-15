@@ -42,8 +42,10 @@ real open-set, multi-candidate matcher, not a one-missing heuristic.
 - **Session id** — the stable id a physical object keeps for the whole recording,
   even across absence. This is the *only* identity a consumer sees, carried in
   the `tracker_id` field of `sv.Detections`.
-- **Known roster** — the frozen set `{1…N}` of session ids enrolled at Start.
-  Fixed after the enrolment window; a track born later never joins it.
+- **Known roster** — the set of session ids enrolled at Start, frozen at the
+  enrolment freeze; a track born later never joins it. **Not necessarily
+  `{1…N}`** — §3's binding assigns the numbers, and a partial bind leaves gaps.
+  Published across the seam as `InstrumentTracker.roster` (§7).
 - **Enrolment window** — the ~0.5 s after `reset()` during which the roster is
   formed and each identity's Start gallery is seeded.
 - **Gallery** — the set of per-view DINOv2-B embeddings that represent a
@@ -117,40 +119,135 @@ maturation; single-frame detector flicker).
 
 ## 2 · Identity model
 
-- At the enrolment window's close, each enrolled track's current raw id is
-  **promoted to its canonical session id**, so the roster is a fixed set `{1…N}`.
+- At the enrolment window's close, each enrolled track is **assigned a canonical
+  session id** — its bound specimen's number, or the next reserved session-only
+  number. Raw ids are *renumbered*, never promoted; see §3 "Session numbering".
+  (Superseded 2026-07-15: this bullet used to say the raw id was promoted as-is
+  and the roster was therefore `{1…N}`. Neither survives T08.)
 - The linker keeps a **private `raw id → session id` map**; the seam only ever
   emits the session id.
 - When an Active identity's raw track dies, its session id → **Missing** (gallery
   retained). When a returning raw track links to it, the linker maps
   `new raw id → that session id` and re-emits the session id. Original id forever.
-- A post-enrolment newcomer that matches nothing **passes through its own raw id**.
-  Because OC-SORT ids are monotonic, a newcomer's id is always `> N` — strictly
-  disjoint from the roster — so **Unknown is derived app-side from roster
-  membership**. No status field, no widened seam.
+- A post-enrolment newcomer that matches nothing is emitted at
+  **`raw_id + unknown_id_offset`** (default 1000) — permanently disjoint from the
+  roster's range, so **Unknown stays derived app-side from roster membership**
+  and needs no status field. (Superseded 2026-07-15: the old text leaned on
+  "OC-SORT ids are monotonic, so a newcomer's id is always `> N`". Renumbering
+  breaks that — raw ids and session ids now share a small integer range and would
+  *collide* — which is what the offset exists to prevent. §7, and the seam is
+  widened after all: by `roster`.)
 
 ## 3 · Gallery binding (persistent references)
 
-Each session identity may combine (a) **persistent multi-view references** for
-its exact physical specimen (T07, pre-captured) and (b) **fresh Start crops**.
-Binding is automatic:
+> **Rewritten 2026-07-15 — T08 is built and replay-validated.** This section had
+> drifted from the shipped design in three ways:
+>
+> 1. **The match rule is SRC, not cosine** — ⚠️ **engineering call, ungrilled.**
+>    The old text said "cosine-match"; that predates §6's rewrite and is stale.
+>    The champion computes **no crop-to-crop cosine anywhere** — binding scores
+>    through the same `matcher.score()` sparse solve as every other decision.
+> 2. **The assignment is greedy one-to-one, not Hungarian** — ⚠️ **engineering
+>    call, ungrilled.** Deliberate deviation from the text that stood here;
+>    reason stated below.
+> 3. **The numbering was never described here.** It is now — the "reserved
+>    specimen numbers" scheme, which *was* grilled with Bram (2026-07-15) and is
+>    what makes "Instrument 3" mean *specimen 3*.
+>
+> Build contract:
+> [`T08-SPEC.md`](../../docs/wayfinder/session-linker/assets/T08-T10/T08-SPEC.md)
+> §B-B/§B-L/§B-N. Measurements: [`demo-validation.md`](./demo-validation.md).
 
-- At enrolment close, embed each identity's Start crops → N query vectors.
-  Cosine-match against the ≤8 persistent specimen galleries and solve a
-  **one-to-one global assignment** (Hungarian) — no two identities claim the same
-  specimen.
-- **Bind only when confident** (above absolute threshold **and** best-vs-second
-  margin). A bound identity's gallery = `persistent ∪ Start`.
-- **Fallback:** an identity whose mapping is uncertain stays **session-only**
-  (gallery = Start crops only) — still a first-class identity, just fewer views.
-- **Bind once, at enrolment. Never re-bind mid-recording** (a late bind risks
-  poisoning).
-- **Degrades gracefully:** if T07's photos don't land, no persistent galleries
-  load → everyone runs session-only and the linker still works (weaker only on
-  opposite-face returns).
+Each session identity may combine (a) **persistent multi-view references** for
+its exact physical specimen (T07's pre-captured photo sets — 8 specimens × 15
+views + COCO masks under `model/data/instruments/instrument{N}/`) and (b) **fresh
+Start crops**. Binding is automatic, and happens exactly once:
+
+- **At the enrolment freeze**, once every identity's Start gallery is built,
+  each identity's Start crops (the same best-≤3-by-quality crops that seed
+  `start_views`) are scored against the loaded persistent specimen galleries with
+  `matcher.score()` — **SRC, not cosine** (flag 1). Identities are processed in
+  ascending raw-id order.
+- **Comparison is not eligibility here either.** Every identity scores against
+  the **complete** set of loaded specimens, always. Never score against a
+  shrunken dictionary and never re-score in rounds: dropping a claimed gallery
+  changes K and therefore changes every remaining SCI, invalidating the
+  calibration. §6.5 point 2's rule applies to binding verbatim.
+- **Bind only when confident.** An identity *proposes* its best specimen iff
+  `best ≥ bind_tau` **and** `best − second ≥ bind_margin`. With a single loaded
+  gallery the margin is vacuous and skipped — the matcher's internal K=1
+  `cos_tau` gate is what covers that case (§6, Trap 1). Do not touch `cos_tau`.
+- **Greedy one-to-one, not Hungarian** (flag 2). Proposals sort by descending
+  score, tie-broken by ascending raw id; the first proposer of a specimen is
+  awarded it, and any later proposer of a claimed specimen becomes
+  **session-only**. The reason to deviate from a global optimum: Hungarian would
+  push a losing identity onto its **second-choice** specimen. A wrong bind
+  poisons every later decision that identity is ever part of, while session-only
+  merely means fewer views. So a contested loser falls back to session-only and
+  **never settles for second**. This is §6.5 point 3's shipped philosophy, for
+  the same reason. (It is also the pragmatic route: Hungarian is not reachable
+  through the `score()`/`accept()` seam without assembling the matrix by hand —
+  build-brief Trap 3.)
+- **A bound identity's matching gallery = `persistent ∪ Start`** (∪ its last-seen
+  view once that exists) — ~18 dictionary atoms instead of ≤3.
+  `_comparison_galleries()` concatenates the bound specimen's persistent views
+  with the identity's session views. Unbound identities keep session views only.
+- **Fallback:** an identity whose mapping is uncertain stays **session-only** —
+  still a first-class identity with a small stable number, just fewer views.
+- **Bind once, at the freeze. Never re-bind mid-recording.** No later event —
+  link, death, return, batch decision — may change any identity↔specimen
+  binding. A late bind poisons.
+- **Degrades gracefully, and must never raise.** No photos, a missing or empty
+  directory, an unparseable folder → no persistent galleries → everyone runs
+  session-only (plus the renumbering below) and the linker still works, weaker
+  only on opposite-face returns. Persistent views are embedded **once**, at
+  `load_tracker()` time, and survive `reset()` (§4, and Trap 5 in the build
+  brief).
 
 Prefer session-only over a wrong bind: no duplicate types in the demo set means a
 correct match is high-margin, so a *low* margin genuinely means "don't bind."
+
+> **Flag — loader robustness reads per-image, not per-folder** (engineering call,
+> ungrilled). B-L4 says "unreadable images are skipped with a logged warning".
+> The build applies that **per image**: one corrupt `.jpg` costs that view, and
+> the specimen still loads its other 14. A folder is skipped only if *zero* crops
+> survive. More robust, and consistent with "never raise" — but note the one
+> asymmetry: an image_id that cannot be resolved against the COCO index trips the
+> folder's outer `except` and skips the whole specimen.
+
+### Session numbering — reserved specimen numbers
+
+Grilled with Bram 2026-07-15. Binding is what assigns session ids, so the
+numbering lives here rather than in §2.
+
+- **Bound identity → `session_id = its specimen number`.** That is the point of
+  the whole build: "Instrument 3" on screen means specimen 3's photographed
+  physical object, stable across recordings.
+- **Session-only identity → numbered from `max(loaded specimen numbers) + 1`
+  upward**, in ascending raw-id order. With no galleries loaded the base is `0`,
+  so numbering starts at **1** and the roster is `{1…N}` contiguous.
+- **A specimen number is never worn by an identity that did not confidently
+  bind.** Reserving the range is what keeps the label honest. The cost is that a
+  partial bind leaves a **gapped** roster — e.g. `{1, 2, 5, 9, 10}`. Contiguity
+  is not a property anyone may assume, the app included (§7).
+- This replaces the old `session_id = raw_id` promotion **in every case**,
+  galleries or not — deliberate, grilled: renumbering is what stops "Instrument
+  10 on a tray of 8". Measured on both takes: the raw OC-SORT ids at the freeze
+  were non-contiguous (Take B: `{3,5,7,9,10,11,12,14}`) and renumbered to
+  `{1…8}`.
+- Every id emitted for a track that is *not* mapped to a roster identity is
+  offset out of the roster's range — see §7 and
+  [`tracker-interface.md`](./tracker-interface.md).
+
+> **Flag — `bind_margin` is doing almost no work** (measured at T08, ungrilled
+> consequence). Nearly every second-best bind score comes back **0.0**: the
+> champion's K=1 `cos_tau = 0.60` gate zeroes hopeless candidates *before* the
+> margin is ever consulted, so the absolute `bind_tau` carries the bind decision
+> essentially alone. `bind_tau = 0.30` / `bind_margin = 0.02` simply start at the
+> champion's own τ/δ and are **to be tuned at T07/T09** (flag: nobody chose those
+> values *for binding*). Anyone reaching for the margin expecting leverage should
+> know it has almost none — and see `demo-validation.md` for the one bind that
+> currently clears `bind_tau` by 0.23%.
 
 ## 4 · Gallery representation
 
@@ -303,47 +400,94 @@ All guarded numbers come from the 8×15 synthetic crop set — **expect a
 
 ## 7 · Rejection & Pending — app-side encoding
 
-> ⚠️ **Premise resolved by grilling (Bram, 2026-07-15); build in flight (T10).**
-> The paragraph below originally claimed the app already has the frozen roster
-> `{1…N}` — both halves were false (no roster app-side; ids are OC-SORT's raw
-> counter). **Decided route: (b) the roster crosses the seam** — `InstrumentTracker`
-> gains a read-only `roster` property (frozenset of session ids, empty until the
-> enrolment freeze), a deliberate widening of the `tracker-interface.md`/D8 pin;
-> the app reads it instead of deriving its own Start snapshot (route (a) was
-> rejected for its ~0.7 s snapshot-vs-freeze coordination risk). Every "`> N`"
-> membership test below is therefore a **set-membership test against that
-> property**, and contiguity is not assumed (T08 numbering: bound → specimen
-> number 1–8, session-only → 9+, foreign ids offset out of the roster range).
-> Also grilled the same day: unknowns are **video-only** (gray mask on the feed,
-> no panel row), and each roster instrument's `/status` entry carries its mask
-> colour so panel and overlay can never drift.
+> ⚠️ **Rewritten 2026-07-15 — this section's premise was false, and T08/T10
+> reversed it.** It used to open *"Nothing new crosses the seam. The app already
+> has the frozen roster `{1…N}`."* **Both halves were false**: the app had no
+> roster at all, and the ids were OC-SORT's raw counter, so a tray of 8 read e.g.
+> `{3,5,7,9,10,11,12,14}`. Everything below is the shipped design, grilled with
+> Bram the same day (route (b); wayfinder T10) and built. The old `> N` threshold
+> tests are gone — they are set-membership tests now.
 
-Nothing new crosses the seam. The app already has the frozen roster `{1…N}` and a
-1 s entry debounce (`Session`).
+**The roster crosses the seam.** `InstrumentTracker` exposes a read-only
+`roster` property — a `frozenset[int]` of session ids, empty until the enrolment
+freeze and immediately after `reset()`. The app samples it in the **same tick**
+as the detections it belongs to, and every "is this ours?" test is **set
+membership against that property**. Contiguity is never assumed and `> N` is
+never computed: a partial bind gaps the roster (§3).
 
-- **During the decision window** the linker emits the track's **provisional raw
-  id** (`> N`). The app sees a not-in-roster id present for **< the debounce** →
-  draws a **small "resolving" spinner** on that box, **gray mask**.
+This is route (b), grilled with Bram 2026-07-15, and it is a **deliberate
+widening** of the `tracker-interface.md` pin and `app/docs/DESIGN.md` D8. Route
+(a) — the app deriving its own roster from the ids present at its Start snapshot
+— was rejected: the app's snapshot and the linker's freeze are ~0.7 s apart, and
+any disagreement between those two sets silently corrupts every Unknown decision
+for the whole recording. One read-only property removes that entire class of
+coordination bug. The app also gets a 1 s entry debounce (`Session`), which the
+spinner below rides.
+
+- **Two disjoint id ranges, not a threshold.** Roster session ids (specimen
+  numbers, then session-only numbers above them) are emitted **unchanged**. Every
+  id emitted for a track that is *not* mapped to a roster identity — pending in
+  its evidence window, deferred, or settled Unknown — is `raw_id +
+  unknown_id_offset` (default 1000). The ranges never overlap, so "not in roster"
+  is exact, cheap, and stable for the whole recording. Details and the freeze-frame
+  rule: [`tracker-interface.md`](./tracker-interface.md).
+- **During the decision window** the linker emits the track's **provisional
+  offset id** and marks it **`data["resolving"] = True`** (pending or deferred).
+  The app draws a **small "resolving" spinner** on that box, **gray mask**,
+  gated on that flag — not on a clock.
 - **On resolution the box's id flips:**
-  - **Linked** → box now carries a roster session id (∈ `{1…N}`) → spinner clears,
-    it snaps to that instrument's **fixed colour**. Provisional id lived < 1 s → no
-    report trace (seam-designed behaviour; app renders per-box, so the transition
-    is visually continuous though the integer changed).
+  - **Linked** → box now carries a roster session id → spinner clears, it snaps
+    to that instrument's **fixed colour**. The provisional id lived < 1 s → no
+    report trace (seam-designed behaviour; the app renders per-box, so the
+    transition is visually continuous though the integer changed).
   - **Unknown** → still not-in-roster at debounce → spinner clears to a **gray
-    Unknown** mask; out of Usage/Completeness (T06).
-- **Mask colours:** the 8 roster ids each get one of **8 distinct colours**;
-  not-in-roster → **gray**. Because the linker re-emits the *original* session id,
-  a returned instrument **regains its original colour** (visual identity
+    Unknown** mask.
+- **Unknowns are video-only** (grilled 2026-07-15). A not-in-roster track exists
+  on the **feed** and nowhere else: gray mask, ~1 s resolving spinner, then the
+  settled label **"Unknown"** — never `"Instrument N"`, at any age, in any state.
+  It gets **no panel row**: it never enters `/status`'s recording instruments,
+  never reaches Usage or Completeness (T06), never lands in the report. The video
+  says "the system sees something and it is not one of yours"; the panel stays
+  the roster's. This is enforced model-side-in-spirit but app-side-in-fact — the
+  backend filters `present_ids & roster` before anything becomes a tracked
+  instrument.
+- **Colour crosses the seam too.** Each `/status` recording instrument carries
+  its own **fixed mask colour as a hex string**, derived from the frozen roster,
+  so the panel swatch and the overlay mask are literally the *same value* and can
+  never drift apart. Roster ids get **8 distinct colours**; not-in-roster →
+  **gray** (`#9ca3af`). Because the linker re-emits the *original* session id, a
+  returned instrument **regains its original colour** (visual identity
   continuity); a foreign object stays gray.
-- The spinner rides the app's debounce clock, not the linker's exact decision
-  instant (the model deliberately carries no "decided-Unknown" flag) — a clear
-  foreign object may spin the full ~1 s then settle gray. Harmless.
+- The spinner tracks the linker's **actual decision**, via the per-detection
+  `data["resolving"]` flag (widened 2026-07-16). **Superseded:** T10 originally
+  rode the app's debounce clock instead, because the model then carried no
+  "still-deciding" flag — but a track **deferred** behind a coasting active id
+  (the normal handoff path, §7's revalidation) outlasts that ~1 s clock, so it
+  flickered to a settled gray "Unknown" and *then* snapped to its instrument
+  once it linked. The flag removes the disagreement: the spinner clears exactly
+  when the linker settles the track (linked → its colour; rejected → gray
+  Unknown), never before. It retires the renderer's `pending_s` timer and
+  first-seen map (`T10-BACKEND-SPEC.md` B-V3/B-V5).
 
-> **App-side deltas to land in `app/docs/DESIGN.md` + the T05 spec:** resolving
-> spinner on young not-in-roster tracks; gray Unknown mask; 8-colour roster
-> mapping by session id. Model seam unchanged.
+> **Shipped in T10** (`app/docs/DESIGN.md` D8a, `T10-BACKEND-SPEC.md`): resolving
+> spinner on not-in-roster tracks; gray Unknown mask, video-only; 8-colour
+> roster mapping by session id, reported per instrument. Route (b) widened the
+> model seam by one read-only property (`roster`); the wait-state fix
+> (2026-07-16) added a second widening, the per-detection `data["resolving"]`
+> flag, so the spinner follows the linker's decision rather than a clock. Those
+> two are the whole cost, and the reason the app needs no coordination logic of
+> its own.
 
 ## 8 · Rotation & flip robustness
+
+> **Status 2026-07-15: NOT built, and NOT subsumed.** Line 2 is marked "(built,
+> on)" below — that is stale; no augmentation ships. T08 tested the hypothesis
+> that §3's 15 real persistent poses would make §8 unnecessary, and the evidence
+> came back **negative**: with all 15 persistent views bound, Take B's 368.0 s
+> flipped instrument **still** settles Unknown rather than identity 6. §8 remains
+> a real, unaddressed gap. It **fails safe** (a false reject, never a wrong
+> link), so it does not block the demo. Evidence:
+> [`demo-validation.md`](./demo-validation.md).
 
 Layered; only Line 3 is gated on T02's rotation-margin numbers.
 
@@ -412,7 +556,9 @@ T07's real both-face capture or the § 5 refresh module catching the face live.
 | `alpha` = 0.0003 | `MultiTaskLasso` L1 penalty | **autoresearch** |
 | `size_alpha` = 0.5 | mask-size fusion weight | **autoresearch** (resolves the twin pair) |
 | `match_frames` = 3 (~0.5 s) | multi-frame evidence window | **autoresearch** |
-| `bind_threshold`, `bind_margin` | persistent binding confidence | tune at **T07** |
+| `bind_tau` = 0.30 | absolute §3 bind score | starts at the champion's `τ_accept`; **nobody tuned it for binding** — T07/T09 |
+| `bind_margin` = 0.02 | §3 best-vs-second bind gap | starts at the champion's `margin_δ`; **measured to do almost no work** (§3 flag) — T07/T09 |
+| `unknown_id_offset` = 1000 | keeps emitted non-roster ids disjoint from the roster | §7; demo-scale rosters never approach it |
 | crop = masked RGB (+ 2 px dilation) | crop form | **autoresearch** confirms |
 | rotation augmentation angle set + mirror | Line 2 | **T02** |
 | `refresh_enabled` = true | § 5 toggle | this doc; keep-on validated by T04 |

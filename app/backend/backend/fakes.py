@@ -67,8 +67,28 @@ DEFAULT_SCENARIO: tuple[ScenarioEvent, ...] = (
     ScenarioEvent(tracker_id=3, leave_s=50.0, return_s=None),
 )
 
+
+@dataclass(frozen=True)
+class ForeignWindow:
+    """A scripted foreign object during recording: `tracker_id` (NOT in the
+    roster) is present for appear_s <= t < disappear_s (T10)."""
+
+    tracker_id: int
+    appear_s: float
+    disappear_s: float
+
+
+DEFAULT_FOREIGN: tuple[ForeignWindow, ...] = (
+    ForeignWindow(tracker_id=9, appear_s=40.0, disappear_s=48.0),
+)
+
 _DEFAULT_N_INSTRUMENTS = 8
 _DEFAULT_CHURN_PERIOD_S = 12.0
+# How long a foreign object reads as "resolving" (spinner) after it appears,
+# before it settles to gray "Unknown". The real linker holds a track pending for
+# its evidence window before deciding; the fake reproduces just that beat so
+# `--fake` mode demos spinner-then-settle. TUNABLE (a demo-feel knob only).
+_DEFAULT_RESOLVING_WINDOW_S = 1.0
 DEFAULT_SETUP_CHURN: tuple[ChurnWindow, ...] = (
     # The "extra" tray items (ids 6-8) drop out in overlapping windows so the
     # count eases 8 → 7 → 6 → 5 → 6 → 7 → 8 across each 12 s cycle and starts a
@@ -97,12 +117,16 @@ class ScenarioState:
         events: Sequence[ScenarioEvent] = DEFAULT_SCENARIO,
         churn: Sequence[ChurnWindow] = DEFAULT_SETUP_CHURN,
         churn_period_s: float = _DEFAULT_CHURN_PERIOD_S,
+        foreign: Sequence[ForeignWindow] = DEFAULT_FOREIGN,
+        resolving_window_s: float = _DEFAULT_RESOLVING_WINDOW_S,
     ) -> None:
         self.n_instruments = n_instruments
         self.fps = fps
         self.events = tuple(events)
         self.churn = tuple(churn)
         self.churn_period_s = churn_period_s
+        self.foreign = tuple(foreign)
+        self.resolving_window_s = resolving_window_s
         self._frame_count = 0
         self._recording = False
 
@@ -128,11 +152,38 @@ class ScenarioState:
     def present_ids(self) -> list[int]:
         t = self.time_s
         absent = self._scenario_absent if self._recording else self._churn_absent
-        return [
+        ids = [
             tracker_id
             for tracker_id in range(1, self.n_instruments + 1)
             if not absent(tracker_id, t)
         ]
+        # Foreign objects only land on the table during recording — nobody drops
+        # a phone on the tray while it is still being arranged (T10/B-F1).
+        if self._recording:
+            ids += [window.tracker_id for window in self.foreign_present(t)]
+        return ids
+
+    def foreign_present(self, t: float) -> tuple[ForeignWindow, ...]:
+        """The foreign windows open at `t` — shared by the tracker (which reports
+        their ids) and the drawing (which gives them a non-instrument shape), so
+        detections and pixels cannot disagree."""
+        return tuple(w for w in self.foreign if w.appear_s <= t < w.disappear_s)
+
+    def is_resolving(self, tracker_id: int) -> bool:
+        """True while a present foreign object is still in its simulated re-id
+        window — the first `resolving_window_s` after it appears — so the fake
+        emits the spinner-then-settle beat the real linker produces for an
+        undecided track. Roster instruments never resolve: the fake enrols
+        instantly and re-emits their ids unchanged, so they are always settled."""
+        if not self._recording:
+            return False
+        t = self.time_s
+        return any(
+            window.tracker_id == tracker_id
+            and window.appear_s <= t < window.appear_s + self.resolving_window_s
+            and t < window.disappear_s
+            for window in self.foreign
+        )
 
     def box(self, tracker_id: int, width: int, height: int) -> list[float]:
         return self._box(tracker_id, self.time_s, width, height)
@@ -177,6 +228,10 @@ class ScenarioTracker:
     and detections line up. `reset()` restarts the script at t=0 and switches
     the state from setup churn to the recording scenario.
 
+    Emits the seam's `data["resolving"]` flag per detection (see
+    `tracker-interface.md`): a foreign object reads resolving for its first
+    `resolving_window_s`, then settled; roster ids are always settled.
+
     Boundary-frame convention (so T02 windows land on exact seconds): during
     recording an instrument is ABSENT for frames where `leave_s < t < return_s`
     (`return_s` None => absent for all t > leave_s). So it is PRESENT at exactly
@@ -193,6 +248,8 @@ class ScenarioTracker:
         confidence: float = 0.5,
         churn: Sequence[ChurnWindow] = DEFAULT_SETUP_CHURN,
         churn_period_s: float = _DEFAULT_CHURN_PERIOD_S,
+        foreign: Sequence[ForeignWindow] = DEFAULT_FOREIGN,
+        resolving_window_s: float = _DEFAULT_RESOLVING_WINDOW_S,
         state: ScenarioState | None = None,
     ) -> None:
         self.confidence = confidence
@@ -202,6 +259,8 @@ class ScenarioTracker:
             events=events,
             churn=churn,
             churn_period_s=churn_period_s,
+            foreign=foreign,
+            resolving_window_s=resolving_window_s,
         )
 
     @property
@@ -228,6 +287,12 @@ class ScenarioTracker:
     def model_version(self) -> str:
         return "scenario-0.1"
 
+    @property
+    def roster(self) -> frozenset[int]:
+        """The fake enrols instantly and never revises: the tray IS the roster.
+        ForeignWindow ids live outside it (the default uses 9)."""
+        return frozenset(range(1, self._state.n_instruments + 1))
+
     def reset(self) -> None:
         self._state.reset()
 
@@ -240,12 +305,19 @@ class ScenarioTracker:
 
         boxes = [self._state.box(tracker_id, width, height) for tracker_id in present_ids]
         masks = [_mask(box, width, height) for box in boxes]
+        # Computed before advance() so it reads THIS frame's clock, exactly like
+        # present_ids/box above. A foreign object is resolving for its first
+        # second, then settles; roster ids are always settled.
+        resolving = np.array(
+            [self._state.is_resolving(tracker_id) for tracker_id in present_ids], dtype=bool
+        )
         detections = sv.Detections(
             xyxy=np.array(boxes, dtype=np.float32),
             mask=np.stack(masks),
             confidence=np.full(len(present_ids), _CONFIDENCE_VALUE, dtype=np.float32),
             class_id=np.full(len(present_ids), _SURGICAL_INSTRUMENT_CLASS_ID, dtype=int),
             tracker_id=np.array(present_ids, dtype=int),
+            data={"resolving": resolving},
         )
         self._state.advance()
         return detections
@@ -279,17 +351,31 @@ def _color_for(tracker_id: int) -> tuple[int, int, int]:
 def _draw_scenario(frame: np.ndarray, state: ScenarioState) -> None:
     """Draw each present instrument as a filled coloured block with a light
     'shaft' — enough for the `/status` crop to read as a distinct instrument
-    rather than a black square. Uses the SAME boxes the tracker will report for
-    this frame (state is not advanced by reading)."""
+    rather than a black square. A present foreign object draws as a dark slab
+    instead, so the demo's Unknown is visibly not an instrument (T10/B-F3). Uses
+    the SAME boxes the tracker will report for this frame (state is not advanced
+    by reading)."""
     height, width = frame.shape[:2]
+    foreign_ids = {window.tracker_id for window in state.foreign}
     for tracker_id in state.present_ids():
         x1, y1, x2, y2 = (int(round(v)) for v in state.box(tracker_id, width, height))
         if x2 <= x1 or y2 <= y1:
+            continue
+        if tracker_id in foreign_ids:
+            _draw_foreign(frame, x1, y1, x2, y2)
             continue
         cv2.rectangle(frame, (x1, y1), (x2, y2), _color_for(tracker_id), thickness=-1)
         cx = (x1 + x2) // 2
         cv2.line(frame, (cx, y1 + 3), (cx, y2 - 3), (255, 255, 255), thickness=2)
         cv2.rectangle(frame, (x1, y1), (x2, y2), (245, 245, 245), thickness=2)
+
+
+def _draw_foreign(frame: np.ndarray, x1: int, y1: int, x2: int, y2: int) -> None:
+    """A dark slab with a pale screen — reads as a phone dropped on the tray,
+    not as a 9th instrument."""
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (45, 40, 40), thickness=-1)
+    cv2.rectangle(frame, (x1 + 8, y1 + 8), (x2 - 8, y2 - 8), (130, 125, 120), thickness=-1)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (20, 20, 20), thickness=2)
 
 
 class FakeCaptureSource:
