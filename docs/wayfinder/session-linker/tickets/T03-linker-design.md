@@ -114,3 +114,16 @@ pointer lands back in [`model/docs/tracker-interface.md`](../../../../model/docs
 (incl. refresh module + Line-2 augmentation, and lands the app-side spinner/gray/
 colour deltas in `app/docs/DESIGN.md` + the `matching/` gitignore housekeeping);
 T02 posts stage-1 numbers as an interim asset the design consumes without waiting.
+
+## Post-closure update (2026-07-15) — §6 superseded, rewritten in place
+
+The matcher-autoresearch loop (T02 stage 2) promoted **SRC** over the
+nearest-view-max-cosine rule this ticket pinned: `model/docs/linker-design.md`
+§6 is **rewritten** around SRC (joint dictionary reconstruction +
+Sparsity Concentration Index), and §6.5's simultaneous-returns rule — a gap no
+challenger ever evaluated — was pinned in a follow-up grilling with Bram
+(natural batching → per-row τ/margin gates → `linear_sum_assignment` → one
+extra re-score round; engineering call, to be validated on the video-003
+replay + live test). Everything else this ticket pinned (enrolment, identity
+model, galleries, refresh, app-side encoding, tracker interplay) stands
+unchanged. Ticket stays closed; the design doc is the source of truth.

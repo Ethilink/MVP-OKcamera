@@ -108,6 +108,13 @@ Charted 2026-07-14 (grilling session, Bram):
   augmentation, PCA canonicalization md-only pending T02; Deep OC-SORT with
   `max_age ≈ 1 s` + reactivation re-validation; standalone `SessionLinker` in
   `load_tracker()`. Numbers are T02's; fps/`max_age` are T04's.
+- **§6 match rule replaced by SRC; §6.5 batched assignment pinned** (2026-07-15,
+  grilling) — T02 stage-2's autoresearch champion (SRC: joint sparse dictionary
+  reconstruction + SCI) supersedes nearest-view-max cosine in
+  `model/docs/linker-design.md` §6; §6.5 = natural batching → per-row τ/margin
+  gates → assignment → one extra re-score round, no forced links ever. Build
+  brief: [assets/T05/ISSUES.md](assets/T05/ISSUES.md); T03 has a post-closure
+  note.
 
 ## Not yet specified
 

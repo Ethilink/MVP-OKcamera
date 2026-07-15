@@ -22,3 +22,13 @@ implementation starts. Wayfinder plans; it does not build.
 Resolution = the briefs/issues created and linked here; update
 `app/docs/DESIGN.md` D8 and `model/docs/tracker-interface.md` open items to
 their final wording.
+
+## Progress (2026-07-15) — brief delivered, build started
+
+The build-ready spec exists: [assets/T05/ISSUES.md](../assets/T05/ISSUES.md)
+(checker-verified work items W1–W9 + corrections C1–C9). §6.5 grilled with
+Bram and pinned in `linker-design.md`. W1 (doc rewrite) + W2 (this trail) done
+by the orchestrator; W3–W5/W7–W8 run via Sonnet coder subagents with
+orchestrator review, W6 (`SessionLinker`) via blind-TDD. Still owed for
+closure: final wording for `app/docs/DESIGN.md` D8 + `tracker-interface.md`
+open items, and the T04-scenario acceptance readout.

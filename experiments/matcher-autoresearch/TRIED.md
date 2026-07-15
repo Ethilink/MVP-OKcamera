@@ -7002,3 +7002,164 @@ attempt 2's part-layout descriptors, in place of the DINOv2 embedding cue)
 — flagged as follow-ups, not repeats, if picked up again.
 
 ---
+
+## Round 9 leak-check verdict (2026-07-15)
+
+**Candidate:** hyperbolic (Poincare-ball) embedding matching, declared as
+`experiments/matcher-autoresearch/runs/r9-c1/` in the candidate write-up
+(`TRIED.md:5286-5306`).
+
+**Verdict:** **NOT CLEAN FOR PROMOTION (`clean=false`)**. This is not a finding
+that the hyperbolic algorithm itself leaked; it is a failure of the promotion
+evidence package. At review time the declared `runs/r9-c1/` directory did not
+exist (the only present direct children of `runs/` were `r5-c0`, `r5-c1`,
+`r5-c2`, and `r6-c0`), so there is no `method.py`, `run_eval.py`,
+`cv_sweep.json`, `ablations.json`, or `holdout_report.json` to independently
+inspect. The protocol presumes a suspicious gain is a leak until review clears
+it (`program.md:50-68`) and permits promotion only after selection by CV and a
+properly locked report (`program.md:75-90`); an unavailable candidate cannot
+clear either condition. The candidate's prose claims an implementation and
+reports at those paths (`TRIED.md:5324-5345,5363-5386`), but self-report is not
+substitute evidence for the missing files.
+
+- **Harness/eval/split/loader edits, monkeypatches, transductive fits, and
+  identity/answer-key shortcuts — not verifiable.** There is no candidate
+  source to inspect for imports, mutation/monkeypatch code, global fitted
+  statistics, filename/identity tables, or query-to-gallery construction. This
+  specifically prevents the inspection needed to rule out Round 2's pre-fit
+  cross-fold leakage pattern. The current frozen evaluator would retain the
+  true query identity eval-side and pass only `{"n_frames": len(win)}` to
+  `score` (`frozen/eval.py:58-70`), build a gallery only from the supplied
+  gallery side (`frozen/eval.py:47-55`), and require a returned ID to be an
+  offered score key (`frozen/interface.py:71-80`); without `HyperbolicMethod`
+  these safeguards cannot establish what the candidate did with its inputs.
+  In particular, the candidate's unverified assertion that its cache and
+  per-gallery geometry are fold-local (`TRIED.md:5488-5494`) cannot be accepted
+  in place of source inspection.
+
+- **Frozen hashes — recomputed current values, but no recorded-map comparison is
+  possible.** The candidate says its missing `holdout_report.json` contains
+  `frozen_hashes_before` and `frozen_hashes_after` (`TRIED.md:5473-5479`). No
+  such file is present, so the recorded column below is **unavailable**, not a
+  match. I independently ran `shasum -a 256 frozen/*.py` against the current
+  frozen files:
+
+  | frozen file | recorded before / after in r9-c1 | recomputed current SHA-256 |
+  | --- | --- | --- |
+  | `__init__.py` | unavailable / unavailable | `5f3b0f8ebc923c1f53871dc94f54506376cea28c219ebe9d19701f492773f19d` |
+  | `cv_split.py` | unavailable / unavailable | `322793cd3413adac3504dc7c3246701abd583f81533f963078071a1fa1975e71` |
+  | `eval.py` | unavailable / unavailable | `73e714df16bc473dfad9521ce99f038ab0108c3a656a6330860c4531aa961acd` |
+  | `holdout.py` | unavailable / unavailable | `1ca130824720db91184e21c910c3c41c2e2e75bc127b4a5878511d2cc03e6b53` |
+  | `interface.py` | unavailable / unavailable | `240c5664b769a4d7aaef82a60dfb99d9cae67b049af34b856f3f16031b2bc852` |
+  | `loader.py` | unavailable / unavailable | `3032b108a1b418ccff811cb9737b4c871f66b55952e766a470c2d800b570babd` |
+
+  The recomputed `eval.py` digest agrees with the one quoted in the candidate
+  prose (`TRIED.md:5475-5479`), but that one common value neither verifies the
+  other five files nor proves before/after immutability for a missing run.
+
+- **Gallery/query overlap — frozen split itself is clean; candidate use remains
+  unverified.** I independently loaded the 120 current instrument items, took
+  the frozen CV pool of 96, and recreated seeds `(0,1,2,3,4)` with the frozen
+  `group_split(..., n_gallery_groups=5, seed=...)`. Every seed produced 40
+  gallery and 56 query crops, with `0` overlap by `(identity, item_id)`, `0`
+  overlap by `(identity, group_id)`, and `0` overlap by SHA-256 of
+  crop+mask bytes. This follows the actual group-exclusive assignment
+  (`frozen/cv_split.py:25-42`), the CV-pool restriction to order `< 12`
+  (`frozen/holdout.py:54-58`), and frozen gallery/query construction
+  (`frozen/eval.py:153-161`). The locked split likewise produced 40 gallery and
+  24 query crops with zero overlap under all three checks
+  (`frozen/holdout.py:42-51,179-197`). That verifies the harness split, not an
+  absent method's possible secondary data path.
+
+- **Locked-holdout call-site ordering — not verifiable; required code quotation
+  unavailable.** `runs/r9-c1/run_eval.py` is absent, so grep finds no
+  inspectable `run_locked_holdout` call site and there is no surrounding source
+  to quote. The candidate's statement that exactly one call occurs in the last
+  block after Stage A/B selection (`TRIED.md:5480-5483`) is therefore an
+  unsupported assertion, not independently established ordering. This is
+  material because frozen explicitly requires every hyperparameter to be fixed
+  before its holdout entry point (`frozen/eval.py:179-186`), and Round 6 shows
+  why a later configuration selection after disclosed holdout results is a
+  promotion-disqualifying sequencing failure (`TRIED.md:3933-3961`).
+
+- **Sequence/provenance — insufficient evidence.** `runs/` is intentionally
+  ignored by Git (`.gitignore:1-6`), and the sole tracked commit that introduced
+  this research scaffold tracks `TRIED.md` and `frozen/` but no `runs/` artifacts
+  (Git commit `e0cfb35245e6f351eec0e1c22bf02eaf76913469`, dated
+  `2026-07-15 11:57:38 +0200`). A search of reachable history and unreachable
+  Git objects found no `runs/r9-c1/` path or `HyperbolicMethod` source. Thus no
+  file timestamps, selection logs, config-finalization record, or Git delta can
+  establish whether the locked holdout was accessed before the claimed selected
+  configuration or whether configuration changed after disclosure. Absence is
+  not proof of an intentional leak; it is enough to make the claimed
+  promotion-relevant gain uncertifiable.
+
+**Promotion consequence:** do not promote this candidate from its quoted
+`0.9833 +/- 0.0204` CV result. Re-review can occur only when the complete,
+read-only `runs/r9-c1/` evidence package is restored, including the source,
+both sweep/ablation artifacts, holdout report with both hash maps, and an
+append-only execution/configuration log that establishes CV selection before
+the single holdout call.
+
+---
+
+## Round 6, challenger 0 — Fourier–Mellin log-polar spectral-shape phase-correlation matching
+
+**Family:** `Fourier–Mellin log-polar spectral-shape phase-correlation
+matching` — a frequency-domain structural representation and alignment
+paradigm, new to this log. It is not DINO CLS/patch matching, classical
+keypoint or RANSAC geometry, colour/texture matching, set-to-set assignment,
+one-class/OOD modelling, multi-cue fusion, sparse reconstruction, or the
+previous (non-clean) SO(2) orbit candidate. Each raw binary silhouette is
+centred at its detector-native scale on a fixed canvas, converted to Fourier
+magnitude, sampled in log-polar coordinates, then compared by maximising
+circular phase correlation across the angular dimension. Translation is
+removed by Fourier magnitude; rotation becomes an explicit spectral-phase
+alignment. No learned backbone, crop label, or global fitted statistic is
+used.
+
+**Hypothesis:** a physical instrument's silhouette has a stable global spatial
+frequency fingerprint (ring spacing, shaft width, tip/hinge proportions) even
+when the object rotates on the fixed overhead table. A foreign tool might
+match a single raw silhouette coarsely, but should lack a consistent
+log-polar-spectrum alignment across the full return window. Native-scale
+canvassing deliberately retains physical size inside the representation rather
+than restoring it through a separately weighted scalar feature.
+
+**Implementation:** `runs/r6-c0/method.py` (`FourierMellinMethod`) implements
+the unchanged `build_gallery / score / accept` plug. A gallery stores only its
+own Fourier–Mellin descriptors. `score()` takes a top-K mean of each query
+frame's gallery-view phase-correlation scores, then discounts candidates that
+do not win consistently across the three frames; `accept()` is the normal
+threshold/margin gate. `runs/r6-c0/run_eval.py` ran a 48-point five-seed frozen
+CV grid over `top_k`, consensus strength, threshold, and margin, with the
+current reject floor `0.9733`. It made **no locked-holdout call**. Two synthetic
+tests cover rotation tolerance and the fixed-interface decision contract.
+
+**Result — CV (5-seed):** no grid row met the foreign-reject floor. The
+recorded fallback is the row with maximal foreign rejection, then re-ID:
+re-ID top-1 / genuine-return true-accept **0.6167 ± 0.0486**,
+foreign-reject **0.8533 ± 0.0499**, twin errors (1↔2) **2** summed over five
+seeds. Selected fallback: `canvas_size=384, n_radial=32, n_angles=72,
+top_k=1, consensus_power=1.5, tau=0.55, margin=0`. `cv_sweep.json` records
+before/after SHA-256 hashes for every frozen Python file; they are identical.
+
+**Verdict: MISS — fails both guarded axes.** It is below the supplied champion
+on re-ID (`0.6167 < 0.9333`) and foreign rejection (`0.8533 < 0.9733`), so it
+cannot be promoted. The failure is structural rather than a missed gate: all
+48 grid rows remain below the rejection floor. Fourier magnitude suppresses
+localized construction detail needed to distinguish several instruments, while
+generic elongated foreign silhouettes still obtain broadly similar global
+spectral structure.
+
+**cheatRisk: false.** Only files under `runs/r6-c0/` plus this append were
+written. Every evaluated configuration used unmodified `frozen.eval.run_cv`;
+the frozen hashes match before/after; no locked holdout was called; and
+`score()` receives only the label-free `{"n_frames": ...}` metadata.
+
+**Family now covered** (do not repeat as a canvas/threshold/angle-bin search):
+`Fourier–Mellin log-polar spectral-shape phase-correlation matching` —
+native-scale silhouette Fourier magnitude, log-polar spectral encoding, and
+circular angular phase alignment. A genuinely different follow-up would need
+to retain local phase structure with a different representation, rather than
+another sampling or threshold variant of this global-spectrum method.

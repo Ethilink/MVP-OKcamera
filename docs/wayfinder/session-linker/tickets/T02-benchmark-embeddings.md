@@ -145,3 +145,11 @@ FINDINGS.md}` for detail.
 - Foreign-object negatives, opposite-face captures, and the DINOv3-vs-DINOv2
   call are still exactly as open as stage-1 left them — none of that was in
   this round's scope.
+
+**Update 2026-07-15 (build kickoff):** stage-2 findings are now **consumed into
+the build** — `model/docs/linker-design.md` §6 rewritten around SRC; port +
+wiring tracked in [assets/T05/ISSUES.md](../assets/T05/ISSUES.md). The
+`MultiTaskLasso` runtime question above is **closed**: profiled at demo scale
+(D=770, dictionary width up to 120 atoms) at **0.2–0.8 ms per solve** — the
+embed step dominates the link budget, as already assumed (see ISSUES.md,
+"latency risk downgraded").

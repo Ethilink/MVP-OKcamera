@@ -135,6 +135,12 @@ maximize) is sound and consistent with `accept()`'s semantics. Gotchas:
   a `/grilling` item with Bram; time pressure justifies shipping the default
   and revisiting only if it misbehaves live.
 
+> **Update 2026-07-15 — grilled with Bram and PINNED** in `linker-design.md`
+> §6.5: natural batching (no grace timer), per-row τ/margin gates, assignment,
+> **one extra re-score round** for unresolved tracks against the reduced
+> Missing set, then Unknown. Implement that section verbatim; the gotchas
+> above still apply. Validation: W8 gets a video-003 teardown→re-lay replay.
+
 ### C7 · Stale "DINOv3" references in both docs — LOW
 
 `linker-design.md` (glossary, §4, §9) and `tracker-interface.md:114` say
@@ -231,14 +237,19 @@ linker-design §§1–7 on the ported matcher:
 Apply C4 (fps/`frame_rate`) and C8 (protocol attrs). This is the concrete
 unblock for `app/backend/backend/main.py:318`.
 
-### W8 — Offline smoke test
+### W8 — Offline smoke test + video-003 §6.5 replay
 
 Script driving `load_tracker`/`SessionLinker` against
 `model/data/instruments/*/images` (run the real detector on those frames —
 weights are local): simulate a pickup (drop an instrument's frames
 mid-sequence) and a return (reintroduce under a fresh raw id); assert the
-original session id comes back. Include the C1 RGB check and the latency log.
-Catches integration bugs before burning hardware time.
+original session id comes back. Include a multi-return swap + foreign-object
+case, the C1 RGB check, and the latency log. Catches integration bugs before
+burning hardware time.
+
+**Plus (grilled decision):** replay video `09-07-26-003`'s teardown→re-lay
+(31 real returns; labels + cache tooling in `assets/T04/`) through the real
+`SessionLinker` — the only real-data validation of §6.5 before the live test.
 
 ### W9 — First live test
 
