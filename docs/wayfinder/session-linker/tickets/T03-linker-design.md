@@ -2,7 +2,7 @@
 id: T03
 title: Pin the session-linker design
 type: wayfinder:grilling
-status: open
+status: closed
 assignee: bram
 blocked-by: []
 ---
@@ -66,3 +66,51 @@ open branches:
 
 Resolution = the design doc committed in `model/docs/`, this ticket closed
 with a gist.
+
+## Resolution
+
+Pinned with Bram 2026-07-14 (grilling + domain-modeling). Design doc:
+[`model/docs/linker-design.md`](../../../../model/docs/linker-design.md); a
+pointer lands back in [`model/docs/tracker-interface.md`](../../../../model/docs/tracker-interface.md)
+§ "tracker_id across absence". Every branch pinned decision-by-decision:
+
+- **Enrolment / roster:** ~0.5 s stability-gated window after `reset()`; roster =
+  identities present in the majority of window frames, then **frozen** (post-Start
+  newcomers never join — matches T06).
+- **Identity model:** session id = the enrolment-time Deep OC-SORT id promoted to
+  canonical; **single int space**; private `raw→session` map; unmatched newcomers
+  pass through their (monotonically higher) raw id ⇒ **Unknown derived app-side
+  from roster membership**, no status flag, seam unchanged.
+- **Galleries:** hybrid `persistent (T07) ∪ Start crops`, bound by **one-to-one
+  Hungarian assignment** at enrolment (confident-only; uncertain ⇒ session-only
+  fallback; degrades to session-only if T07 photos are absent). **Masked** crops,
+  per-view storage, **nearest-view (max)** aggregation; event-driven DINOv3.
+- **Gallery safety:** **stability-gated online refresh, ON + toggleable** — adds a
+  crop only from a still/unobstructed/isolated/mature/novel track outside any
+  recovery cooldown; never from Pending/Unknown/ambiguous.
+- **Match rule (open-set, multi-candidate):** candidate set = all Missing;
+  absolute τ + best-vs-second margin + multi-frame consistency; **Hungarian
+  one-to-one** for simultaneous returns; **one-missing prior = margin-skip only,
+  never threshold relaxation** (foreign-object safety). Values are T02's.
+- **Pending/Unknown (branch 6 closed):** provisional raw id during the ~0.5 s
+  window ⇒ app draws a **resolving spinner** on young not-in-roster tracks; on
+  resolution the box's id flips to a roster colour (linked) or a **gray Unknown**
+  (rejected). 8 roster colours + gray, all app-side; returned instruments regain
+  their original colour.
+- **Rotation/flip:** gallery diversity + **gallery-side synthetic rotation/mirror
+  augmentation** (query stays a single embed; persistent embeddings precomputed
+  offline); **mask principal-axis canonicalization kept md-only, default OFF**
+  pending T02's rotation numbers; no training ever. Opposite-face ⇒ real capture +
+  refresh only.
+- **Tracker interplay:** Deep OC-SORT, `max_age ≈ 1.0 s` boundary (T04 tunes);
+  **re-validate meaningful-gap reactivations** against the session gallery; no
+  `-1` strip (min_hits gates); link resolution **non-blocking / amortized**
+  (threading deferred to T05).
+- **Composition:** standalone `SessionLinker` (detections+frame in → session-id
+  detections out) composed in `load_tracker()` after OC-SORT; `reset()` clears
+  session state, keeps persistent refs; config-driven thresholds default to T02.
+
+**Hand-offs:** T04 harness must **replay frames/crops, not box-only**; T05 builds
+(incl. refresh module + Line-2 augmentation, and lands the app-side spinner/gray/
+colour deltas in `app/docs/DESIGN.md` + the `matching/` gitignore housekeeping);
+T02 posts stage-1 numbers as an interim asset the design consumes without waiting.

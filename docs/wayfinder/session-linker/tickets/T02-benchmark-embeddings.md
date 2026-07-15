@@ -118,3 +118,30 @@ Headlines (T03 can consume these now):
 Stage-2 gaps to CLOSE this ticket: resolve 1↔2; capture foreign-object
 negatives to pin the reject threshold; confirm genuine opposite-face views;
 settle DINOv3-vs-DINOv2; ideally re-confirm at the demo-room lighting/distance.
+
+---
+
+## Stage-2 progress (2026-07-15) — matcher autoresearch, ticket stays OPEN
+
+Ran an overnight champion/challenger autoresearch loop (9 rounds, ~20 method
+families) in the separate `experiments/matcher-autoresearch/` sandbox — see
+[assets/T02-stage2/RESULTS.md](../assets/T02-stage2/RESULTS.md) for the full
+headline summary and `experiments/matcher-autoresearch/{LEADERBOARD.md,
+FINDINGS.md}` for detail.
+
+- **1↔2 resolved** — mask-size fusion (or an equivalent orthogonal cue)
+  independently confirmed across 4+ method families, not a fragile threshold
+  artifact.
+- **New champion matcher found**: sparse-representation classification (SRC),
+  beating the stage-1-style baseline on both re-ID and foreign-reject, passed
+  a Codex leak-check. 6 further rounds failed to unseat it — the method-search
+  side of this ticket looks done; **no further autoresearch round planned.**
+- **Still open, blocking closure:** this ran on static per-instrument crops,
+  not real return-window video — reconcile against
+  [assets/T04/RESULTS.md](../assets/T04/RESULTS.md)'s real-video benchmark
+  (which used the older baseline champion, not SRC) before picking a final
+  match rule for T05. SRC's `MultiTaskLasso` runtime cost at real roster size
+  is also unprofiled against the ≤1 s link budget.
+- Foreign-object negatives, opposite-face captures, and the DINOv3-vs-DINOv2
+  call are still exactly as open as stage-1 left them — none of that was in
+  this round's scope.

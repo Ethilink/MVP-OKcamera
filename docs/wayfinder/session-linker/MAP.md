@@ -97,6 +97,17 @@ Charted 2026-07-14 (grilling session, Bram):
 - [Unknowns in the demo story — what the app shows for unmatched new tracks](tickets/T06-unknown-objects-ux.md)
   — freeze the known roster at Start; unmatched newcomers may be tracked and
   shown as Unknown but never enter Usage or Completeness.
+- [Pin the session-linker design](tickets/T03-linker-design.md) — full behaviour
+  pinned in [`model/docs/linker-design.md`](../../../model/docs/linker-design.md):
+  ~0.5 s enrolment freeze; session id = promoted OC-SORT id in one int space
+  (Unknown = not-in-roster, seam unchanged); hybrid `persistent ∪ Start` galleries
+  auto-bound one-to-one (session-only fallback); masked crops, nearest-view max;
+  stability-gated refresh ON+toggle; open-set match with τ+margin+multi-frame,
+  Hungarian for simultaneous returns, one-missing = margin-skip-only; Pending
+  spinner + gray Unknown + 8 roster colours app-side; rotation via gallery-side
+  augmentation, PCA canonicalization md-only pending T02; Deep OC-SORT with
+  `max_age ≈ 1 s` + reactivation re-validation; standalone `SessionLinker` in
+  `load_tracker()`. Numbers are T02's; fps/`max_age` are T04's.
 
 ## Not yet specified
 

@@ -109,6 +109,11 @@ return. The agreed mechanism (2026-07-08) is **track linking** behind this
 interface: the fresh track gets linked to the old one, and from the moment the
 link resolves, `update()` re-emits the original id. Two hard requirements:
 
+> **The linker's behaviour is now pinned** — see [`linker-design.md`](./linker-design.md)
+> (session re-identification, open-set; Start-time enrolment; hybrid galleries;
+> DINOv3 event-driven at death/birth; Deep OC-SORT as the underlying tracker).
+> The items below are updated there.
+
 - **The link never leaks.** No alias map, no retroactive id rewrites on the
   consumer's side — once linked, the output simply carries the original
   `tracker_id` again, for the rest of the recording.
