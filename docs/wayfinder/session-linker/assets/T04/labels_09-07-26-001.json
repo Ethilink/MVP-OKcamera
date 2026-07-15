@@ -1,0 +1,20 @@
+{
+  "_note": "Coarse tracklet labels for 001 (demo1, cluttered) from montage_tracklets.jpg. known=one of the demo1 surgical instruments; foreign=non-sterile intruder; junk=hand/arm. A few cylindrical/dark tracklets (t18,t22,t23) are best-guess.",
+  "labels": {
+    "0": "known", "1": "known", "4": "known", "6": "known", "7": "known",
+    "13": "known", "14": "known", "15": "known", "25": "known", "26": "known",
+    "31": "known", "32": "known", "33": "known", "35": "known",
+    "2": "foreign", "3": "foreign", "5": "foreign", "8": "foreign", "9": "foreign",
+    "10": "foreign", "11": "foreign", "12": "foreign", "16": "foreign", "17": "foreign",
+    "18": "foreign", "19": "foreign", "20": "foreign", "21": "foreign", "22": "foreign",
+    "23": "foreign", "24": "foreign", "28": "foreign", "29": "foreign", "34": "foreign",
+    "27": "junk", "30": "junk"
+  },
+  "foreign_desc": {
+    "3": "coffee mug", "5": "tissue block", "8": "crumpled tissue", "9": "Orbbec box",
+    "10": "crumpled tissue", "11": "red marker (THIN)", "12": "tissue", "16": "USB-C cable (THIN)",
+    "17": "gray device", "18": "black dongle", "19": "food container", "20": "pen (THIN)",
+    "21": "black cable (THIN)", "22": "flex tripod", "23": "flex tripod", "24": "cork jar",
+    "28": "gauze square", "29": "multitool/pliers", "2": "multitool/pliers", "34": "cork jar"
+  }
+}

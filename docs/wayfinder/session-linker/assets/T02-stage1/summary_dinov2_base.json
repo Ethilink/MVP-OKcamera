@@ -1,0 +1,201 @@
+{
+  "model": "facebook/dinov2-base",
+  "tag": "dinov2_base",
+  "embed_dim": 768,
+  "n_params_millions": 86.6,
+  "device": "mps",
+  "offline_load_ok": true,
+  "model_load_s": 1.1,
+  "process_rss_mb": 275.0,
+  "mps_allocated_mb": 346.0,
+  "n_instruments": 8,
+  "crops_per_instrument": 15,
+  "latency": [
+    {
+      "batch": 1,
+      "total_ms": 15.4,
+      "per_crop_ms": 15.4
+    },
+    {
+      "batch": 4,
+      "total_ms": 42.6,
+      "per_crop_ms": 10.7
+    },
+    {
+      "batch": 10,
+      "total_ms": 90.4,
+      "per_crop_ms": 9.0
+    }
+  ],
+  "reid_by_gallery_size": [
+    {
+      "n_gallery": 3,
+      "top1_8way": 0.848,
+      "margin_self_minus_other_mean": 0.184,
+      "frac_query_own_gallery_wins": 0.848
+    },
+    {
+      "n_gallery": 5,
+      "top1_8way": 0.9,
+      "margin_self_minus_other_mean": 0.199,
+      "frac_query_own_gallery_wins": 0.9
+    },
+    {
+      "n_gallery": 8,
+      "top1_8way": 0.921,
+      "margin_self_minus_other_mean": 0.205,
+      "frac_query_own_gallery_wins": 0.921
+    }
+  ],
+  "most_similar_instrument_pairs": [
+    [
+      0.895,
+      "instrument1",
+      "instrument2"
+    ],
+    [
+      0.707,
+      "instrument3",
+      "instrument6"
+    ],
+    [
+      0.696,
+      "instrument3",
+      "instrument7"
+    ],
+    [
+      0.639,
+      "instrument6",
+      "instrument7"
+    ],
+    [
+      0.604,
+      "instrument3",
+      "instrument4"
+    ]
+  ],
+  "least_similar_pair": [
+    0.145,
+    "instrument2",
+    "instrument4"
+  ],
+  "rotation_flip": {
+    "rot90": {
+      "mean_cos_to_orig": 0.804,
+      "min_cos_to_orig": 0.568,
+      "still_correct_1nn": 1.0
+    },
+    "rot180": {
+      "mean_cos_to_orig": 0.887,
+      "min_cos_to_orig": 0.637,
+      "still_correct_1nn": 1.0
+    },
+    "rot270": {
+      "mean_cos_to_orig": 0.814,
+      "min_cos_to_orig": 0.622,
+      "still_correct_1nn": 1.0
+    },
+    "mirror": {
+      "mean_cos_to_orig": 0.968,
+      "min_cos_to_orig": 0.94,
+      "still_correct_1nn": 1.0
+    }
+  },
+  "gallery_aggregation_5views": {
+    "nearest": 0.892,
+    "mean": 0.908,
+    "top3mean": 0.908
+  },
+  "sim8_matrix": [
+    [
+      1.0,
+      0.895,
+      0.281,
+      0.148,
+      0.374,
+      0.278,
+      0.311,
+      0.541
+    ],
+    [
+      0.895,
+      1.0,
+      0.289,
+      0.145,
+      0.352,
+      0.305,
+      0.261,
+      0.429
+    ],
+    [
+      0.281,
+      0.289,
+      1.0,
+      0.604,
+      0.437,
+      0.707,
+      0.696,
+      0.488
+    ],
+    [
+      0.148,
+      0.145,
+      0.604,
+      1.0,
+      0.226,
+      0.503,
+      0.532,
+      0.217
+    ],
+    [
+      0.374,
+      0.352,
+      0.437,
+      0.226,
+      1.0,
+      0.44,
+      0.461,
+      0.379
+    ],
+    [
+      0.278,
+      0.305,
+      0.707,
+      0.503,
+      0.44,
+      1.0,
+      0.639,
+      0.399
+    ],
+    [
+      0.311,
+      0.261,
+      0.696,
+      0.532,
+      0.461,
+      0.639,
+      1.0,
+      0.412
+    ],
+    [
+      0.541,
+      0.429,
+      0.488,
+      0.217,
+      0.379,
+      0.399,
+      0.412,
+      1.0
+    ]
+  ],
+  "sim8_labels": [
+    "instrument1",
+    "instrument2",
+    "instrument3",
+    "instrument4",
+    "instrument5",
+    "instrument6",
+    "instrument7",
+    "instrument8"
+  ]
+}

@@ -1,232 +1,408 @@
-# Session linker
+# Session linker — design
 
-This document describes the code that currently ships in
-`orc_model.pipelines`. It is the durable reference for session identity; old
-research loops, implementation tickets, and agent handoffs are intentionally
-not part of the runtime documentation.
+**Status:** pinned 2026-07-14 (grilling with Bram, wayfinder ticket T03);
+**§6 rewritten + §6.5 added 2026-07-15** — the matcher-autoresearch champion
+(SRC) replaced §6's original match rule; §6.5's batched assignment grilled with
+Bram the same day. Numeric
+thresholds are **parameters filled by [T02](../../docs/wayfinder/session-linker/tickets/T02-benchmark-embeddings.md)**;
+`max_age` and fps-sensitive gaps are tuned by
+[T04](../../docs/wayfinder/session-linker/tickets/T04-harness-and-fps.md). This
+doc pins *behaviour*; the build is [T05](../../docs/wayfinder/session-linker/tickets/T05-implementation-spec.md).
 
-## Goal
+Companion to the seam contract in [`tracker-interface.md`](./tracker-interface.md)
+(§ "tracker_id across absence") and the demo app in
+[`app/docs/DESIGN.md`](../../app/docs/DESIGN.md) (D8).
 
-Within one recording, an instrument that leaves the workspace and returns must
-resume its original integer `tracker_id`. A new or ambiguous object must remain
-Unknown rather than borrowing an enrolled identity.
+---
 
-The pipeline is:
+## What the linker is for
 
-```text
-BGR frame
-  -> RF-DETR segmentation
-  -> fixed-camera workspace filter
-  -> Deep OC-SORT raw tracks
-  -> SessionLinker stable session identities
-  -> sv.Detections
+An instrument leaves the table and comes back. A plain tracker (we use
+**Deep OC-SORT**, vendored — see below) spawns a *fresh* id on return. The seam
+promises the opposite: an instrument returns under its **original** id, within
+≤ 1.0 s, with no id-rewrites leaking to the consumer
+(`tracker-interface.md` § "tracker_id across absence"). The **session linker**
+is the layer that keeps that promise. It is **session re-identification, open-set**:
+it only ever decides *"is this the same physical object as one that left?"* —
+never *which catalog instrument it is*. Labels stay generic "Instrument N";
+catalog identification is out of scope (map decision).
+
+The demo choreography makes this load-bearing, not a safety net: instruments are
+moved, occluded, and **removed several at a time**, returned in any order, and the
+audience places **random foreign objects** on the table. So the matcher must be a
+real open-set, multi-candidate matcher, not a one-missing heuristic.
+
+---
+
+## Glossary
+
+- **Raw (tracker) id** — the id Deep OC-SORT assigns. Monotonic from a counter
+  that `reset()` zeroes; emitted as `id+1`, so ids start at 1. Disposable
+  implementation detail; **never crosses the seam.**
+- **Session id** — the stable id a physical object keeps for the whole recording,
+  even across absence. This is the *only* identity a consumer sees, carried in
+  the `tracker_id` field of `sv.Detections`.
+- **Known roster** — the frozen set `{1…N}` of session ids enrolled at Start.
+  Fixed after the enrolment window; a track born later never joins it.
+- **Enrolment window** — the ~0.5 s after `reset()` during which the roster is
+  formed and each identity's Start gallery is seeded.
+- **Gallery** — the set of per-view DINOv2-B embeddings that represent a
+  session identity (§6's SRC uses each view as a dictionary atom). Composed of **persistent references** (pre-captured, T07) ∪ **Start
+  crops** (fresh, same-camera) ∪ optional **session-refresh** views.
+- **State** of a session identity: **Active** (a live raw track is mapped to it),
+  or **Missing** (its raw track died; gallery retained, awaiting a return).
+- **Pending** — a young raw track not yet in the roster, still being decided
+  (returning instrument vs foreign object). **Unknown** — a settled track that
+  matched no missing identity. Both are *derived app-side*, not model states (see
+  § App-side encoding).
+
+---
+
+## Where it composes
+
+```
+load_tracker(weights, confidence, linker_config)  →  InstrumentTracker
+    update(frame):
+        dets = detector.predict(frame)          # raw detections (+ mask)
+        dets = deep_ocsort.update(dets, frame)   # raw tracker_ids
+        dets = linker.update(dets, frame)        # ← remaps raw → session ids
+        return dets                              # session ids only
 ```
 
-`InstrumentTracker` is the only interface exposed to the app. Raw OC-SORT IDs,
-appearance crops, and galleries remain private to the model package.
+- The linker is a **standalone `SessionLinker` unit**, not logic baked into the
+  tracker. Its interface mirrors the OC-SORT wrapper:
+  `linker.update(detections: sv.Detections, frame: np.ndarray) -> sv.Detections`
+  — detections-with-raw-ids in, detections-with-session-ids out. This is the
+  testability decision: **T04's harness drives it directly with replayed frames +
+  cached detections**, asserting id-remaps offline with no live camera.
+- **`reset()` clears session state** (roster, session galleries, the private
+  `raw→session` map, the Missing set, pending decisions) **but keeps the loaded
+  persistent references** (embedded once from disk, reused next enrolment).
+- **Seam invariant:** output carries session ids in `tracker_id`; the
+  `raw→session` map stays internal; no alias map, no retroactive rewrites,
+  original id **forever**.
 
-## Runtime configuration
+### Tracker: Deep OC-SORT (vendored)
 
-`load_tracker()` composes the pipeline. Its important defaults are:
+Constantijn vendored **Deep OC-SORT** (`model/playground/trackers/deep_ocsort_vendor/`,
+commit `94b8bd8`) — an `OCSort` with an internal appearance embedder
+(MobileNetV3-Small, ImageNet stand-in) fused with a Kalman motion model + CMC.
+Two embedders exist **deliberately**: the tracker's weak one for cheap
+per-frame association, and the linker's strong **DINOv2-B** (the T02-pinned
+embedder every guarded number was measured with), event-driven at track
+death/birth only. The tracker owns *short-gap* continuity; the linker owns
+*long-absence* re-identification. They are complementary — the tracker does not
+make the linker redundant.
 
-| setting | default | reason |
-|---|---:|---|
-| detector confidence | `0.50` | current operating threshold |
-| processed fps | `3.0` | measured 2.87–3.13 full-pipeline fps on the M3 Max recordings |
-| OC-SORT maximum age | `1.0 s` | short occlusions remain one raw track |
-| linker death threshold | `1.0 s` | never shorter than OC-SORT maximum age |
-| workspace maximum centre-y | `0.88 × frame height` | excludes tripod/table clutter below the blue mat |
-| enrollment window | `0.5 s` | freezes the starting roster |
-| return evidence window | `0.5 s`, at most 3 quality crops | resolves before the app's entry debounce |
+---
 
-The workspace boundary is installation-specific. Pass
-`workspace_max_center_y_ratio=None` for an uncropped camera, or recalibrate it
-when the overhead framing changes. It is applied before OC-SORT, so excluded
-objects cannot enter the frozen roster or perturb association.
+## 1 · Enrolment window & roster freeze
 
-The `fps` argument means processed frames per second, not camera capture fps.
-Offline replay passes `source_fps / stride`; the live app uses the measured
-M3 Max default.
+`reset()` fires at **Start**, when Setup has already guaranteed 2 s of scene
+stability + the operator's confirmation that every instrument is present
+(`app/docs/DESIGN.md` D8/setup). So the linker needs no stability detector of its
+own — but the first frame or two after `reset()` are risky (OC-SORT `min_hits=3`
+maturation; single-frame detector flicker).
 
-## Identity lifecycle
+- **Enrolment window ≈ 0.5 s** (≈5–7 frames at demo fps) opens at the first
+  post-`reset()` frame. It collects crops of every **mature** (`tracker_id` real)
+  track.
+- The window closes when the detected set has been **stable** (same ids/count)
+  across it. The **roster = every identity present in the majority of the window
+  frames** (tolerates one flicker).
+- The roster is then **frozen**: no track born afterward joins it (matches
+  [T06](../../docs/wayfinder/session-linker/tickets/T06-unknown-objects-ux.md)).
+- Every identity's Start gallery is seeded from **all** window frames →
+  multi-frame from birth.
 
-### Enrollment
+## 2 · Identity model
 
-The first non-empty processed frame opens the enrollment window. A raw track is
-promoted into the roster when it appears in a strict majority of the window's
-frames. Its session ID initially equals its raw OC-SORT ID. Up to three
-quality-ranked RGB mask crops form its immutable Start gallery.
+- At the enrolment window's close, each enrolled track's current raw id is
+  **promoted to its canonical session id**, so the roster is a fixed set `{1…N}`.
+- The linker keeps a **private `raw id → session id` map**; the seam only ever
+  emits the session id.
+- When an Active identity's raw track dies, its session id → **Missing** (gallery
+  retained). When a returning raw track links to it, the linker maps
+  `new raw id → that session id` and re-emits the session id. Original id forever.
+- A post-enrolment newcomer that matches nothing **passes through its own raw id**.
+  Because OC-SORT ids are monotonic, a newcomer's id is always `> N` — strictly
+  disjoint from the roster — so **Unknown is derived app-side from roster
+  membership**. No status field, no widened seam.
 
-The roster never grows after enrollment. New raw tracks are Pending and then
-either link to a Missing roster identity or settle as Unknown.
+## 3 · Gallery binding (persistent references)
 
-### Active and Missing
+Each session identity may combine (a) **persistent multi-view references** for
+its exact physical specimen (T07, pre-captured) and (b) **fresh Start crops**.
+Binding is automatic:
 
-An enrolled identity is Active while it has an `active_raw_id`. After more than
-the configured death window without that raw ID:
+- At enrolment close, embed each identity's Start crops → N query vectors.
+  Cosine-match against the ≤8 persistent specimen galleries and solve a
+  **one-to-one global assignment** (Hungarian) — no two identities claim the same
+  specimen.
+- **Bind only when confident** (above absolute threshold **and** best-vs-second
+  margin). A bound identity's gallery = `persistent ∪ Start`.
+- **Fallback:** an identity whose mapping is uncertain stays **session-only**
+  (gallery = Start crops only) — still a first-class identity, just fewer views.
+- **Bind once, at enrolment. Never re-bind mid-recording** (a late bind risks
+  poisoning).
+- **Degrades gracefully:** if T07's photos don't land, no persistent galleries
+  load → everyone runs session-only and the linker still works (weaker only on
+  opposite-face returns).
 
-1. its recent quality crops replace its previous last-seen gallery;
-2. the old raw-to-session mapping is retired;
-3. the identity becomes Missing.
+Prefer session-only over a wrong bind: no duplicate types in the demo set means a
+correct match is high-margin, so a *low* margin genuinely means "don't bind."
 
-Retiring the mapping is important. If OC-SORT later recycles or reactivates the
-same raw integer, it is treated as a new Pending track and must pass the matcher
-again. There is no unvalidated late-reactivation shortcut.
+## 4 · Gallery representation
 
-### Pending and Unknown
+- **Masked crops.** Suppress background to a neutral fill (mask *before* resize so
+  bilinear feathers the edge — the vendored embedder's `mask_crop`), with a small
+  mask dilation so imperfect masks don't clip the instrument. On a shared table,
+  an unmasked bbox bakes common-mode background (and sometimes a neighbour) into
+  the embedding and shrinks separation. (Padded-bbox is the fallback only if T02
+  shows mask noise > background gain — unlikely for thin metal on a table.)
+  Crops are **RGB**: the research pipeline embedded RGB and every threshold is
+  calibrated to it — live BGR frames must be converted before any embed.
+- **Per-view storage; views are dictionary atoms (no aggregation step).** Keep
+  every gallery view as its own vector (persistent + Start pooled, origin
+  discarded) — §6's SRC uses each view as a dictionary atom, so the old
+  nearest-view-max / top-K aggregation step no longer exists (superseded
+  baseline vocabulary). The per-view principle survives unchanged: **never
+  mean-pool across faces** (the centroid matches none of them); a return in
+  the Start pose is reconstructed by Start atoms, a face only T07 saw by
+  persistent atoms — automatically, via the sparse solve.
+- **Start crops deduped to top ~3 by quality** (mask-area × confidence) so
+  near-identical enrolment frames don't over-weight the Start pose.
+- **Quality filter:** drop crops below a min mask-area, low confidence, or
+  truncated at the frame edge.
+- **Event-driven embedding.** Per live track keep a small rolling buffer of recent
+  good crops (pixels); embed **nothing per-frame**. Run DINOv2-B only at a **death**
+  (finalize last-seen appearance) or **birth** (embed newcomer to match).
+  Persistent + Start embeddings are computed once and held resident.
 
-A post-enrollment raw track buffers up to three quality crops. Its decision is
-made when the buffer fills or the evidence window expires. Until then, its raw
-ID passes through. A rejected or collision-losing track settles Unknown and
-keeps its raw ID; it is not repeatedly reconsidered on every frame.
+## 5 · Gallery safety — stability-gated refresh (ON, toggleable)
 
-## Galleries: comparison is not eligibility
+Galleries = a **frozen core** (`persistent ∪ Start`, persistent never evicted)
+plus a bounded ring of **session-refresh** views. Refresh is **ON by default,
+with a config flag to turn it OFF**.
 
-This is the central invariant.
+The tracker's continuity, gated on stillness, is what makes refresh *safe*: the
+poisoning vector is a wrong *link*; a crop added from a **continuously-tracked,
+still, unobstructed** instrument is one whose identity is not in question. Add a
+crop to identity `k`'s session ring only when **all** hold:
 
-- **Comparison galleries:** every enrolled identity with Start and/or
-  last-seen views, whether Active or Missing.
-- **Eligible link targets:** only identities currently Missing and possessing a
-  usable comparison gallery.
+- track currently mapped to `k`, high detection confidence, **mature**;
+- **still** (low box velocity) and **unobstructed** (full mask, spatially isolated
+  — no other track's box nearby) for a **dwell ≥ ~1–2 s**;
+- **not** within a cooldown after any link/recovery event;
+- crop is **novel** vs the current gallery (a genuinely new pose/face, not a
+  duplicate — this is what makes refresh *worth it*: it fires only when the
+  instrument adopts a new stable pose, catching new faces live);
+- into a **bounded ring** of session-only views (persistent refs never evicted).
 
-The matcher always scores against the complete comparison dictionary. Only
-after its open-set gates accept a winner does the linker check whether that
-winner is eligible.
+**Never** learn from Pending, Unknown, ambiguous, or just-recovered tracks.
 
-```python
-scores = matcher.score(query, galleries=complete_roster)
-winner = matcher.accept(scores)
+> Toggle OFF ⇒ galleries frozen at enrolment (branch-3 poisoning impossible by
+> construction). Ship-decision to *keep* it on is validated by T04: if
+> `persistent ∪ Start` already handles opposite-face returns, refresh is redundant;
+> if not, it's the cheap live insurance.
 
-if winner == REJECT or winner not in eligible_missing_ids:
-    settle_unknown()
-else:
-    link_to(winner)
-```
+## 6 · Match rule — open-set, multi-candidate (SRC)
 
-With eight enrolled instruments and one Missing instrument, the matcher still
-operates at `K=8`. The seven Active identities remain valuable distractors but
-can never receive a second raw track.
+> **Rewritten 2026-07-15.** The matcher-autoresearch program
+> (`experiments/matcher-autoresearch/`, FINDINGS §0–§2) **replaced** this
+> section's original rule (nearest-view max cosine + Hungarian) with
+> **sparse-representation-based classification (SRC)** — a genuinely different
+> method family, promoted champion after beating the baseline on both guarded
+> axes (CV re-ID 0.9333 vs 0.850, foreign-reject 0.9733 vs 0.9467, 0 twin
+> errors) and clearing a leak-check. The ported module lives at
+> `model/src/orc_model/pipelines/matching/` behind the same
+> `build_gallery/score/accept` interface; §6.5 is an engineering addition the
+> research never evaluated (grilled with Bram 2026-07-15).
 
-The comparison dictionary does not shrink during a batch. If two Pending rows
-accept the same Missing identity, the higher score wins and the other row
-becomes Unknown. It is deliberately not re-scored after deleting the winning
-gallery: that would change SCI's geometry and push an ambiguous row toward an
-unrelated second choice.
+On a **birth** (raw id `> N`, unseen):
 
-## Matcher
+1. **Evidence:** collect the new track's crops over its **first ~0.5 s**
+   (multi-frame); embed with DINOv2-B (masked crops, **RGB** — §4).
+2. **Candidate set = all identities in *Missing* state**, plus the implicit
+   **reject** option. Multi-removal makes a multi-candidate set the *normal* case.
+3. **Score = joint sparse reconstruction, not similarity.** Every Missing
+   candidate's gallery views are concatenated into **one dictionary** (each
+   view a unit-norm atom). The query window's fused embeddings are jointly
+   reconstructed as a sparse linear combination of that dictionary — a single
+   L1-penalized `MultiTaskLasso` solve **shared across the whole window**
+   ("joint sparse representation", Wright et al. 2009 extended frame→window).
+   Per-candidate score = reconstruction quality of *that candidate's atoms
+   alone* (inverse residual) × the **Sparsity Concentration Index** (SCI: how
+   much of the solved code's L1 mass sits on that one candidate vs. spread
+   across all). No crop-to-crop similarity is computed anywhere. Ablations:
+   SCI is the open-set mechanism (without it, reject collapses 0.9733→0.6133);
+   the *joint* window code is load-bearing (independent per-frame solves:
+   reject 0.9200); window=1 drops reject to 0.7500.
+4. **Accept iff** best ≥ **τ_accept** **and** best beats second-best by
+   **margin δ** → link. Else → stays Unknown.
+5. **Simultaneous returns → batched, gated assignment** — see §6.5.
+6. **One-missing prior = margin-skip only, never threshold relaxation.** With
+   one Missing identity SCI is vacuous (=1) and there's no second-best, so the
+   margin test is skipped — but **τ_accept still holds**. This is the
+   foreign-object safety valve: a phone placed while one instrument is missing
+   must **not** be force-linked into that slot. No forced linking, ever.
 
-`ChampionMethod` uses masked DINOv2-B CLS embeddings plus a moderate size cue.
-All roster gallery atoms form one normalized dictionary. A query window is
-jointly reconstructed with `MultiTaskLasso`, and candidate `c` receives:
+**Parameters** (winners of the 630-point CV sweep — `champion/PARAMS.md`):
+`alpha=0.0003` (MultiTaskLasso L1), `size_alpha=0.5`, `τ_accept=0.30`,
+`margin δ=0.02`, `mask_dilate_px=2`, `max_iter=2000`, `window=3` frames.
+All guarded numbers come from the 8×15 synthetic crop set — **expect a
+τ/margin retune after the first live test.**
 
-```text
-similarity(c) = 1 / (1 + reconstruction_residual(c))
-score(c)      = similarity(c) * SCI(c)
-```
+### 6.5 · Simultaneous returns — batched, gated assignment
 
-SCI is the Sparsity Concentration Index: coefficient mass concentrated on one
-identity approaches 1; mass spread across the roster approaches 0. Acceptance
-requires both an absolute score threshold and a best-versus-second margin.
+> **Engineering call, not research-backed** (grilled with Bram 2026-07-15;
+> FINDINGS §2 flags multi-simultaneous returns as a gap no challenger ever
+> evaluated). Validated before the demo on the video-003 teardown→re-lay
+> replay + the live test; revisit if either misbehaves.
 
-Selected parameters:
+1. **Natural batching, no added waiting.** At each decision tick, all new
+   tracks whose evidence windows have completed form one batch. Returns born
+   within ~0.5 s of each other share a matrix automatically; genuinely
+   staggered returns resolve one-by-one against the then-current Missing set.
+   (The embed may overlap the window's tail; nothing waits on a grace timer.)
+2. **Score matrix.** Each batch track gets `score()` independently against the
+   **full** Missing dictionary — same candidate set K for every row, so SCI
+   scores are comparable across rows. Cells failing *that row's own* τ/margin
+   gate are masked; rows/columns left with no admissible cell are dropped
+   before solving (no infeasible-matrix errors).
+3. **Assignment.** `scipy.optimize.linear_sum_assignment` maximizing total
+   score over the admissible cells; only cells that both passed their gate and
+   won the assignment get linked. **No forced links, ever** — τ always gates,
+   including single-candidate rows.
+4. **One extra round.** Tracks left unresolved re-`score()` **once** against
+   the reduced Missing set (claimed identities removed — the dictionary
+   shrinks, SCI mass redistributes, so a round-1 reject can legitimately flip
+   to a confident link), gate + assign again. Anything still unresolved
+   settles **Unknown**; recovery path is lift-and-replace (the identity stays
+   Missing, a fresh attempt matches normally).
+5. **Edges** (all follow from the above): more new tracks than Missing →
+   extras settle Unknown; unclaimed identities stay Missing; a track dying
+   mid-window gets no decision; settled decisions are never revisited (seam
+   invariant, § "Where it composes").
 
-| parameter | value |
-|---|---:|
-| `MultiTaskLasso alpha` | `0.0003` |
-| size-feature weight | `0.5` |
-| score threshold `tau` | `0.30` |
-| winner margin | `0.02` |
-| mask dilation | `2 px` |
-| solver iteration cap | `2000` |
-| query window | up to `3` crops, caller-side |
+## 7 · Rejection & Pending — app-side encoding
 
-### Genuine one-gallery fallback
+Nothing new crosses the seam. The app already has the frozen roster `{1…N}` and a
+1 s entry debounce (`Session`).
 
-SCI is undefined at `K=1`. The former implementation substituted `SCI=1`,
-which made the residual score too permissive and force-linked every foreign
-instrument in the smoke test. A truly one-gallery roster now uses an absolute
-nearest-gallery cosine gate before the normal score threshold.
+- **During the decision window** the linker emits the track's **provisional raw
+  id** (`> N`). The app sees a not-in-roster id present for **< the debounce** →
+  draws a **small "resolving" spinner** on that box, **gray mask**.
+- **On resolution the box's id flips:**
+  - **Linked** → box now carries a roster session id (∈ `{1…N}`) → spinner clears,
+    it snaps to that instrument's **fixed colour**. Provisional id lived < 1 s → no
+    report trace (seam-designed behaviour; app renders per-box, so the transition
+    is visually continuous though the integer changed).
+  - **Unknown** → still not-in-roster at debounce → spinner clears to a **gray
+    Unknown** mask; out of Usage/Completeness (T06).
+- **Mask colours:** the 8 roster ids each get one of **8 distinct colours**;
+  not-in-roster → **gray**. Because the linker re-emits the *original* session id,
+  a returned instrument **regains its original colour** (visual identity
+  continuity); a foreign object stays gray.
+- The spinner rides the app's debounce clock, not the linker's exact decision
+  instant (the model deliberately carries no "decided-Unknown" flag) — a clear
+  foreign object may spin the full ~1 s then settle gray. Harmless.
 
-The fallback cosine threshold is `0.60`. On the captured 8×15 still set this
-gave 93.5% genuine accept and 98.6% foreign reject. It is a fallback for an
-entire installation with one usable gallery, not the normal one-Missing path.
+> **App-side deltas to land in `app/docs/DESIGN.md` + the T05 spec:** resolving
+> spinner on young not-in-roster tracks; gray Unknown mask; 8-colour roster
+> mapping by session id. Model seam unchanged.
 
-## Crop and gallery rules
+## 8 · Rotation & flip robustness
 
-- Frames enter as BGR; matcher crops are converted to RGB.
-- Boxes are rounded and clamped for slicing.
-- A crop is admitted only when its mask area is at least 200 pixels and its box
-  does not touch the frame edge.
-- Confidence ranks enrollment crops but does not change crop admission.
-- Start views remain frozen for the recording.
-- Last-seen views are replaced at each death, not appended indefinitely.
-- Gallery embedding occurs only at enrollment, death, and Pending decisions;
-  DINO is not run on every frame.
+Layered; only Line 3 is gated on T02's rotation-margin numbers.
 
-## Detector and compute path
+- **Line 1 (always):** gallery diversity (T07 real faces/rotations — more
+  dictionary atoms) + the joint multi-frame window (§6).
+- **Line 2 (built, on): gallery-side synthetic augmentation.** For each masked
+  view, store synthetically **rotated + mirrored** copies (a coarse in-plane angle
+  set + horizontal flip), embed each, keep as extra gallery views. A rotated return
+  matches one via nearest-view max. **Augmentation is gallery-side so the per-return
+  query stays a single embed** (friendly to the ≤ 1 s budget). Cost stays sane:
+  **persistent** augmented embeddings are **precomputed offline and loaded**; only
+  the top-3 **Start** crops × the synthetic set embed at enrolment (~a second).
+- **Line 3 (md-only, T02-gated — can backfire): mask principal-axis
+  canonicalization.** PCA / `minAreaRect` on the mask → rotate the crop upright
+  before embedding, killing *arbitrary* in-plane rotation. But it leans on mask
+  quality; thin instruments can have noisy masks → a wrong axis rotates the crop
+  *wrong* and hurts. **Default OFF, documented here as an escalation path, not
+  built, until T02 shows Lines 1+2 miss.** Algorithm when needed: threshold the
+  full-frame mask to the crop region → `cv2.minAreaRect` → rotate crop + mask so
+  the principal axis is vertical → embed; resolve residual 180°/mirror by the
+  Line-2 gallery variants (max-sim already covers it).
+- **Never train or fine-tune on the demo instruments.** The model stays frozen;
+  robustness comes only from gallery diversity + augmentation + voting.
 
-The actual ONNX input is static `(1, 3, 768, 768)`. On Apple Silicon the
-detector requests ONNX Runtime's CoreML execution provider with:
+**Hard limit:** synthetic rotation covers *in-plane* angle only — it **cannot
+synthesize the opposite physical face**. Opposite-face coverage comes solely from
+T07's real both-face capture or the § 5 refresh module catching the face live.
 
-- `ModelFormat=MLProgram`;
-- `MLComputeUnits=ALL`;
-- `RequireStaticInputShapes=1`;
-- a persistent compiled-model cache beside the weights;
-- CPU fallback for unsupported graph fragments.
+## 9 · Tracker interplay
 
-Measured on the M3 Max at 1920×1080, detector inference was about 0.33 s/frame
-versus 0.84 s/frame on CPU. End-to-end uncached replay measured 2.87 and
-3.13 fps on the two July 15 recordings. Cached-detection replay is only a fast
-linker/tracker regression tool and must not be reported as detector throughput.
+- **`max_age` ≈ 1.0 s** (Deep OC-SORT coasting window; the wrapper's
+  `max_age_seconds`). This is the tracker/linker boundary: ≤ it = tracker rides
+  brief occlusions invisibly; > it = death → the linker owns re-id. Sits below the
+  app's 1.5 s off-debounce so a brief hand-over occlusion never reaches the linker,
+  while the coast is never long enough to mis-bind a foreign object at the old
+  location. **T04 tunes** against real fps + measured occlusion lengths.
+- **Re-validate meaningful-gap reactivations.** Within `max_age`, the tracker can
+  reactivate a coasted track under the same raw id via its *weak* embedder — a
+  different object could silently inherit the id, bypassing the linker's
+  embedder. So: if a track
+  reactivates after a gap **longer than a small threshold** (a couple frames =
+  trust the tracker; longer = suspect), treat it as a **birth-like event** — embed
+  and validate against **that session id's own gallery**; on failure, **break the
+  link** and re-run the open-set match. Event-driven, cheap. This is what stops a
+  raw-id switch from passing through silently.
+- **No `-1` strip needed.** OC-SORT's `min_hits=3` gates immature tracks out of
+  the output entirely — the linker just keys enrolment/birth off the first
+  **mature** emission (~3-frame delay, folded into the budget).
+- **Non-blocking / amortized budget.** DINOv2-B (~0.2–0.5 s/event) must **not** stall
+  `update()` beyond its per-frame budget (~0.07–0.1 s at 10–15 fps), and
+  multi-removal means several simultaneous births. So link resolution is
+  **multi-frame**: cache crops over the ~0.5 s window cheaply, embed off the
+  critical path, apply the id-remap the frame the decision lands, within ≤ 1 s.
+  **Whether that's a background worker or batched deferral is T05's call, gated on
+  T04's measured headroom** — this doc pins the *constraint*, not the threading.
 
-RF-DETR's second output channel is untrained. It is discarded before top-k
-selection so it cannot crowd valid channel-0 queries out of the result.
+---
 
-## Recorded matcher evidence
+## Parameters (defaults filled by T02, gaps tuned by T04)
 
-The promoted SRC configuration was selected on 8 instruments × 15 captured
-crops and 60 foreign crops using five seeded leave-frame-group-out splits:
+| Parameter | Meaning | Source |
+|---|---|---|
+| `enrolment_window_s` ≈ 0.5 | roster-freeze settle | this doc; T04 sanity |
+| `τ_accept` = 0.30 | absolute SRC-score (recon × SCI) acceptance | **autoresearch** (630-pt CV sweep); retune live |
+| `margin_δ` = 0.02 | best-vs-second-best gap | **autoresearch**; retune live |
+| `alpha` = 0.0003 | `MultiTaskLasso` L1 penalty | **autoresearch** |
+| `size_alpha` = 0.5 | mask-size fusion weight | **autoresearch** (resolves the twin pair) |
+| `match_frames` = 3 (~0.5 s) | multi-frame evidence window | **autoresearch** |
+| `bind_threshold`, `bind_margin` | persistent binding confidence | tune at **T07** |
+| crop = masked RGB (+ 2 px dilation) | crop form | **autoresearch** confirms |
+| rotation augmentation angle set + mirror | Line 2 | **T02** |
+| `refresh_enabled` = true | § 5 toggle | this doc; keep-on validated by T04 |
+| refresh gates (dwell, velocity, isolation, novelty, cooldown) | § 5 | T04 tunes |
+| `max_age_s` ≈ 1.0 | tracker coast / boundary | **T04** |
+| `revalidate_gap` | meaningful-gap threshold | **T04** |
 
-| metric | result |
-|---|---:|
-| CV re-identification top-1 | `0.9333 ± 0.0425` |
-| CV foreign rejection | `0.9733 ± 0.0533` |
-| instrument1/instrument2 twin errors | `0` |
-| locked holdout re-identification | `8/8` |
-| locked holdout foreign rejection | `5/6` |
+## Open dependencies & hand-offs
 
-Ablations established the important mechanisms:
+- **T02** posts stage-1 numbers as an interim asset; this design consumes them
+  without waiting for T02's closure. Threshold *values* are parameters.
+- **T04 harness must replay cached *frames* (or pre-extracted crops) alongside the
+  cached detection boxes** — box-only replay cannot exercise linking (the linker
+  crops + embeds from frames). Flag for the harness build.
+- **T05** builds it: standalone `SessionLinker`, the refresh module (on), Line-2
+  augmentation; Line-3 only if triggered. Also lands the § 7 app-side deltas in
+  `app/docs/DESIGN.md`, and the `matching/` gitignore housekeeping.
+- **T07** photo session feeds persistent galleries + final threshold numbers
+  (data/parameters, never code).
 
-| variant | re-ID | foreign reject |
-|---|---:|---:|
-| full joint SRC + size + SCI | `0.9333` | `0.9733` |
-| no SCI | `0.9583` | `0.6133` |
-| independent per-frame sparse codes | `0.9500` | `0.9200` |
-| single-frame window | `0.9143` | `0.7500` |
+## Out of scope (map decisions)
 
-These are directional results from a small still-image set. The durable video
-procedure and latest replay results live in
-[`demo-validation.md`](./demo-validation.md).
-
-## Known limitations
-
-- Session galleries are recording-local; there is no catalog identity or
-  cross-session history.
-- The workspace boundary assumes the fixed overhead demo framing.
-- Start and last-seen galleries do not yet use synthetic rotation/mirroring.
-- DINO and MobileNet weights must already be cached for an offline demo.
-- Matching is synchronous inside `update()`; measured event latency is within
-  the one-second budget, but a future slower platform may need a worker.
-- Unknown raw IDs pass through the model seam. The app must avoid adding them
-  to roster-based completeness/usage reporting.
-
-## Verification
-
-Fast tests:
-
-```bash
-model/.venv/bin/python -m pytest model/tests -q
-```
-
-Recorded-video replay and the operator choreography are documented in
-[`demo-validation.md`](./demo-validation.md).
+Catalog identification (real instrument names); post-hoc report-correction pass;
+cross-session identity / recording history. All confirmed non-goals for the demo.
