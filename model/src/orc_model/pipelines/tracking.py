@@ -14,15 +14,18 @@ from __future__ import annotations
 import hashlib
 import math
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import numpy as np
 import supervision as sv
 
-from orc_model.components.detector.detector import Detector
-from orc_model.pipelines.deep_ocsort.tracker import DeepOCSortTracker
-from orc_model.pipelines.matching import ChampionMethod
-from orc_model.pipelines.session_linker import SessionLinker
+if TYPE_CHECKING:
+    from orc_model.components.detector.detector import Detector
+    from orc_model.pipelines.deep_ocsort.tracker import DeepOCSortTracker
+    from orc_model.pipelines.session_linker import SessionLinker
+
+DEFAULT_PROCESSING_FPS = 3.0
+DEFAULT_WORKSPACE_MAX_CENTER_Y_RATIO = 0.88
 
 
 @runtime_checkable
@@ -155,9 +158,10 @@ def load_tracker(
     weights_path: str | Path,
     confidence: float = 0.5,
     *,
-    fps: float = 12.0,
+    fps: float = DEFAULT_PROCESSING_FPS,
     max_age_seconds: float = 1.0,
     absent_death_s: float | None = None,
+    workspace_max_center_y_ratio: float | None = DEFAULT_WORKSPACE_MAX_CENTER_Y_RATIO,
 ) -> InstrumentTracker:
     """Compose the real `InstrumentTracker`: RF-DETR detector -> Deep OC-SORT
     -> SessionLinker, per `model/docs/linker-design.md` "Where it composes".
@@ -168,13 +172,12 @@ def load_tracker(
     workable default, so `load_tracker(weights_path)` alone (the app's call
     site) just works.
 
-    `fps` is an HONEST ESTIMATE, not a measurement: live inference is the
-    bottleneck and has historically run ~10-15 fps end-to-end on this
-    hardware, so 12.0 is a conservative midpoint. TODO(W9, T05 brief): replace
-    this default with the value the first live-camera run actually measures.
-    NEVER let this default drift to 30 -- `DeepOCSortTracker.frame_rate`
+    `fps` is the measured processing rate, not the camera capture rate. The
+    final M3 Max pipeline measured 2.87-3.13 fps on the two demo recordings,
+    so the live default is 3.0. NEVER let this default drift to 30 --
+    `DeepOCSortTracker.frame_rate`
     defaults to 30 internally, which is exactly why `fps` is threaded through
-    explicitly to both the tracker and the linker below (T05 brief C4): a
+    explicitly to both the tracker and the linker below: a
     wrong fps here silently stretches the tracker's "1.0 s" coast window to
     ~2.5 s of wall time at real fps, breaching the tracker/linker boundary
     described in linker-design.md §9.
@@ -189,6 +192,12 @@ def load_tracker(
     pinned to `max_age_seconds`; pass it explicitly only to widen it further,
     a narrower value raises `ValueError`.
 
+    `workspace_max_center_y_ratio` excludes detections whose box centre falls
+    below the fixed overhead workspace. The demo camera sees tripod/table
+    clutter below the blue mat; 0.88 keeps that clutter out of the frozen
+    roster while retaining the instrument row. Pass `None` for an uncropped
+    installation or calibrate the ratio when the camera framing changes.
+
     Constructs the SRC matcher (`ChampionMethod`) eagerly, which loads
     DINOv2-B from the local HF cache -- so this call fails fast at startup on
     a missing/mismatched cache instead of on the first tracked frame.
@@ -201,9 +210,17 @@ def load_tracker(
             f"({max_age_seconds}): the linker must never declare an identity "
             "dead before the tracker itself has given up coasting its raw id."
         )
+    if (
+        workspace_max_center_y_ratio is not None
+        and not 0.0 < workspace_max_center_y_ratio <= 1.0
+    ):
+        raise ValueError("workspace_max_center_y_ratio must be in (0, 1] or None")
 
     weights_path = Path(weights_path)
-    detector = Detector(weights_path, confidence_threshold=confidence)
+    detector = _build_detector(weights_path, confidence)
+    from orc_model.pipelines.matching import ChampionMethod
+    from orc_model.pipelines.session_linker import SessionLinker
+
     matcher = ChampionMethod()  # loads DINOv2-B eagerly -- fail fast, not on first frame
     session_linker = SessionLinker(matcher, fps=fps, absent_death_s=absent_death_s)
 
@@ -214,6 +231,62 @@ def load_tracker(
         max_age_seconds=max_age_seconds,
         session_linker=session_linker,
         model_version=_model_version(weights_path),
+        workspace_max_center_y_ratio=workspace_max_center_y_ratio,
+    )
+
+
+def _build_detector(weights_path: Path, confidence: float) -> Detector:
+    """The detector on the CoreML EP (Apple Silicon GPU/Neural Engine), falling
+    back to plain CPU wherever CoreML isn't available.
+
+    Measured on the M3 Max, 1920x1080 in: **0.33 s/frame (3.1 fps) vs 0.84 s
+    (1.2 fps)** CPU-only -- a 2.6x speedup with BIT-IDENTICAL output (box delta
+    0.000, confidence delta 0.0000). Since `update()` is inference-bound, that
+    factor lands directly on the whole seam's frame rate, so this is not an
+    optional nicety: on CPU the tracker cannot keep up with a demo.
+
+    This mirrors what `data-collection/dashboard/backend/main.py` has done
+    since commit 89cfbbc ("perf(detector): run ORC detector on CoreML EP");
+    `load_tracker()` was composed without it and silently regressed the demo
+    path back to CPU. The options are load-bearing and were each paid for
+    once already -- do not "simplify" them away:
+
+    - `ModelFormat=MLProgram` is MANDATORY: the NeuralNetwork format throws
+      GatherElements-out-of-range on this graph. It is also what makes CoreML
+      absorb the graph -- 17 partitions instead of 119 (1166/1232 nodes), which
+      IS the speedup. Plain `["CoreMLExecutionProvider"]` with default options
+      is *slower than CPU* (2.8 s/frame), so a half-configured CoreML EP is
+      worse than none.
+    - `MLComputeUnits=ALL` picks the GPU correctly; don't force
+      CPUAndNeuralEngine.
+    - `RequireStaticInputShapes=1` is safe here: `preprocess()` always emits a
+      fixed (1, 3, 768, 768) tensor regardless of camera resolution.
+    - `ModelCacheDirectory` persists the compile cache next to the weights,
+      cutting session build from ~49 s to ~10 s on warm restarts. Stale entries
+      are keyed by graph hash, so a re-exported ONNX just builds a new one.
+    """
+    import onnxruntime
+
+    from orc_model.components.detector.detector import Detector
+
+    if "CoreMLExecutionProvider" not in onnxruntime.get_available_providers():
+        return Detector(weights_path, confidence_threshold=confidence)
+
+    cache_dir = weights_path.parent / ".coreml_cache"
+    cache_dir.mkdir(exist_ok=True)
+    return Detector(
+        weights_path,
+        confidence_threshold=confidence,
+        providers=["CoreMLExecutionProvider", "CPUExecutionProvider"],
+        provider_options=[
+            {
+                "ModelFormat": "MLProgram",
+                "MLComputeUnits": "ALL",
+                "RequireStaticInputShapes": "1",
+                "ModelCacheDirectory": str(cache_dir),
+            },
+            {},
+        ],
     )
 
 
@@ -246,6 +319,7 @@ class _RealInstrumentTracker:
         max_age_seconds: float,
         session_linker: SessionLinker,
         model_version: str,
+        workspace_max_center_y_ratio: float | None,
     ) -> None:
         self.confidence = confidence
         self._detector = detector
@@ -253,12 +327,15 @@ class _RealInstrumentTracker:
         self._max_age_seconds = max_age_seconds
         self._session_linker = session_linker
         self._model_version = model_version
+        self._workspace_max_center_y_ratio = workspace_max_center_y_ratio
         self._deep_ocsort = self._new_deep_ocsort()
 
     def _new_deep_ocsort(self) -> DeepOCSortTracker:
-        # det_thresh stays fixed at the startup confidence (T05 brief C8):
+        # det_thresh stays fixed at the startup confidence:
         # OC-SORT's internal gate, distinct from the per-call detector
         # threshold below, which does track `self.confidence` live.
+        from orc_model.pipelines.deep_ocsort.tracker import DeepOCSortTracker
+
         return DeepOCSortTracker(
             det_thresh=self.confidence,
             frame_rate=self._fps,
@@ -279,6 +356,29 @@ class _RealInstrumentTracker:
 
     def update(self, frame: np.ndarray) -> sv.Detections:
         detections = self._detector.predict(frame, confidence_threshold=self.confidence)
+        detections = _filter_workspace(
+            detections,
+            frame_height=frame.shape[0],
+            max_center_y_ratio=self._workspace_max_center_y_ratio,
+        )
         detections = self._deep_ocsort.update(detections, frame)
         detections = self._session_linker.update(detections, frame)
         return detections
+
+
+def _filter_workspace(
+    detections: sv.Detections,
+    *,
+    frame_height: int,
+    max_center_y_ratio: float | None,
+) -> sv.Detections:
+    """Keep detections whose box centre lies inside the overhead workspace."""
+    if max_center_y_ratio is None:
+        return detections
+    if not 0.0 < max_center_y_ratio <= 1.0:
+        raise ValueError("workspace_max_center_y_ratio must be in (0, 1] or None")
+    if len(detections) == 0:
+        return detections
+
+    center_y = (detections.xyxy[:, 1] + detections.xyxy[:, 3]) / 2.0
+    return detections[center_y <= frame_height * max_center_y_ratio]

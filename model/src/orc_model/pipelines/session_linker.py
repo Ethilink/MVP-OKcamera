@@ -4,24 +4,18 @@ Sits after Deep OC-SORT in `load_tracker()`'s composition. Enrols a frozen
 roster at Start, keeps per-identity appearance galleries (session-only, v1),
 embeds only at track birth/death/batch-decision events (never per frame), and
 re-identifies returning instruments via the injected SRC matcher behind an
-open-set gate. See `model/docs/session-linker-SPEC.md` (build contract) and
-`model/docs/linker-design.md` §§1-7 (rationale).
+open-set gate. See `model/docs/linker-design.md` for the current contract and
+rationale.
 
-Out of scope for v1 (see SPEC.md "Out of scope" + linker-design.md):
+Out of scope for v1 (see `model/docs/linker-design.md`):
     TODO(linker-design §3): persistent reference galleries + Hungarian binding
         against pre-captured specimen photos. v1 galleries are session-only
-        (Start crops + last-seen crops); T07's photos don't exist yet.
+        (Start crops + last-seen crops); reference photos do not exist yet.
     TODO(linker-design §5): stability-gated session-refresh ring. Galleries
         are frozen at Start/death; no live crop is ever added to a gallery
         mid-recording.
-    TODO(linker-design §8): rotation/mirror gallery augmentation (Lines 2/3).
+    TODO(linker-design §8): rotation/mirror gallery augmentation.
         Galleries hold only the raw embedded views, no synthetic copies.
-    TODO(linker-design §9): meaningful-gap reactivation re-validation. A raw
-        id reappearing before the death threshold is treated as ordinary
-        tracker coasting with no re-check against its own gallery. A raw id
-        reappearing after its identity was already declared Missing is now
-        restored to Active for state consistency, but it likewise receives
-        no re-validation against its gallery.
     TODO(linker-design §9): non-blocking/async decision execution. Matcher
         calls happen synchronously inside `update()`; threading is deferred.
     TODO(linker-design out-of-scope): catalog identification, the
@@ -40,14 +34,9 @@ from typing import NamedTuple
 
 import numpy as np
 import supervision as sv
-from scipy.optimize import linear_sum_assignment
 
 from orc_model.pipelines.matching import ChampionGallery
 from orc_model.pipelines.matching.interface import REJECT  # noqa: F401
-
-# Large finite (never -inf) cost-matrix filler for assignment cells that
-# didn't pass a row's own accept() gate (T05 brief C6).
-_INADMISSIBLE = -1e6
 
 
 class _Crop(NamedTuple):
@@ -81,7 +70,7 @@ class _PendingTrack:
 
 class SessionLinker:
     """Remaps Deep OC-SORT's raw `tracker_id`s to stable session ids that
-    survive absence. See module docstring + `session-linker-SPEC.md`."""
+    survive absence. See the module docstring and `linker-design.md`."""
 
     def __init__(
         self,
@@ -160,17 +149,6 @@ class SessionLinker:
         if raw_id in self._raw_to_session:
             session_id = self._raw_to_session[raw_id]
             identity = self._identities[session_id]
-            if identity.active_raw_id is None:
-                # Late reactivation: the tracker resumed this raw id after we'd
-                # already declared its identity Missing (dead). Restore state
-                # consistency so it stops being a live candidate for other
-                # pending tracks to link to (see module TODO(linker-design §9)
-                # -- this is not a gallery re-validation).
-                identity.active_raw_id = raw_id
-                self._logger.info(
-                    "late reactivation: identity=%d raw_id=%d resumed after declared death",
-                    session_id, raw_id,
-                )
             identity.absence_streak = 0
             if crop is not None and crop.ok:
                 identity.crop_buffer.append((crop.rgb, crop.mask))
@@ -291,6 +269,7 @@ class SessionLinker:
 
     def _kill(self, identity: _Identity) -> None:
         t0 = time.monotonic()
+        retired_raw_id = identity.active_raw_id
         crops = [c for c, _ in identity.crop_buffer]
         masks = [m for _, m in identity.crop_buffer]
         if crops:
@@ -299,6 +278,8 @@ class SessionLinker:
         build_ms = (time.monotonic() - t0) * 1000
 
         identity.active_raw_id = None
+        if retired_raw_id is not None:
+            self._raw_to_session.pop(retired_raw_id, None)
         identity.absence_streak = 0
         identity.crop_buffer = deque(maxlen=self._evidence_frames)
         self._logger.info(
@@ -329,17 +310,30 @@ class SessionLinker:
 
     # -- B5: batched, gated decision ----------------------------------------
 
-    def _missing_galleries(self) -> dict[int, ChampionGallery]:
+    def _comparison_galleries(self) -> dict[int, ChampionGallery]:
+        """Return every usable frozen-roster gallery.
+
+        Gallery membership is deliberately independent of Active/Missing
+        state.  SRC's SCI gate is a relative statistic calibrated against the
+        complete roster; removing Active identities would collapse the normal
+        one-missing case to K=1 and destroy its open-set rejection signal.
+        """
         galleries: dict[int, ChampionGallery] = {}
         for session_id, identity in self._identities.items():
-            if identity.active_raw_id is not None:
-                continue
             views = [v for v in (identity.start_views, identity.last_seen_views) if v is not None]
             if not views:
-                continue  # no crops ever -> can never be re-linked (B2.4)
+                continue
             merged = views[0] if len(views) == 1 else np.concatenate(views, axis=0)
             galleries[session_id] = ChampionGallery(views=merged, identity=session_id)
         return galleries
+
+    def _eligible_missing_ids(self, galleries: dict[int, ChampionGallery]) -> set[int]:
+        """Return Missing identities that have evidence and may receive a link."""
+        return {
+            session_id
+            for session_id, identity in self._identities.items()
+            if identity.active_raw_id is None and session_id in galleries
+        }
 
     def _run_batch_decision(self, closed: list[tuple[int, _PendingTrack]]) -> dict[int, int | None]:
         if not closed:
@@ -360,24 +354,11 @@ class SessionLinker:
             rows.append((raw_id, crops, masks))
             pending_crops_by_raw_id[raw_id] = crop_tuples
 
-        missing_galleries = self._missing_galleries()
-        candidate_count = len(missing_galleries)
-        winners: dict[int, int] = {}
-        score_ms = [0.0, 0.0]
-        assignment_ms = [0.0, 0.0]
-
-        unresolved = rows
-        for round_index in range(2):  # round 1 + exactly one round 2
-            if not unresolved or not missing_galleries:
-                break
-            round_winners, unresolved, s_ms, a_ms = self._score_and_assign(
-                unresolved, missing_galleries
-            )
-            score_ms[round_index] = s_ms
-            assignment_ms[round_index] = a_ms
-            for raw_id, session_id in round_winners.items():
-                winners[raw_id] = session_id
-                missing_galleries.pop(session_id, None)
+        comparison_galleries = self._comparison_galleries()
+        eligible_missing_ids = self._eligible_missing_ids(comparison_galleries)
+        winners, unresolved, score_ms, assignment_ms = self._score_and_assign(
+            rows, comparison_galleries, eligible_missing_ids
+        )
 
         for raw_id, session_id in winners.items():
             self._link(raw_id, session_id, pending_crops_by_raw_id.get(raw_id, []))
@@ -388,10 +369,10 @@ class SessionLinker:
 
         total_ms = (time.monotonic() - t_start) * 1000
         self._logger.info(
-            "batch decision: rows=%d candidates=%d round1_score_ms=%.1f round1_assign_ms=%.1f "
-            "round2_score_ms=%.1f round2_assign_ms=%.1f total_ms=%.1f outcomes=%s",
-            len(rows), candidate_count, score_ms[0], assignment_ms[0],
-            score_ms[1], assignment_ms[1], total_ms,
+            "batch decision: rows=%d comparison_galleries=%d eligible_missing=%d "
+            "score_ms=%.1f collision_ms=%.1f total_ms=%.1f outcomes=%s",
+            len(rows), len(comparison_galleries), len(eligible_missing_ids),
+            score_ms, assignment_ms, total_ms,
             {raw_id: ("unknown" if sid is None else f"linked:{sid}") for raw_id, sid in resolved.items()},
         )
         return resolved
@@ -399,40 +380,41 @@ class SessionLinker:
     def _score_and_assign(
         self,
         rows: list[tuple[int, list, list]],
-        missing_galleries: dict[int, ChampionGallery],
+        comparison_galleries: dict[int, ChampionGallery],
+        eligible_missing_ids: set[int],
     ) -> tuple[dict[int, int], list[tuple[int, list, list]], float, float]:
+        if not rows or not eligible_missing_ids:
+            return {}, rows, 0.0, 0.0
+
         t_score = time.monotonic()
-        admissible: dict[int, tuple[int, float]] = {}
+        proposals: list[tuple[int, int, float]] = []
         for idx, (_raw_id, crops, masks) in enumerate(rows):
-            scores = self._matcher.score(crops, masks, {}, missing_galleries)
+            scores = self._matcher.score(crops, masks, {}, comparison_galleries)
             accepted = self._matcher.accept(scores)
-            if accepted != REJECT:
-                admissible[idx] = (accepted, scores[accepted])
+            if accepted == REJECT or accepted not in eligible_missing_ids:
+                continue
+            if accepted not in scores:
+                self._logger.warning("matcher accepted identity %r without returning its score", accepted)
+                continue
+            proposals.append((idx, accepted, scores[accepted]))
         score_ms = (time.monotonic() - t_score) * 1000
 
-        if not admissible:
+        if not proposals:
             return {}, rows, score_ms, 0.0
 
-        row_indices = list(admissible.keys())
-        candidate_ids = sorted({session_id for session_id, _ in admissible.values()})
-        col_of = {session_id: c for c, session_id in enumerate(candidate_ids)}
-        matrix = np.full((len(row_indices), len(candidate_ids)), _INADMISSIBLE)
-        for r, idx in enumerate(row_indices):
-            session_id, score = admissible[idx]
-            matrix[r, col_of[session_id]] = score
-
         t_assign = time.monotonic()
-        row_sel, col_sel = linear_sum_assignment(-matrix)  # maximize total score
+        best_by_session: dict[int, tuple[int, float]] = {}
+        for idx, session_id, score in proposals:
+            incumbent = best_by_session.get(session_id)
+            if incumbent is None or score > incumbent[1]:
+                best_by_session[session_id] = (idx, score)
         assignment_ms = (time.monotonic() - t_assign) * 1000
 
-        winners: dict[int, int] = {}
-        resolved_idx = set()
-        for r, c in zip(row_sel, col_sel):
-            if matrix[r, c] == _INADMISSIBLE:
-                continue  # landed on an inadmissible cell -> discard
-            idx = row_indices[r]
-            winners[rows[idx][0]] = candidate_ids[c]
-            resolved_idx.add(idx)
+        resolved_idx = {idx for idx, _score in best_by_session.values()}
+        winners = {
+            rows[idx][0]: session_id
+            for session_id, (idx, _score) in best_by_session.items()
+        }
 
         unresolved = [row for i, row in enumerate(rows) if i not in resolved_idx]
         return winners, unresolved, score_ms, assignment_ms
@@ -448,7 +430,7 @@ class SessionLinker:
         identity.absence_streak = 0
         # Transfer the winning pending track's buffered crops so an identity
         # that links and then quickly disappears still has last-seen crops at
-        # death (SPEC B6.4/B3.1); respects the identity's own maxlen.
+        # death; respects the identity's own maxlen.
         crop_buffer = deque(maxlen=self._evidence_frames)
         if pending_crops:
             crop_buffer.extend(pending_crops)

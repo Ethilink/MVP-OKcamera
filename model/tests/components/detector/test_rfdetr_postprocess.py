@@ -126,6 +126,26 @@ def test_channel_filtering_excludes_untrained_channel_even_at_higher_score():
     assert list(result.data["class_name"]) == ["surgical_instrument"] * 2
 
 
+def test_untrained_channel_cannot_consume_the_real_channel_top_k_budget():
+    dets, labels, masks = _make_inputs(num_queries=300)
+    labels[0, :, 1] = 5.0  # all 300 untrained logits outrank the real detection
+    labels[0, 0, 0] = 4.0
+    dets[0, 0] = [0.5, 0.5, 0.2, 0.2]
+
+    result = decode_predictions(
+        dets,
+        labels,
+        masks,
+        image_width=100,
+        image_height=100,
+        confidence_threshold=0.5,
+        top_k=300,
+    )
+
+    assert len(result) == 1
+    assert np.isclose(result.confidence[0], _sigmoid(4.0))
+
+
 def test_shared_index_gather_keeps_box_and_mask_aligned_to_same_query():
     num_queries = 5
     mask_size = 20

@@ -1,43 +1,20 @@
 #!/usr/bin/env python
-"""
-CHAMPION — round 3, matcher-autoresearch.
+"""Session re-identification using joint sparse representation.
 
-Lives here at `model/src/orc_model/pipelines/matching/champion.py`; ported
-near-verbatim from `experiments/matcher-autoresearch/champion/champion.py`
-(the matcher-autoresearch loop's winning module) — see that directory's
-LEADERBOARD.md/PARAMS.md for the full selection history this docstring
-summarizes below.
+A query window's masked DINOv2-B embeddings are jointly reconstructed from
+the complete frozen-roster gallery dictionary with ``MultiTaskLasso``. Each
+identity receives a reconstruction-similarity score multiplied by the
+Sparsity Concentration Index (SCI), which measures whether the sparse code is
+concentrated on that identity instead of spread across the roster.
 
-  SPARSE-REPRESENTATION-BASED CLASSIFICATION (SRC): a query return-window's
-  DINOv2-B CLS embeddings (same masked-crop representation as the round-0
-  baseline this method superseded) are jointly reconstructed as a SPARSE
-  linear combination of every candidate gallery's atoms, concatenated into
-  one dictionary and solved as a SINGLE L1-penalized multi-task least-squares
-  problem (`MultiTaskLasso`) shared across the whole window at once — "Joint
-  Sparse Representation" (Wright et al. 2009's SRC, extended from one frame
-  to a window-joint code). The per-candidate score is a RECONSTRUCTION
-  quality term (inverse residual of that candidate's atoms alone against the
-  window) times the SPARSITY CONCENTRATION INDEX (SCI, Wright et al. 2009
-  eq. 12): how much of the solved code's L1 mass sits on that one candidate's
-  atoms versus spread thinly across every candidate — the open-set rejection
-  signal. No crop-to-crop similarity is ever computed anywhere in this
-  method; matching is convex reconstruction over a shared dictionary, not
-  nearest-neighbour search.
-
-Superseded the round-0 baseline (DINOv2-B CLS + moderate size-fusion +
-top-3-mean + multi-frame voting): CV re-ID 0.9333 vs 0.850 (+0.083, clears
-the round-0 seed-variance band of 0.043), CV foreign-reject 0.9733 vs 0.9467
-(both metrics up), 0 twin errors either way. Cleared a Codex leak-check
-(clean=true) before promotion — see
-`experiments/matcher-autoresearch/TRIED.md` "Round 3 leak-check verdict" for
-the full file:line audit.
-
-Implements the build_gallery/score/accept interface (interface.py, mirrors
-linker-design.md §6). Hyperparameters below are the winners of the 630-point
-CV grid sweep in `experiments/matcher-autoresearch/runs/r3-c2/run_eval.py` —
-see PARAMS.md for the full table + the guarded held-out numbers + ablations.
+The selected parameters and guarded benchmark numbers are retained in
+``model/docs/linker-design.md``. Production must score against the complete
+roster: SCI is relative and loses its open-set meaning when callers reduce the
+dictionary to only the currently Missing identities.
 """
 from __future__ import annotations
+
+import logging
 
 import numpy as np
 from PIL import Image
@@ -48,6 +25,8 @@ from .embedder import get_embedder
 from .interface import REJECT, Gallery
 from .size_features import size_feature
 
+_log = logging.getLogger("orc_model.matching")
+
 FAMILY = (
     "sparse-representation-based classification (SRC): joint dictionary "
     "reconstruction over concatenated candidate galleries via L1-penalized "
@@ -55,13 +34,19 @@ FAMILY = (
     "Sparsity Concentration Index (SCI)"
 )
 
-# Winning hyperparameters from the CV sweep (runs/r3-c2/cv_sweep.json).
+# Winners of the recorded 630-point CV sweep; see model/docs/linker-design.md.
 DEFAULT_ALPHA = 0.0003
 DEFAULT_SIZE_ALPHA = 0.5
 DEFAULT_TAU = 0.30
 DEFAULT_MARGIN = 0.02
 DEFAULT_MASK_DILATE_PX = 2
 DEFAULT_MAX_ITER = 2000
+
+# Absolute fallback for a genuinely one-gallery roster. Calibrated on the
+# 8x15 captured instrument stills: 0.60 gave 93.5% genuine accept and 98.6%
+# foreign reject. Normal demo decisions retain the complete eight-gallery
+# roster and therefore use SCI instead.
+DEFAULT_COS_TAU = 0.60
 
 
 class ChampionGallery(Gallery):
@@ -82,8 +67,7 @@ def _apply_mask(image: np.ndarray, mask: np.ndarray, dilate_px: int) -> Image.Im
 
 
 class ChampionMethod:
-    """CHAMPION — round 3, SRC via joint dictionary reconstruction + SCI. See
-    module docstring + PARAMS.md."""
+    """SRC via joint dictionary reconstruction and SCI open-set rejection."""
 
     family = FAMILY
 
@@ -96,11 +80,29 @@ class ChampionMethod:
         mask_dilate_px: int = DEFAULT_MASK_DILATE_PX,
         max_iter: int = DEFAULT_MAX_ITER,
         model_id: str = "facebook/dinov2-base",
+        cos_tau: float = DEFAULT_COS_TAU,
     ):
+        """``cos_tau`` is the only parameter not selected by the SRC sweep.
+
+        Why it exists: SCI, this method's open-set rejection signal, is a
+        RELATIVE statistic — "how much of the sparse code's L1 mass sits on this
+        candidate versus the others". At K=1 there are no others: the formula
+        `(K*cand_l1/total_l1 - 1)/(K-1)` is literally 0/0, and it used to be
+        hardcoded to 1.0 ("vacuous"). That left `score = sim = 1/(1+residual)`
+        as the whole decision, whose FLOOR for a ~unit-norm query is ~0.47 —
+        a gallery reconstructing NOTHING still scores 0.47, above `tau`=0.30.
+        So the previous K=1 branch could not reject anything: all seven foreign
+        instruments force-linked into the sole candidate in the smoke test.
+
+        Production now preserves the full frozen-roster dictionary, so this
+        absolute nearest-view cosine gate is only a fail-closed fallback for a
+        deployment whose entire usable roster really contains one gallery.
+        """
         self.alpha = alpha
         self.size_alpha = size_alpha
         self.tau = tau
         self.margin = margin
+        self.cos_tau = cos_tau
         self.mask_dilate_px = mask_dilate_px
         self.max_iter = max_iter
         self._embedder = get_embedder(model_id)
@@ -152,6 +154,14 @@ class ChampionMethod:
         X = X.T if X.shape[0] == n_frames else X  # normalize to (N_atoms, n_frames)
 
         total_l1 = np.abs(X).sum()
+
+        # Absolute (K-free) appearance similarity, for the K=1 gate below.
+        # D_norm's columns are already unit-norm, so this is a plain cosine of
+        # each query view against every atom. Costs one matmul on vectors we
+        # already have — no extra embed.
+        Yn = Y / np.linalg.norm(Y, axis=0, keepdims=True).clip(min=1e-8)
+        cos_all = Yn.T @ D_norm  # (n_frames, N_atoms)
+
         scores: dict[str, float] = {}
         for j, cid in enumerate(candidate_ids):
             idx = np.where(owner == j)[0]
@@ -169,7 +179,23 @@ class ChampionMethod:
                 sci = (K * cand_l1 / total_l1 - 1.0) / (K - 1.0)
                 sci = float(np.clip(sci, 0.0, 1.0))
             else:
-                sci = 1.0  # single-candidate one-missing prior: vacuous
+                # K == 1: SCI is 0/0 — there is no "other candidate" to
+                # concentrate against, so it carries no information and used to
+                # be hardcoded 1.0, leaving `sim` (floor ~0.47) as the only
+                # gate and `tau`=0.30 unreachable. Gate on an ABSOLUTE cosine
+                # instead: it needs no rival candidates to mean something.
+                # Binary by design — with one candidate there is nothing to
+                # RANK, only an admit/reject to make, and passing the gate
+                # leaves the score exactly what tau/margin were tuned against.
+                # See __init__'s `cos_tau` docstring for the full story.
+                cos = float(cos_all[:, idx].max(axis=1).mean())  # window-mean of per-view best
+                sci = 1.0 if cos >= self.cos_tau else 0.0
+                # Log the absolute value so replay validation can recalibrate
+                # cos_tau without changing the score contract.
+                _log.debug(
+                    "K=1 gate: candidate=%s cos=%.4f cos_tau=%.2f -> %s (sim=%.4f)",
+                    cid, cos, self.cos_tau, "admit" if sci else "REJECT", sim,
+                )
             scores[cid] = sim * sci
         return scores
 
@@ -184,6 +210,6 @@ class ChampionMethod:
             second_score = ranked[1][1]
             if (best_score - second_score) < self.margin:
                 return REJECT
-        # one-missing prior (linker-design.md §6.6): with a single candidate the
-        # margin test is vacuous by construction above — tau still gates it.
+        # A one-gallery roster has no second candidate, so its margin is
+        # vacuous; the absolute cosine fallback in score() still gates it.
         return best_id

@@ -1,10 +1,10 @@
-# Plan: first detections (RF-DETR)
+# RF-DETR detector
 
-Design rationale for the first detection component
+Runtime contract for the detection component
 (`components/detector/detector.py`, `components/detector/_rfdetr_postprocess.py`),
 wrapping the pre-trained RF-DETR instance-segmentation ONNX export.
 
-## Phase 2: detector.py
+## Detector
 
 `Detector` owns the ONNX session and the `preprocess -> session.run ->
 decode_predictions` pipeline. It takes a single BGR image (e.g. from
@@ -12,8 +12,9 @@ decode_predictions` pipeline. It takes a single BGR image (e.g. from
 image's own pixel coordinate space — callers never see the model's internal
 768x768 input space or raw logits.
 
-Output tensors are looked up by name (`dets`, `labels`, `masks`) rather than
-by position, since ONNX does not guarantee output order across export runs.
+The input and required output names (`dets`, `labels`, `masks`) are validated
+once when the ONNX session loads. Prediction explicitly requests those outputs
+in contract order; no graph metadata is re-read per frame.
 
 ## RF-DETR ONNX contract
 
@@ -29,28 +30,31 @@ normalized with standard ImageNet mean/std.
 turns them into `sv.Detections` in the *original* image's pixel coordinates.
 Order of operations, and why each step is there:
 
-1. `sigmoid(labels)` -> per-(query, class) probability.
-2. Flatten the (query, class) grid into one length-`300*num_classes` axis.
-3. Take the top-`top_k` flat indices by probability, descending. Recover
-   `query_idx = flat_idx // num_classes`, `class_idx = flat_idx % num_classes`.
-4. Gather `dets[query_idx]` and `masks[query_idx]` using that SAME
+1. Select channel 0, the only trained detection channel. Channel 1 is removed
+   before ranking so it cannot consume the top-k budget.
+2. Apply sigmoid and take the top-`top_k` query indices by probability.
+3. Gather `dets[query_idx]` and `masks[query_idx]` using that SAME
    `query_idx` — the critical alignment step; get this wrong and a box
    silently pairs with the wrong query's mask.
-5. Keep only rows where `class_idx == 0` (the real/trained detection
-   channel — `class_idx == 1` is an untrained channel that must never be
-   treated as a real detection, however high its raw score happens to be).
-6. Among the survivors, keep only `prob >= confidence_threshold`.
-7. cxcywh -> xyxy in normalized [0,1] space, then scale directly to the
+4. Keep only `prob >= confidence_threshold`.
+5. cxcywh -> xyxy in normalized [0,1] space, then scale directly to the
    *original* image's pixel width/height (NOT the square 768x768 model
    input — the normalized box coords were relative to that square input,
    but RF-DETR's own postprocessing rescales them directly against the
    target/original image size).
-8. Resize each surviving query's 192x192 mask logits (bilinear) to
+6. Resize each surviving query's 192x192 mask logits (bilinear) to
    `(image_height, image_width)`, then threshold `> 0` (equivalent to
    sigmoid-then->0.5, since sigmoid is monotonic and sigmoid(0) == 0.5).
-9. Build the `sv.Detections` (empty-but-valid when nothing survives).
+7. Build the `sv.Detections` (empty-but-valid when nothing survives).
 
 This contract (tensor shapes, the two-class label layout, the cxcywh
 normalization target) was verified against the actual ONNX export rather
 than assumed from RF-DETR's PyTorch-side docs, since ONNX exports can drop
 or reorder postprocessing that the PyTorch model applies internally.
+
+## Apple Silicon execution
+
+`load_tracker()` uses ONNX Runtime's CoreML execution provider when available,
+with MLProgram format, all compute units, static input shapes, a persistent
+compiled-model cache, and CPU fallback. The current M3 Max measurement is
+approximately 0.33 s/frame versus 0.84 s/frame on CPU for a 1920×1080 input.

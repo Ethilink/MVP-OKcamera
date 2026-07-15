@@ -29,7 +29,9 @@ MVP-OKcamera/
 - `app/frontend` only talks to `app/backend`'s API, never to `model/` directly.
 - `model/` has no dependency on `app/` at all — training runs and finishes before the app ever touches the artifact.
 
-See each folder's own `README.md` for internals. `app/` (backend + frontend) and `data-collection/` are built and tested; the remaining piece is `model/`'s real tracker (`load_tracker` with appearance-based re-identification), which `app/backend` consumes for real-camera mode.
+See each folder's own `README.md` for internals. `model.load_tracker()` provides
+the real RF-DETR, Deep OC-SORT, and appearance-based session linker consumed by
+`app/backend` in camera mode.
 
 ## Agent setup
 

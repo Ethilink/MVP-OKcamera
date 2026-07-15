@@ -6,8 +6,8 @@ Camo → run the **detector** live → operator **snapshots** bad frames → sav
 each as a still into a COCO-VID dataset (`review_status "pending"`) for
 correction in the **separate** annotation dashboard. This tool never edits
 anything; it captures stills. It consumes the model only via the `Detector`
-(`model/src/orc_model/components/detector/detector.py`; design in
-[`plan-first-detections.md`](../../model/docs/plan-first-detections.md)) and
+(`model/src/orc_model/components/detector/detector.py`; contract in
+[`detector.md`](../../model/docs/detector.md)) and
 emits datasets per [`IMPORT_FORMAT.md`](IMPORT_FORMAT.md).
 
 > **2026-07-09 redesign.** This doc and `RECORDING.md` describe one tool now,
@@ -26,10 +26,10 @@ emits datasets per [`IMPORT_FORMAT.md`](IMPORT_FORMAT.md).
 > separate app.)
 
 > **Detector-only, for this first version.** It runs the RF-DETR `Detector`
-> directly — boxes + masks per frame, **no tracking, no `track_id`**. A tracker is
-> being built elsewhere in the repo but is not wired in here yet; when it lands it
-> slots behind the same `sv.Detections` shape (adding `tracker_id`) without
-> touching this tool.
+> directly — boxes + masks per frame, **no tracking, no `track_id`**. The
+> production tracker exists in `model/`, but this collection tool deliberately
+> stays detector-only. It can be composed later behind the same
+> `sv.Detections` seam without changing the saved detector annotations.
 
 ## Scope (locked)
 

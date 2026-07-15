@@ -152,4 +152,4 @@ data-collection/dashboard/captures/
 outputs/
 
 # Local reference-only checkout of the separate Ethilink/matching repo (not vendored here)
-matching/
+/matching/

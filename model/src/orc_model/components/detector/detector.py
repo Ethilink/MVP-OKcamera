@@ -2,8 +2,8 @@
 
 Wraps the pre-trained RF-DETR instance-segmentation ONNX export: loads the
 model, runs a single image through `preprocess` -> `session.run` ->
-`decode_predictions`. See `../../../../docs/plan-first-detections.md` ("Phase
-2: detector.py" section) for the design rationale.
+`decode_predictions`. See `../../../../docs/detector.md` for the verified
+runtime contract.
 """
 
 from pathlib import Path
@@ -34,6 +34,13 @@ class Detector:
         self.session = onnxruntime.InferenceSession(
             str(weights_path), providers=providers, provider_options=provider_options
         )
+        self._input_name = self.session.get_inputs()[0].name
+        self._output_names = ["dets", "labels", "masks"]
+        available_outputs = {output.name for output in self.session.get_outputs()}
+        missing_outputs = set(self._output_names) - available_outputs
+        if missing_outputs:
+            missing = ", ".join(sorted(missing_outputs))
+            raise ValueError(f"RF-DETR ONNX output contract missing: {missing}")
 
     def predict(
         self, image: np.ndarray, confidence_threshold: float | None = None
@@ -55,13 +62,10 @@ class Detector:
 
         preprocessed = preprocess(image)
 
-        input_name = self.session.get_inputs()[0].name
-        outputs = self.session.run(None, {input_name: preprocessed})
-        output_names = [output.name for output in self.session.get_outputs()]
-        output_by_name = dict(zip(output_names, outputs))
-        dets = output_by_name["dets"]
-        labels = output_by_name["labels"]
-        masks = output_by_name["masks"]
+        dets, labels, masks = self.session.run(
+            self._output_names,
+            {self._input_name: preprocessed},
+        )
 
         return decode_predictions(
             dets,

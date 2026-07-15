@@ -3,7 +3,7 @@
 Internal to `components/detector/` — nothing outside this package should
 import this module directly; go through `Detector` instead.
 
-See `../../../../docs/plan-first-detections.md` ("RF-DETR ONNX contract") for
+See `../../../../docs/detector.md` ("RF-DETR ONNX contract") for
 the verified contract this implements.
 """
 
@@ -18,13 +18,13 @@ _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 def preprocess(image: np.ndarray) -> np.ndarray:
     """BGR HWC uint8 (any H,W) -> float32 (1,3,768,768) NCHW, RGB, ImageNet-normalized."""
-    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    resized = cv2.resize(rgb, (_INPUT_SIZE, _INPUT_SIZE), interpolation=cv2.INTER_LINEAR)
+    resized_bgr = cv2.resize(image, (_INPUT_SIZE, _INPUT_SIZE), interpolation=cv2.INTER_LINEAR)
+    resized_rgb = resized_bgr[:, :, ::-1]
 
-    normalized = (resized.astype(np.float32) / 255.0 - _IMAGENET_MEAN) / _IMAGENET_STD
+    normalized = (resized_rgb.astype(np.float32) / 255.0 - _IMAGENET_MEAN) / _IMAGENET_STD
 
     chw = normalized.transpose(2, 0, 1)
-    return chw[np.newaxis, ...].astype(np.float32)
+    return np.ascontiguousarray(chw[np.newaxis, ...])
 
 
 def decode_predictions(
@@ -40,44 +40,34 @@ def decode_predictions(
     logits -> `sv.Detections` in the *original* image's pixel coordinates.
 
     Order of operations (see "RF-DETR ONNX contract" in
-    `../../../docs/plan-first-detections.md` for why each step is here):
-    1. `sigmoid(labels)` -> per-(query, class) probability.
-    2. Flatten the (query, class) grid into one length-`300*num_classes` axis.
-    3. Take the top-`top_k` flat indices by probability, descending. Recover
-       `query_idx = flat_idx // num_classes`, `class_idx = flat_idx % num_classes`.
-    4. Gather `dets[query_idx]` and `masks[query_idx]` using that SAME
+    `../../../docs/detector.md` for why each step is here):
+    1. Select class channel 0, the only trained detection channel. Channel 1
+       is discarded before ranking so it cannot consume the top-k budget.
+    2. Apply sigmoid and take the top-`top_k` query indices, descending.
+    3. Gather `dets[query_idx]` and `masks[query_idx]` using that SAME
        `query_idx` — the critical alignment step; get this wrong and a box
        silently pairs with the wrong query's mask.
-    5. Keep only rows where `class_idx == 0` (the real/trained detection
-       channel — `class_idx == 1` is an untrained channel that must never be
-       treated as a real detection, however high its raw score happens to be).
-    6. Among the survivors, keep only `prob >= confidence_threshold`.
-    7. cxcywh -> xyxy in normalized [0,1] space, then scale directly to the
+    4. Keep only `prob >= confidence_threshold`.
+    5. cxcywh -> xyxy in normalized [0,1] space, then scale directly to the
        *original* image's pixel width/height (NOT the square 768x768 model
        input — the normalized box coords were relative to that square input,
        but RF-DETR's own postprocessing rescales them directly against the
        target/original image size).
-    8. Resize each surviving query's 192x192 mask logits (bilinear) to
+    6. Resize each surviving query's 192x192 mask logits (bilinear) to
        `(image_height, image_width)`, then threshold `> 0` (equivalent to
        sigmoid-then->0.5, since sigmoid is monotonic and sigmoid(0) == 0.5).
-    9. Build the `sv.Detections` (empty-but-valid when nothing survives).
+    7. Build the `sv.Detections` (empty-but-valid when nothing survives).
     """
     dets = np.squeeze(dets, axis=0)  # (300, 4)
     labels = np.squeeze(labels, axis=0)  # (300, num_classes)
     masks = np.squeeze(masks, axis=0)  # (300, 192, 192)
 
-    num_classes = labels.shape[1]
-    prob = 1.0 / (1.0 + np.exp(-labels))
-    flat_prob = prob.reshape(-1)
+    real_channel_prob = 1.0 / (1.0 + np.exp(-labels[:, 0]))
+    k = min(top_k, real_channel_prob.size)
+    query_idx = np.argsort(-real_channel_prob)[:k]
+    scores = real_channel_prob[query_idx]
 
-    k = min(top_k, flat_prob.size)
-    top_flat_idx = np.argsort(-flat_prob)[:k]
-
-    query_idx = top_flat_idx // num_classes
-    class_idx = top_flat_idx % num_classes
-    scores = flat_prob[top_flat_idx]
-
-    keep = (class_idx == 0) & (scores >= confidence_threshold)
+    keep = scores >= confidence_threshold
     query_idx = query_idx[keep]
     scores = scores[keep].astype(np.float32)
     n = len(query_idx)

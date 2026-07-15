@@ -1,13 +1,13 @@
-"""Behavioral tests for `SessionLinker` (model/docs/session-linker-SPEC.md).
+"""Behavioral tests for `SessionLinker` (model/docs/linker-design.md).
 
-These tests exercise the SPEC's public behavior contract (sections B1-B8)
-through the public interface only: `update()`, `reset()`, and the `roster`
+These tests exercise the public behavior contract through `update()`,
+`reset()`, and the `roster`
 property. They inject a small scriptable fake matcher (the ChampionMethod
 duck-type: build_gallery/score/accept) so no HuggingFace model ever loads.
 
 Do NOT hard-assert tunable parameter values/formulas (enrolment_window_s,
 evidence_window_s, evidence_frames, absent_death_s, min_mask_area_px, the
-quality-ranking formula, log formats) — see SPEC "Tunable parameters".
+quality-ranking formula, log formats) — see the design's parameter table.
 Window/threshold frame counts used below are always derived from the
 constructor args passed in each test via `round(seconds * fps)`, never
 hardcoded independently of those args.
@@ -91,7 +91,7 @@ def output_tracker_id(out: sv.Detections, rows, raw_id: int) -> int:
 
 
 # --------------------------------------------------------------------------
-# Fake matcher — ChampionMethod duck-type (SPEC "Dependencies")
+# Fake matcher — ChampionMethod duck-type
 # --------------------------------------------------------------------------
 
 
@@ -104,8 +104,8 @@ class FakeMatcher:
     """Scriptable fake: build_gallery/score/accept.
 
     `program(marker, responses)` queues one (scores_dict, accept_result) pair
-    per expected score()/accept() round for that marker (round 1 first,
-    round 2 second — consumed FIFO). `marker` is a hashable id a test
+    per expected score()/accept() decision for that marker, consumed FIFO.
+    `marker` is a hashable id a test
     controls by painting a distinct solid color into the query row's box:
     score() recovers it from the RGB-converted crop's first pixel, so
     scripting never depends on matcher call order across rows in a batch.
@@ -491,6 +491,41 @@ def test_b3_death_after_absence_threshold_marks_identity_missing():
     )
 
 
+def test_b3_raw_id_reactivation_after_death_must_pass_the_matcher_again():
+    fps = 4.0
+    absent_death_s = 0.5
+    death_threshold = round(absent_death_s * fps)
+    matcher = FakeMatcher()
+    linker = SessionLinker(
+        matcher,
+        fps=fps,
+        enrolment_window_s=0.25,
+        evidence_window_s=10.0,
+        evidence_frames=1,
+        absent_death_s=absent_death_s,
+        min_mask_area_px=100,
+    )
+    roster_id = 451
+    rows = [{"tracker_id": roster_id, "box": BOX_A, "bgr": (70, 70, 70)}]
+    frame, dets = build_call(rows)
+    linker.update(dets, frame)
+
+    for _ in range(death_threshold + 1):
+        frame, dets = empty_call()
+        linker.update(dets, frame)
+
+    reactivated_bgr = (5, 15, 200)
+    marker = rgb_marker_for_bgr(reactivated_bgr)
+    matcher.program(marker, [({roster_id: 0.1}, REJECT)])
+    rows = [{"tracker_id": roster_id, "box": BOX_B, "bgr": reactivated_bgr}]
+    frame, dets = build_call(rows)
+    linker.update(dets, frame)
+
+    assert [call for call in matcher.score_calls if call["marker"] == marker], (
+        "once an identity is declared Missing, even a recycled raw tracker id must be revalidated"
+    )
+
+
 # --------------------------------------------------------------------------
 # B4 — Birth & evidence window
 # --------------------------------------------------------------------------
@@ -540,7 +575,87 @@ def test_b4_4_no_matcher_calls_when_nothing_is_missing():
 # --------------------------------------------------------------------------
 
 
-def test_b5_4_simultaneous_returns_conflict_resolves_and_loser_rescopes_round2():
+def test_b5_scores_against_full_roster_when_only_one_identity_is_missing():
+    fps = 4.0
+    absent_death_s = 0.5
+    death_threshold = round(absent_death_s * fps)
+    matcher = FakeMatcher()
+    linker = SessionLinker(
+        matcher,
+        fps=fps,
+        enrolment_window_s=0.25,
+        evidence_window_s=10.0,
+        evidence_frames=1,
+        absent_death_s=absent_death_s,
+        min_mask_area_px=100,
+    )
+    missing_id, active_id = 1101, 1102
+    rows = [
+        {"tracker_id": missing_id, "box": BOX_A, "bgr": (11, 11, 11)},
+        {"tracker_id": active_id, "box": BOX_B, "bgr": (22, 22, 22)},
+    ]
+    frame, dets = build_call(rows)
+    linker.update(dets, frame)
+
+    for _ in range(death_threshold + 1):
+        rows = [{"tracker_id": active_id, "box": BOX_B, "bgr": (22, 22, 22)}]
+        frame, dets = build_call(rows)
+        linker.update(dets, frame)
+
+    return_bgr = (1, 2, 200)
+    marker = rgb_marker_for_bgr(return_bgr)
+    matcher.program(marker, [({missing_id: 0.9, active_id: 0.1}, missing_id)])
+    rows = [{"tracker_id": 1201, "box": BOX_C, "bgr": return_bgr}]
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+
+    assert output_tracker_id(out, rows, 1201) == missing_id
+    assert matcher.score_calls[-1]["gallery_keys"] == frozenset({missing_id, active_id}), (
+        "SCI must compare against the complete frozen roster even when only one identity is eligible to link"
+    )
+
+
+def test_b5_best_match_to_active_identity_stays_unknown():
+    fps = 4.0
+    absent_death_s = 0.5
+    death_threshold = round(absent_death_s * fps)
+    matcher = FakeMatcher()
+    linker = SessionLinker(
+        matcher,
+        fps=fps,
+        enrolment_window_s=0.25,
+        evidence_window_s=10.0,
+        evidence_frames=1,
+        absent_death_s=absent_death_s,
+        min_mask_area_px=100,
+    )
+    missing_id, active_id = 1301, 1302
+    rows = [
+        {"tracker_id": missing_id, "box": BOX_A, "bgr": (33, 33, 33)},
+        {"tracker_id": active_id, "box": BOX_B, "bgr": (44, 44, 44)},
+    ]
+    frame, dets = build_call(rows)
+    linker.update(dets, frame)
+
+    for _ in range(death_threshold + 1):
+        rows = [{"tracker_id": active_id, "box": BOX_B, "bgr": (44, 44, 44)}]
+        frame, dets = build_call(rows)
+        linker.update(dets, frame)
+
+    foreign_bgr = (3, 4, 220)
+    marker = rgb_marker_for_bgr(foreign_bgr)
+    matcher.program(marker, [({missing_id: 0.4, active_id: 0.95}, active_id)])
+    raw_id = 1401
+    rows = [{"tracker_id": raw_id, "box": BOX_C, "bgr": foreign_bgr}]
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+
+    assert output_tracker_id(out, rows, raw_id) == raw_id, (
+        "an active identity may provide comparison evidence but must never be an eligible link target"
+    )
+
+
+def test_b5_4_simultaneous_conflict_links_best_row_and_leaves_loser_unknown():
     fps = 4.0
     enrolment_window_s = 0.25
     window = round(enrolment_window_s * fps)
@@ -570,16 +685,18 @@ def test_b5_4_simultaneous_returns_conflict_resolves_and_loser_rescopes_round2()
         frame, dets = empty_call()
         linker.update(dets, frame)
 
-    bgr_loser = (1, 2, 200)  # loses round 1, wins round 2
-    bgr_winner = (3, 4, 220)  # wins round 1 outright
+    bgr_loser = (1, 2, 200)
+    bgr_winner = (3, 4, 220)
     marker_loser = rgb_marker_for_bgr(bgr_loser)
     marker_winner = rgb_marker_for_bgr(bgr_winner)
 
-    # Both rows "accept" id_a in round 1 — a genuine conflict — but the
-    # winner scores higher, so linear_sum_assignment awards it id_a; the
-    # loser is discarded and re-scored in round 2 against the reduced dict.
-    matcher.program(marker_loser, [({id_a: 0.6}, id_a), ({id_b: 0.7}, id_b)])
-    matcher.program(marker_winner, [({id_a: 0.95}, id_a)])
+    # Both rows accept id_a. The higher scorer receives that identity; the
+    # other row must remain Unknown rather than being encouraged toward id_b
+    # by removing id_a from SRC's comparison dictionary.
+    scores_loser = {id_a: 0.6, id_b: 0.2}
+    scores_winner = {id_a: 0.95, id_b: 0.1}
+    matcher.program(marker_loser, [(scores_loser, id_a)])
+    matcher.program(marker_winner, [(scores_winner, id_a)])
 
     raw_loser, raw_winner = 1301, 1302
     rows = [
@@ -590,17 +707,16 @@ def test_b5_4_simultaneous_returns_conflict_resolves_and_loser_rescopes_round2()
     out = linker.update(dets, frame)
 
     assert output_tracker_id(out, rows, raw_winner) == id_a, "the higher round-1 scorer wins the contested identity"
-    assert output_tracker_id(out, rows, raw_loser) == id_b, "the round-1 loser must resolve via round 2"
+    assert output_tracker_id(out, rows, raw_loser) == raw_loser, (
+        "a collision loser must stay Unknown instead of falling through to a less likely identity"
+    )
 
     loser_calls = [c for c in matcher.score_calls if c["marker"] == marker_loser]
-    assert len(loser_calls) == 2, "the loser needs a round-1 call and exactly one round-2 re-score"
-    round1_keys, round2_keys = loser_calls[0]["gallery_keys"], loser_calls[1]["gallery_keys"]
-    assert id_a in round1_keys and id_b in round1_keys
-    assert len(round2_keys) < len(round1_keys), "round 2 must score against a REDUCED Missing dict"
-    assert id_a not in round2_keys, "the identity claimed in round 1 must not reappear in round 2's dict"
+    assert len(loser_calls) == 1
+    assert loser_calls[0]["gallery_keys"] == frozenset({id_a, id_b})
 
     winner_calls = [c for c in matcher.score_calls if c["marker"] == marker_winner]
-    assert len(winner_calls) == 1, "an outright round-1 winner must not be re-scored in round 2"
+    assert len(winner_calls) == 1
 
 
 def test_b5_5_reject_stays_unknown_permanently():
@@ -630,7 +746,7 @@ def test_b5_5_reject_stays_unknown_permanently():
 
     reject_bgr = (44, 55, 66)
     marker = rgb_marker_for_bgr(reject_bgr)
-    matcher.program(marker, [({roster_id: 0.5}, REJECT), ({roster_id: 0.4}, REJECT)])
+    matcher.program(marker, [({roster_id: 0.5}, REJECT)])
     unknown_raw_id = 1101
     rows = [{"tracker_id": unknown_raw_id, "box": BOX_B, "bgr": reject_bgr}]
     frame, dets = build_call(rows)
@@ -638,7 +754,7 @@ def test_b5_5_reject_stays_unknown_permanently():
     assert output_tracker_id(out, rows, unknown_raw_id) == unknown_raw_id
 
     calls_so_far = len([c for c in matcher.score_calls if c["marker"] == marker])
-    assert calls_so_far == 2, "expected round 1 and round 2 to both run and both reject"
+    assert calls_so_far == 1, "a rejected row is scored once against the stable comparison dictionary"
 
     # Reappearance after settling: never re-decided, permanent pass-through.
     rows2 = [{"tracker_id": unknown_raw_id, "box": BOX_B, "bgr": reject_bgr}]
@@ -781,7 +897,7 @@ def test_b8_reset_drops_all_state():
 
 
 # --------------------------------------------------------------------------
-# Gap-list additions (reviewed round 2) — B3.3, B6.3, B3.2, B4.2
+# Boundary and reset behavior
 # --------------------------------------------------------------------------
 
 
@@ -841,21 +957,17 @@ def test_b3_3_no_death_at_exactly_the_absence_threshold():
     )
 
     # doomed_id is now genuinely Missing; a fresh pending track's evidence
-    # window closing triggers a real scoring call — assert survivor_id is
-    # never offered as a candidate in it.
+    # window closes against the complete roster comparison dictionary.
     query_bgr = (5, 15, 25)
     marker = rgb_marker_for_bgr(query_bgr)
-    matcher.program(marker, [({doomed_id: 0.9}, doomed_id)])
+    matcher.program(marker, [({doomed_id: 0.9, survivor_id: 0.1}, doomed_id)])
     rows = [{"tracker_id": 701, "box": BOX_C, "bgr": query_bgr}]
     frame, dets = build_call(rows)
     linker.update(dets, frame)
 
     matching_calls = [c for c in matcher.score_calls if c["marker"] == marker]
     assert matching_calls, "expected the new pending track's evidence window to close and trigger scoring"
-    assert doomed_id in matching_calls[0]["gallery_keys"], "sanity: doomed_id is genuinely Missing"
-    assert survivor_id not in matching_calls[0]["gallery_keys"], (
-        "an identity that only coasted through the absence threshold must never be offered as Missing"
-    )
+    assert matching_calls[0]["gallery_keys"] == frozenset({survivor_id, doomed_id})
 
 
 def test_b6_3_quality_gate_blocks_edge_touching_and_tiny_mask_crops():
@@ -962,8 +1074,7 @@ def test_b3_2_last_seen_views_are_replaced_not_appended_across_deaths():
 
     # One post-freeze presence frame so the identity's rolling last-seen
     # buffer holds "crops A": enrolment crops feed only the Start gallery,
-    # and a death with an empty buffer legally skips its embed (SPEC B3.2 /
-    # B2.4 clarification 2026-07-15).
+    # and a death with an empty buffer legally skips its embed.
     rows = [{"tracker_id": roster_id, "box": BOX_A, "bgr": (90, 30, 30)}]
     frame, dets = build_call(rows)
     linker.update(dets, frame)

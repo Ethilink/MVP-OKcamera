@@ -7,11 +7,9 @@ pixel mask-size is a valid physical-size proxy.
 `area` = mask pixel count. `length` = PCA major-axis extent (orientation-
 invariant physical length).
 
-Normalization constants below are FIXED, derived once from the matcher-
-autoresearch CV/selection pool (never the locked holdout) — see
-`experiments/matcher-autoresearch/runs/baseline/derive_size_stats.py` /
-`.log` for provenance. Re-derive and re-paste here if the reference instrument
-set changes materially (new instruments, different camera height).
+Normalization constants below are fixed values derived from the development
+pool (never the locked holdout). Re-derive them if the reference instrument
+set or camera geometry changes materially.
 """
 from __future__ import annotations
 

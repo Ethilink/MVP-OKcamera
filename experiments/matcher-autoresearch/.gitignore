@@ -1,6 +1,0 @@
-# bulky per-experiment scratch — the durable outputs (LEADERBOARD/FINDINGS/
-# champion/ + this scaffold) stay tracked, the noise does not.
-runs/
-**/__pycache__/
-*.pyc
-.venv/
