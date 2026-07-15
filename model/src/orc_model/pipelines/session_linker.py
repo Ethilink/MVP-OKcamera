@@ -66,6 +66,7 @@ class _PendingTrack:
     first_seen_frame: int
     crop_buffer: deque
     absence_streak: int = 0
+    not_before_frame: int = 0
 
 
 class SessionLinker:
@@ -302,6 +303,8 @@ class SessionLinker:
         closed = []
         for raw_id in list(self._pending):
             pending = self._pending[raw_id]
+            if self._frame_count < pending.not_before_frame:
+                continue
             elapsed = self._frame_count - pending.first_seen_frame + 1
             if elapsed >= self._evidence_window_frames or len(pending.crop_buffer) >= self._evidence_frames:
                 closed.append((raw_id, pending))
@@ -356,8 +359,18 @@ class SessionLinker:
 
         comparison_galleries = self._comparison_galleries()
         eligible_missing_ids = self._eligible_missing_ids(comparison_galleries)
-        winners, unresolved, score_ms, assignment_ms = self._score_and_assign(
-            rows, comparison_galleries, eligible_missing_ids
+        deferable_active_ids = {
+            session_id
+            for session_id, identity in self._identities.items()
+            if identity.active_raw_id is not None
+            and identity.absence_streak > 0
+            and session_id in comparison_galleries
+        }
+        winners, unresolved, deferred, score_ms, assignment_ms = self._score_and_assign(
+            rows,
+            comparison_galleries,
+            eligible_missing_ids,
+            deferable_active_ids,
         )
 
         for raw_id, session_id in winners.items():
@@ -366,6 +379,16 @@ class SessionLinker:
         for raw_id, _crops, _masks in unresolved:
             self._settled_unknown.add(raw_id)
             resolved[raw_id] = None
+        pending_by_raw_id = dict(closed)
+        for raw_id, session_id in deferred.items():
+            pending = pending_by_raw_id[raw_id]
+            identity = self._identities[session_id]
+            frames_until_missing = max(
+                1,
+                self._death_threshold_frames - identity.absence_streak + 1,
+            )
+            pending.not_before_frame = self._frame_count + frames_until_missing
+            self._pending[raw_id] = pending
 
         total_ms = (time.monotonic() - t_start) * 1000
         self._logger.info(
@@ -373,7 +396,13 @@ class SessionLinker:
             "score_ms=%.1f collision_ms=%.1f total_ms=%.1f outcomes=%s",
             len(rows), len(comparison_galleries), len(eligible_missing_ids),
             score_ms, assignment_ms, total_ms,
-            {raw_id: ("unknown" if sid is None else f"linked:{sid}") for raw_id, sid in resolved.items()},
+            {
+                **{
+                    raw_id: ("unknown" if sid is None else f"linked:{sid}")
+                    for raw_id, sid in resolved.items()
+                },
+                **{raw_id: f"deferred:{sid}" for raw_id, sid in deferred.items()},
+            },
         )
         return resolved
 
@@ -382,25 +411,44 @@ class SessionLinker:
         rows: list[tuple[int, list, list]],
         comparison_galleries: dict[int, ChampionGallery],
         eligible_missing_ids: set[int],
-    ) -> tuple[dict[int, int], list[tuple[int, list, list]], float, float]:
-        if not rows or not eligible_missing_ids:
-            return {}, rows, 0.0, 0.0
+        deferable_active_ids: set[int],
+    ) -> tuple[
+        dict[int, int],
+        list[tuple[int, list, list]],
+        dict[int, int],
+        float,
+        float,
+    ]:
+        if not rows or not (eligible_missing_ids or deferable_active_ids):
+            return {}, rows, {}, 0.0, 0.0
 
         t_score = time.monotonic()
         proposals: list[tuple[int, int, float]] = []
-        for idx, (_raw_id, crops, masks) in enumerate(rows):
+        deferred_indices: dict[int, int] = {}
+        for idx, (raw_id, crops, masks) in enumerate(rows):
             scores = self._matcher.score(crops, masks, {}, comparison_galleries)
             accepted = self._matcher.accept(scores)
-            if accepted == REJECT or accepted not in eligible_missing_ids:
+            self._logger.debug(
+                "match scores: raw_id=%d accepted=%r scores=%s",
+                raw_id,
+                accepted,
+                {candidate: round(float(score), 4) for candidate, score in scores.items()},
+            )
+            if accepted == REJECT:
                 continue
             if accepted not in scores:
                 self._logger.warning("matcher accepted identity %r without returning its score", accepted)
                 continue
-            proposals.append((idx, accepted, scores[accepted]))
+            if accepted in eligible_missing_ids:
+                proposals.append((idx, accepted, scores[accepted]))
+            elif accepted in deferable_active_ids:
+                deferred_indices[idx] = accepted
         score_ms = (time.monotonic() - t_score) * 1000
 
         if not proposals:
-            return {}, rows, score_ms, 0.0
+            unresolved = [row for idx, row in enumerate(rows) if idx not in deferred_indices]
+            deferred = {rows[idx][0]: session_id for idx, session_id in deferred_indices.items()}
+            return {}, unresolved, deferred, score_ms, 0.0
 
         t_assign = time.monotonic()
         best_by_session: dict[int, tuple[int, float]] = {}
@@ -416,8 +464,13 @@ class SessionLinker:
             for session_id, (idx, _score) in best_by_session.items()
         }
 
-        unresolved = [row for i, row in enumerate(rows) if i not in resolved_idx]
-        return winners, unresolved, score_ms, assignment_ms
+        unresolved = [
+            row
+            for i, row in enumerate(rows)
+            if i not in resolved_idx and i not in deferred_indices
+        ]
+        deferred = {rows[idx][0]: session_id for idx, session_id in deferred_indices.items()}
+        return winners, unresolved, deferred, score_ms, assignment_ms
 
     def _link(
         self,

@@ -2,10 +2,9 @@ import type { ReactElement, SVGProps } from "react"
 
 /**
  * A small, consistent family of surgical-instrument line icons used as the
- * detection "cut-outs" during setup. These are *representative* stand-ins —
- * the setup-phase API gives us only a count today. When the backend adds real
- * per-detection crops (see app/docs/BACKEND-TODO-setup-detections.md) the tiles
- * swap to those; the layout does not change.
+ * detection fallback during setup. The API normally supplies real detection
+ * crops; these icons cover missing or failed thumbnails without changing the
+ * layout.
  *
  * One drawing convention: 24×24 box, currentColor stroke, 1.5 width, round
  * joins — so the set reads as one clinical icon family, per BRANDING.md.

@@ -1,6 +1,6 @@
-"""T02: `Session` — the pure state machine (debounce, usage windows,
-completeness, report). Fed `(t, present_ids)`; no clock, no threads inside
-(DESIGN D11). See `app/docs/tasks/T02-session.md` for the full semantics.
+"""Pure session state machine for debounce, usage windows, and reporting.
+
+It is fed ``(t, present_ids)`` and owns no clock or threads (DESIGN D11).
 """
 
 from __future__ import annotations

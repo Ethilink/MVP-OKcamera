@@ -260,26 +260,42 @@ All guarded numbers come from the 8×15 synthetic crop set — **expect a
 > evaluated). Validated before the demo on the video-003 teardown→re-lay
 > replay + the live test; revisit if either misbehaves.
 
+> **Revised 2026-07-15 (structural fix).** Points 2–4 below were rewritten to
+> match the implementation. The original text scored against the *Missing*
+> dictionary and shrank it between rounds; that collapsed the ordinary
+> one-missing case to K=1, where SCI is `0/0` and cannot reject anything (see
+> §6's `cos_tau` note). Comparison and eligibility are now separate concepts.
+
 1. **Natural batching, no added waiting.** At each decision tick, all new
    tracks whose evidence windows have completed form one batch. Returns born
-   within ~0.5 s of each other share a matrix automatically; genuinely
-   staggered returns resolve one-by-one against the then-current Missing set.
-   (The embed may overlap the window's tail; nothing waits on a grace timer.)
-2. **Score matrix.** Each batch track gets `score()` independently against the
-   **full** Missing dictionary — same candidate set K for every row, so SCI
-   scores are comparable across rows. Cells failing *that row's own* τ/margin
-   gate are masked; rows/columns left with no admissible cell are dropped
-   before solving (no infeasible-matrix errors).
-3. **Assignment.** `scipy.optimize.linear_sum_assignment` maximizing total
-   score over the admissible cells; only cells that both passed their gate and
-   won the assignment get linked. **No forced links, ever** — τ always gates,
-   including single-candidate rows.
-4. **One extra round.** Tracks left unresolved re-`score()` **once** against
-   the reduced Missing set (claimed identities removed — the dictionary
-   shrinks, SCI mass redistributes, so a round-1 reject can legitimately flip
-   to a confident link), gate + assign again. Anything still unresolved
-   settles **Unknown**; recovery path is lift-and-replace (the identity stays
-   Missing, a fresh attempt matches normally).
+   within ~0.5 s of each other share a batch automatically; genuinely
+   staggered returns resolve one-by-one. (The embed may overlap the window's
+   tail; nothing waits on a grace timer.)
+2. **Comparison is not eligibility.** Each batch track gets `score()`
+   independently against the **full frozen roster** — every enrolled identity
+   with a usable gallery, Active *and* Missing alike (`_comparison_galleries`).
+   K therefore stays at the roster size (8 in the demo), which is what SCI was
+   calibrated at; Active identities serve as the distractors SCI needs. Only
+   *after* `accept()`'s τ/margin gate is the winner checked for **eligibility**:
+   an identity may receive a link only while Missing (`_eligible_missing_ids`).
+   A winner that is an Active identity is **never** force-linked — the row
+   settles Unknown (or defers, per point 4).
+3. **Assignment is greedy per identity, not Hungarian.** Each admissible row
+   proposes its single accepted identity; where two rows claim the same
+   identity the higher scorer wins (`best_by_session`) and the loser settles
+   Unknown. It is deliberately *not* `linear_sum_assignment`: a losing row is
+   never pushed to its second choice, because a duplicate track reading Unknown
+   is far safer than a forced link to the wrong instrument. **No forced links,
+   ever** — τ always gates.
+4. **No second round; coasting handoff defers instead.** There is no re-score
+   against a shrunken dictionary — removing a claimed gallery would change K and
+   therefore change every remaining SCI, invalidating the calibration. Instead,
+   if the gated winner is an Active identity whose raw track is currently absent
+   but still inside its death grace (`deferable_active_ids`), the decision is
+   **deferred** until that identity either dies (becomes Missing → revalidate
+   and link) or resumes (→ Unknown). This covers an OC-SORT id change one frame
+   before its old id dies. Anything else unresolved settles **Unknown**;
+   recovery is lift-and-replace.
 5. **Edges** (all follow from the above): more new tracks than Missing →
    extras settle Unknown; unclaimed identities stay Missing; a track dying
    mid-window gets no decision; settled decisions are never revisited (seam

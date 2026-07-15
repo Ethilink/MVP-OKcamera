@@ -655,6 +655,59 @@ def test_b5_best_match_to_active_identity_stays_unknown():
     )
 
 
+def test_b5_coasting_identity_handoff_waits_for_missing_then_revalidates():
+    fps = 4.0
+    absent_death_s = 0.5
+    matcher = FakeMatcher()
+    linker = SessionLinker(
+        matcher,
+        fps=fps,
+        enrolment_window_s=0.25,
+        evidence_window_s=10.0,
+        evidence_frames=1,
+        absent_death_s=absent_death_s,
+        min_mask_area_px=100,
+    )
+    roster_id = 1501
+    rows = [{"tracker_id": roster_id, "box": BOX_A, "bgr": (33, 33, 33)}]
+    frame, dets = build_call(rows)
+    linker.update(dets, frame)
+
+    # The old raw ID has been absent for one frame but has not crossed the
+    # strict death threshold yet.
+    frame, dets = empty_call()
+    linker.update(dets, frame)
+
+    return_bgr = (9, 19, 209)
+    marker = rgb_marker_for_bgr(return_bgr)
+    matcher.program(
+        marker,
+        [
+            ({roster_id: 0.95}, roster_id),
+            ({roster_id: 0.95}, roster_id),
+        ],
+    )
+    return_raw_id = 1601
+    rows = [{"tracker_id": return_raw_id, "box": BOX_B, "bgr": return_bgr}]
+
+    # At exactly the death threshold the accepted roster identity is still
+    # Active but its old raw ID is coasting off-screen. Do not force-link and
+    # do not permanently settle this likely tracker handoff as Unknown.
+    frame, dets = build_call(rows)
+    provisional = linker.update(dets, frame)
+    assert output_tracker_id(provisional, rows, return_raw_id) == return_raw_id
+
+    # One frame later the old raw ID becomes Missing. The deferred row is
+    # scored again against the same complete roster and can now link safely.
+    frame, dets = build_call(rows)
+    linked = linker.update(dets, frame)
+    assert output_tracker_id(linked, rows, return_raw_id) == roster_id
+
+    matching_calls = [call for call in matcher.score_calls if call["marker"] == marker]
+    assert len(matching_calls) == 2
+    assert all(call["gallery_keys"] == frozenset({roster_id}) for call in matching_calls)
+
+
 def test_b5_4_simultaneous_conflict_links_best_row_and_leaves_loser_unknown():
     fps = 4.0
     enrolment_window_s = 0.25

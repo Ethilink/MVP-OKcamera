@@ -190,10 +190,12 @@ don't overlap and are sorted; an instrument never picked up has `usage: []`.
   (2026-07-08): the camera observes the *symptom* (not on the table); whether
   the instrument is misplaced or genuinely lost is unknowable from here.
 - **Re-identification (PRD acceptance criterion 3) — mechanism agreed
-  2026-07-08:** an instrument returning after absence gets a fresh ByteTrack id
-  which is then **linked** to its original track, entirely behind
-  `InstrumentTracker`; once linked, `update()` re-emits the original id (≤ 1 s
-  after return). The backend suppresses provisional pre-link ids with a 1 s
+  2026-07-08:** an instrument returning after absence gets a fresh **Deep
+  OC-SORT** raw id (the tracker was ByteTrack when this was written; the shipped
+  composition is RF-DETR → Deep OC-SORT → `SessionLinker`) which is then
+  **linked** back to its original session identity by the SRC matcher, entirely
+  behind `InstrumentTracker`; once linked, `update()` re-emits the original id
+  (≤ 1 s after return). The backend suppresses provisional pre-link ids with a 1 s
   **entry debounce** (T02), so linking never leaks into this API. Residual
   risk: a link that takes > 1 s produces a phantom never-returned instrument
   on the report. See `model/docs/tracker-interface.md` §tracker_id across

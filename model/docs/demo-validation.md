@@ -29,6 +29,8 @@ Acceptance checks:
 - enrollment roster is exactly eight identities;
 - normal decisions report eight comparison galleries, even with one Missing;
 - an Active comparison winner remains Unknown;
+- a likely raw-ID handoff during the old track's coast window is deferred and
+  revalidated after the identity becomes Missing;
 - foreign phone/pen/keys cases never take a Missing identity;
 - recycled raw IDs after death go through a new matcher decision;
 - genuine returns preserve their original session identity;
@@ -123,8 +125,45 @@ instrument set.
 
 ## Latest results
 
-This section is updated only from a completed replay of the current code. Do
-not paste intermediate agent logs here.
+Validated on 2026-07-15 with stride 6 (1,226 sampled frames for Take A; 1,862
+for Take B). RF-DETR was run uncached after the detector post-processing fix.
+The final linker-only coasting-handoff change was then replayed from those exact
+detection caches; no detector output was regenerated or altered between passes.
 
-Results for the final structural-fix replay are added after both uncached runs
-complete.
+| result | Take A (`001`) | Take B (`002`) |
+|---|---:|---:|
+| frozen roster | 8 | 8 |
+| full-roster comparison violations | 0 | 0 |
+| decision batches | 24 | 46 |
+| coasting handoffs deferred, then revalidated | 0 | 7 |
+| stale raw-ID resurrection shortcuts | 0 | 0 |
+| maximum matcher batch latency | 90.3 ms | 142.6 ms |
+| full uncached throughput | 2.38 fps | 2.88 fps |
+
+Take B's deliberate foreign-object introductions produced six raw tracker
+tracks across the phone/pen/keys windows (29.2 s, 122.2–123.8 s, and 165.0 s).
+All six settled Unknown; none borrowed a Missing identity.
+
+The 66.6 s raw-ID handoff initially exposed a timing bug: the new raw ID was
+decided one frame before the old identity became Missing. The final code defers
+that accepted Active-but-absent candidate, then revalidates it at 67.0 s and
+links it back to session identity 7. All seven such coasting handoffs in Take B
+followed this defer-then-link path.
+
+Two deliberately difficult genuine returns still fail closed in Take B:
+
+- at 302.0 s, the swapped smaller ring-handled instrument returns as raw 72;
+  its true identity 2 scores only 0.0688 and the row is Unknown;
+- at 368.0 s, the flipped dark-handled instrument returns as raw 88 and remains
+  Unknown instead of identity 6.
+
+No wrong identity link was observed in either reviewed trace. These two false
+rejects are appearance/gallery limitations, not assignment failures. Do not
+lower `tau` or force a one-to-one assignment to hide them: raw 72's best wrong
+candidate scores 0.2654, already much higher than its true candidate. The next
+matcher iteration should benchmark rotation/flip gallery augmentation and a
+KNN or hybrid matcher against these events while retaining the foreign-object
+reject floor.
+
+Cached replay speed (15.26 fps Take A, 14.72 fps Take B) is included only as a
+linker-regression turnaround metric. It is not detector throughput.

@@ -1,6 +1,4 @@
-"""T03: overlay renderer — draws boxes + masks coloured by `tracker_id`,
-label 'Instrument {tracker_id}' (DESIGN D5/D6). See
-`app/docs/tasks/T03-capture.md` for the frozen signature and ACs.
+"""Draw boxes and masks coloured by ``tracker_id`` (DESIGN D5/D6).
 
 The on-table count is intentionally NOT burned into the frame: the operator
 reads it from the app chrome (the setup constellation / recording list), so the

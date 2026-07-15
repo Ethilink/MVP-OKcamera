@@ -5,8 +5,7 @@ owns the camera frame, so it derives the small per-instrument previews here — 
 focused, OpenCV-only, FastAPI-free module so the crop geometry and encoding are
 unit-testable in isolation and never run under the capture/session lock.
 
-See `app/docs/BACKEND-TODO-setup-detections.md`, `app/docs/api-contract.md`
-§/status, and `model/docs/tracker-interface.md` §Consumer-generated crops.
+See ``app/docs/api-contract.md`` and ``model/docs/tracker-interface.md``.
 """
 
 from __future__ import annotations

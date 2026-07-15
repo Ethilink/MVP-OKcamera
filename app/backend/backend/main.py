@@ -1,8 +1,6 @@
-"""T04: FastAPI app assembly, `--fake`/`--camera` CLI, and the `orc-demo`
-console-script entrypoint (see pyproject.toml `[project.scripts]`).
+"""FastAPI app assembly, ``--fake``/``--camera`` CLI, and ``orc-demo`` entrypoint.
 
-Wires `CaptureLoop` + `Session` behind the frozen `api-contract.md` HTTP
-surface. See `app/docs/tasks/T04-api.md` for the frozen signatures + ACs.
+Wires ``CaptureLoop`` and ``Session`` behind ``app/docs/api-contract.md``.
 """
 
 from __future__ import annotations

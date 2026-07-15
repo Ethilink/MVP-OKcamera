@@ -1,6 +1,6 @@
-"""T03: `CaptureLoop` — the single thread that owns the camera + tracker.update(),
-publishing an atomic `Latest` snapshot for HTTP handlers to read (DESIGN D6).
-See `app/docs/tasks/T03-capture.md` for the frozen signature and ACs.
+"""Single-threaded camera and tracker loop.
+
+Publishes an atomic ``Latest`` snapshot for HTTP handlers (DESIGN D6).
 """
 
 from __future__ import annotations

@@ -1,10 +1,6 @@
-"""TR1 AC1-AC9: behavior contract for CaptureLoop's recording mode.
+"""Behavior contract for ``CaptureLoop`` recording mode.
 
-Written from ``docs/tasks/TR1-capture-recording.md`` (the frozen SPEC) and
-``docs/RECORDING.md`` §Runtime / §The frame-number contract / §Detector
-sharing. Blind-TDD: this file is written against the SPEC's behavior
-contract, not against any particular implementation — the coder replaces
-``backend/capture.py``'s Phase-0 stubs without ever seeing this file.
+The durable runtime and frame-number contract lives in ``docs/RECORDING.md``.
 
 Fakes only — no real camera, encoder, ffmpeg, or model weights. Reuses T01's
 ``FakeCapture`` / ``FakeDetector`` (via the shared fixtures in

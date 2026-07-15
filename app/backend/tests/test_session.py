@@ -1,5 +1,4 @@
-"""AC1-AC11 for T02: `Session`, the pure state machine (debounce, usage
-windows, completeness, report) behind `app/docs/tasks/T02-session.md`.
+"""Behavioral tests for the pure ``Session`` state machine.
 
 `Session` takes no clock and no threads (DESIGN D11) — every test below
 drives it with hand-picked, strictly-increasing `t` floats and injected

@@ -1,10 +1,6 @@
-"""TR2 AC1-AC7: behavior contract for ``backend.encoder``.
+"""Behavior contract for ``backend.encoder``.
 
-Written from ``docs/tasks/TR2-encoder.md`` (the frozen SPEC) and
-``docs/RECORDING.md`` §Encoder / §FPS. Blind-TDD: this file is written
-against the SPEC's behavior contract, not against any particular
-implementation — the coder replaces ``backend/encoder.py``'s Phase-0 stub
-without ever seeing this file.
+The durable encoder and FPS contract lives in ``docs/RECORDING.md``.
 
 No real VideoToolbox / ffmpeg / VideoCapture — every backend collaborator is
 injected via ``writer_factory`` / ``ffmpeg_factory`` / ``cap_factory``, using

@@ -46,9 +46,14 @@ the **frontend** (Vite SPA, the operator screen). The frontend polls
 - [ ] **Laptop** — charged + charger; can reach `localhost:8000` / `:5173`.
 - [ ] **Camera** — one of:
   - **Reincubate Camo** (phone as webcam): Camo app running on the phone,
-    Camo Studio running on the laptop, phone on the tripod. Note the camera
-    **index** Camo registers as (usually not 0 — the built-in FaceTime cam is
-    0; Camo is typically **1**). Confirm with the real-mode dry run.
+    Camo Studio running on the laptop, phone on the tripod. **Do not assume an
+    index** — there is no "typical" one. Measured on the demo laptop: Camo was
+    `0`, then `1` twenty minutes later, with FaceTime/Iriun/Continuity shuffling
+    around it. Always resolve it fresh, right before the demo:
+    ```
+    ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep -A6 "video devices"
+    ```
+    Then confirm with the real-mode dry run (you should see the tray, not a face).
   - **USB webcam** — plugged in before launching the backend; note its index.
 - [ ] **Tripod** — stable, framing the full instrument table top-down or at a
       steep angle so every instrument is unobstructed.
@@ -87,10 +92,24 @@ Open the printed URL (default `http://localhost:5173`).
 
 Terminal 1 — backend:
 ```
-uv run --directory app/backend orc-demo --camera 1 --weights /path/to/weights.pt
+uv run --directory app/backend orc-demo --camera 1 \
+  --weights /Users/<you>/…/MVP-OKcamera/model/weights/checkpoint_best_regular.onnx
 ```
-- `--camera N` — the index from the hardware checklist (Camo usually `1`).
-- `--weights PATH` — the model file from Constantijn (see "Weights handoff").
+- `--weights PATH` — the RF-DETR **ONNX** file (`model/weights/checkpoint_best_regular.onnx`).
+  **Must be ABSOLUTE.** `uv run --directory app/backend` makes `app/backend` the
+  working directory, so a repo-relative path resolves under it and dies with a
+  confusing `FileNotFoundError: 'model/weights/.coreml_cache'` (the CoreML cache
+  is created next to the weights, so it fails there first).
+- `--camera N` — **verify it every session; it is not stable.** Camo was index 0
+  and then index 1 on the same machine ~20 min apart, and any Iriun/Continuity
+  device shuffles it further. Do not trust a remembered number:
+  ```
+  ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep -A6 "video devices"
+  ```
+  Use the index printed next to `Camo Camera`. Backend boot takes ~11 s (ONNX +
+  DINOv2 load) with no "ready" line before it — wait for uvicorn's port-8000 log.
+  Real mode runs at ~3 fps by design (`load_tracker` defaults `fps=3.0`, matching
+  the measured 2.87–3.13; the linker's windows are calibrated to it).
 
 Terminal 2 — frontend: same `npm run dev` as above.
 
@@ -171,9 +190,12 @@ Run this end-to-end once before the demo, in the mode you'll present in.
   seconds, restart the backend:
   ```
   Ctrl-C  (terminal 1)
-  uv run --directory app/backend orc-demo --camera 1 --weights /path/to/weights.pt
+  uv run --directory app/backend orc-demo --camera 1 \
+    --weights /abs/path/to/model/weights/checkpoint_best_regular.onnx
   ```
   The frontend reconnects on its next poll; re-**Start** the recording.
+  If Camo was re-connected, **re-check the index first** (see "Commands") — it
+  can move between runs.
 - If the camera can't be recovered, fall back to **fake mode** (no hardware).
 
 **Backend crash mid-demo.**

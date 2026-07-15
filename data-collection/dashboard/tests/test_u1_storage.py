@@ -1,9 +1,7 @@
-"""U1 AC1..AC6 — storage layout split + entry auto-suffix (blind-TDD SPEC).
+"""Storage layout split and entry auto-suffix behavior.
 
-Written from ``docs/tasks/U1-storage.md`` (the frozen SPEC). Blind-TDD: this
-file exercises the HTTP behaviour contract via ``fastapi.testclient.TestClient``
-against the frozen ``create_app`` seam; the coder replaces ``backend/app.py``'s
-pre-U1 storage layout without ever seeing this file.
+Exercises the HTTP contract through ``fastapi.testclient.TestClient`` and the
+public ``create_app`` seam.
 
 Terms (CONTEXT.md): **Output path** (base drop-zone), **Dataset**
 (``images/<base>/``, image mode), **Entry** (``videos/<base>_NNN/``, video

@@ -134,7 +134,7 @@ def main() -> int:
                          "can write a new trace while reading an existing take's detections")
     ap.add_argument("--limit", type=int, default=0, help="debug: stop after N sampled frames")
     ap.add_argument("--log-gate", action="store_true",
-                    help="also capture the matcher's K=1 cosine-gate decisions (for calibrating cos_tau)")
+                    help="capture per-row linker scores and K=1 cosine-gate decisions")
     ap.add_argument("--cos-tau", type=float, default=None, help="override the K=1 gate threshold")
     ap.add_argument(
         "--workspace-max-center-y-ratio",
@@ -175,7 +175,7 @@ def main() -> int:
             })
 
     lg = logging.getLogger("orc_model.session_linker")
-    lg.setLevel(logging.INFO)
+    lg.setLevel(logging.DEBUG if args.log_gate else logging.INFO)
     lg.addHandler(Capture())
     if args.log_gate:
         mlg = logging.getLogger("orc_model.matching")

@@ -54,8 +54,8 @@ def main(argv: list[str] | None = None) -> None:
 
     # CoreML execution provider (M3 Max GPU/Neural Engine) with a persistent
     # on-disk compile cache next to the weights; fall back to plain CPU when the
-    # CoreML EP isn't available. Output parity with CPU is verified — see
-    # docs/tasks/REDESIGN.md §S1. MLProgram is mandatory here.
+    # CoreML EP isn't available. Output parity with CPU is verified;
+    # MLProgram is mandatory for this graph.
     cache_dir = Path(args.weights).parent / ".coreml_cache"
     if "CoreMLExecutionProvider" in ort.get_available_providers():
         cache_dir.mkdir(exist_ok=True)
