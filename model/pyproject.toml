@@ -14,6 +14,8 @@ dependencies = [
     "trackers",
     "plotly>=6.8.0",
     "pyorbbecsdk2>=2.1.1",
+    "transformers>=5.14.0",
+    "scikit-learn>=1.7.2",
 ]
 
 [build-system]

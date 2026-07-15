@@ -2,7 +2,7 @@ import numpy as np
 import supervision as sv
 
 from .cmc import SparseFlowCMC
-from .embedder import TorchvisionEmbedder
+from .embedder import Dinov2Embedder
 from .ocsort import OCSort
 
 
@@ -31,7 +31,7 @@ class DeepOCSortTracker:
     ):
         self.ocsort = OCSort(
             det_thresh=det_thresh,
-            embedder=TorchvisionEmbedder(mask_crop=mask_crop),
+            embedder=Dinov2Embedder(mask_crop=mask_crop),
             cmc=SparseFlowCMC(),
             max_age=round(max_age_seconds * frame_rate),
             min_hits=min_hits,
