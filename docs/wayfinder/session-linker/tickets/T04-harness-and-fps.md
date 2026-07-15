@@ -2,7 +2,7 @@
 id: T04
 title: Linking eval scenarios in the harness + real fps pin
 type: wayfinder:prototype
-status: open
+status: closed
 assignee:
 blocked-by: []
 ---
@@ -76,3 +76,27 @@ Ran a real re-ID + open-set benchmark on Bram's 4 test videos
 - **Still open:** item 1 (real-tracker fps pin) — blocked on the real-time tracker
   existing (stub today), not on data. Re-ID not yet scored on 001/004. Causal
   multi-view enrollment diagnosed but not yet productised. Ticket stays **open**.
+
+## Resolution
+
+Closed 2026-07-15 — all three items answered with measured numbers.
+
+1. **Real fps pin: 3.0.** Measured end-to-end `tracker.update()` at 1080p with
+   real weights on the demo machine: **2.87-3.13 fps** across the two takes
+   (a later re-run under load saw 2.38-2.88). `DEFAULT_PROCESSING_FPS = 3.0` in
+   `orc_model/pipelines/tracking.py` is that pin, and `load_tracker` threads it
+   into **both** Deep OC-SORT and the linker — the tracker's own default is 30,
+   which would silently stretch a "1.0 s" coast to ~2.5 s of wall time.
+2. **Scenarios:** `model/scripts/replay_session.py` replays a recording through
+   the real composition and emits a per-frame trace + linker INFO logs. Its
+   detection cache (`--from-cache`) makes matcher changes re-runnable in seconds.
+   Both takes were verified **event-for-event identical** cached vs uncached.
+3. **Detector on foreign objects:** confirmed — it fires (pliers @ 0.93 on
+   09-07-26-004), so the open-set path is load-bearing, as the map assumed. On
+   the Take B replay the deliberate foreign windows (~29 s, 122-124 s, 165 s) all
+   settled **Unknown** rather than borrowing a missing identity.
+
+Bonus finding, now fixed in code: enrolment froze **11** identities on a
+tray of 8 — the extras were tripod/table objects below the mat. Hence
+`workspace_max_center_y_ratio` (default 0.88), a fixed-camera workspace boundary
+applied before OC-SORT.

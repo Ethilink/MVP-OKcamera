@@ -8,16 +8,46 @@ open-set gate. See `model/docs/linker-design.md` for the current contract and
 rationale.
 
 Out of scope for v1 (see `model/docs/linker-design.md`):
-    TODO(linker-design §3): persistent reference galleries + Hungarian binding
-        against pre-captured specimen photos. v1 galleries are session-only
-        (Start crops + last-seen crops); reference photos do not exist yet.
+    TODO(linker-design §3 -> wayfinder T08): persistent reference galleries +
+        one-to-one binding against pre-captured specimen photos. v1 galleries
+        are session-only, so `session_id` is just the raw OC-SORT counter and
+        the tray shows arbitrary numbers. NOTE: this TODO used to claim "T07's
+        photos don't exist yet" -- that was stale. They do:
+        `model/data/instruments/instrument{1..8}/images/` (15 views each) +
+        `model/data/other_objects/` (60 negatives). What is unconfirmed is
+        whether they are the same physical specimens as the demo tray (T07).
+        Build notes live in the T08 ticket: use SRC scores (NOT §3's stale
+        cosine -- §6 superseded it), and Hungarian is unreachable through
+        `accept()`'s one-decision-per-row seam without assembling the matrix
+        yourself. Until T08 lands, galleries stay session-only (Start crops +
+        last-seen crops).
     TODO(linker-design §5): stability-gated session-refresh ring. Galleries
         are frozen at Start/death; no live crop is ever added to a gallery
         mid-recording.
     TODO(linker-design §8): rotation/mirror gallery augmentation.
         Galleries hold only the raw embedded views, no synthetic copies.
-    TODO(linker-design §9): non-blocking/async decision execution. Matcher
-        calls happen synchronously inside `update()`; threading is deferred.
+    NOT a TODO (linker-design §9, closed by measurement 2026-07-15): matcher
+        calls happen synchronously inside `update()` and that is fine.
+        Re-measured on the Take B cached replay (n=46 batches, n=25 deaths),
+        timing BOTH halves of the synchronous path -- an earlier pass timed only
+        the solve, which is the cheap half and never the reason to go async:
+            solve   (`total_ms`, score+assign): median  40.1 ms / max  70.1 ms
+            embed   (`build_ms` at death):      median  41.0 ms / max  67.3 ms
+            embed   (`build_ms` at enrolment):  260.4 ms, ONCE, at Start
+        Worst case both land on one frame: ~137 ms of linker work on top of the
+        detector's ~330 ms, i.e. an occasional ~470 ms frame against a 333 ms
+        nominal budget at 3 fps. That is a spike, not a stall, and it is three
+        orders inside the 1.0 s resolve contract. The 260 ms enrolment freeze is
+        by design (the table is still; nothing is being tracked yet).
+        NOTE: this kills the map's old "~0.2-0.5 s per link event" estimate --
+        that was a guess, and it was ~6x pessimistic. Embeds are ~3 crops,
+        batched, on MPS.
+        Reproduce: model/scripts/replay_session.py --from-cache, then read
+        `build_ms` / `total_ms` out of the trace's `logs`. Absolute latency
+        drifts with machine load (max solve was 142.6 ms on the uncached run
+        that demo-validation.md records, 70.1 ms cached here); the batch COUNT
+        (46 on Take B) is the stable, reproducible figure.
+        Do not build threading for this without new evidence.
     TODO(linker-design out-of-scope): catalog identification, the
         `confidence` attribute (lives on `load_tracker`'s tracker), and `-1`
         id stripping (upstream/OC-SORT guarantees mature ids only) are not

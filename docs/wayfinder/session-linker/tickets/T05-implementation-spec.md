@@ -2,9 +2,9 @@
 id: T05
 title: Implementation spec — handoff to the build
 type: wayfinder:task
-status: open
+status: closed
 assignee:
-blocked-by: [T01, T03, T04, T06]
+blocked-by: []
 ---
 
 ## Question
@@ -32,3 +32,22 @@ by the orchestrator; W3–W5/W7–W8 run via Sonnet coder subagents with
 orchestrator review, W6 (`SessionLinker`) via blind-TDD. Still owed for
 closure: final wording for `app/docs/DESIGN.md` D8 + `tracker-interface.md`
 open items, and the T04-scenario acceptance readout.
+
+## Resolution
+
+Closed 2026-07-15 — **the build shipped**, so the spec's purpose (hand a
+build-ready brief to the agents) is spent.
+
+Built and merged: `SessionLinker` behind the seam (`b2c812a`), the SRC champion
+ported into `orc_model.pipelines.matching` (`63f1eca`), and the real
+`load_tracker()` composition RF-DETR -> Deep OC-SORT -> `SessionLinker`
+(`a9c0064`). Acceptance evidence is T04's replay traces; 73 model tests pass.
+
+The spec itself (`model/docs/session-linker-SPEC.md`) stays as the build record.
+Where behaviour has since diverged, **`model/docs/linker-design.md` is
+canonical** — notably §6.5, rewritten 2026-07-15 after the structural fix
+(comparison set = full roster, not the Missing set; greedy per-identity
+assignment, not Hungarian; no second re-score round).
+
+The remaining unbuilt design work is **not** this ticket's leftovers — it is
+[T08](T08-gallery-binding.md).

@@ -2,7 +2,7 @@
 id: T02
 title: Benchmark embedding models on the demo machine
 type: wayfinder:research
-status: open
+status: closed
 assignee: bram
 blocked-by: []
 ---
@@ -153,3 +153,28 @@ wiring tracked in [assets/T05/ISSUES.md](../assets/T05/ISSUES.md). The
 (D=770, dictionary width up to 120 atoms) at **0.2–0.8 ms per solve** — the
 embed step dominates the link budget, as already assumed (see ISSUES.md,
 "latency risk downgraded").
+
+## Resolution
+
+Closed 2026-07-15 — **superseded by the matcher-autoresearch program**
+(`experiments/matcher-autoresearch/`), which answered this at greater depth than
+the ticket asked.
+
+- **Model + runtime:** DINOv2-B (ViT-B/14) CLS on masked crops, MPS, offline-forced
+  process-wide singleton (`orc_model/pipelines/matching/embedder.py`).
+- **Method:** stage 2 ran a blind technique search over ~30 method families. The
+  champion is **SRC** (joint sparse dictionary reconstruction + SCI), promoted at
+  round 3: CV re-ID **0.9333** vs the 0.850 baseline, foreign-reject **0.9733**,
+  0 twin errors. See `LEADERBOARD.md`, `PARAMS.md`, `TRIED.md`.
+- **Latency:** measured in production, not just in the harness. On the Take B
+  cached replay the **embed** (`build_gallery`, the dominant half) runs median
+  **41.0 ms** / max **67.3 ms** per death event (n=25), plus **260.4 ms** once at
+  enrolment; the SRC **solve** runs median **40.1 ms** / max **70.1 ms** (n=46).
+  Both sit inside one 333 ms frame at 3 fps. This retires the map's original
+  "~0.2–0.5 s per link event with DINOv3 ViT-B" estimate — wrong model, and ~6×
+  pessimistic. See T04 and `session_linker.py`'s §9 note.
+- **Stage 1's near-twin warning** (`instrument1`<->`instrument2`) did not
+  materialize: 0 twin errors on both metrics.
+
+Ongoing matcher R&D (e.g. a DINOv3-B swap) does not need this ticket — the
+`frozen/` harness is the durable artifact and stays in place.

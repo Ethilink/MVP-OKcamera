@@ -2,7 +2,7 @@
 id: T01
 title: Sync with Constantijn — build blessing, weights delivery, demo set
 type: wayfinder:task
-status: open
+status: closed
 assignee:
 blocked-by: []
 ---
@@ -42,3 +42,22 @@ are: (a) keep both, add mask-size to the linker (preferred — no set change),
 (b) swap one out (simplest, if size fusion proves fragile at the demo camera),
 or (c) keep both and lean on the one-missing prior + multi-frame voting. See
 [assets/T02-stage1/RESULTS.md](../assets/T02-stage1/RESULTS.md).
+
+## Resolution
+
+Closed 2026-07-15 — all three items settled by events rather than by the
+conversation:
+
+1. **Blessing:** moot. The build shipped in `model/` behind `load_tracker()`
+   exactly as charted (`SessionLinker`, commits `b2c812a`/`a9c0064`).
+2. **Weights delivery:** delivered. RF-DETR ONNX is on the demo machine at
+   `model/weights/checkpoint_best_regular.onnx` (150 MB) and loads via
+   `load_tracker(weights_path)`. Note for the runbook: it is **`.onnx`, not
+   `.pt`**, and the path must be absolute (see `app/docs/RUNBOOK.md`).
+3. **Demo set / near-twins:** the `instrument1`<->`instrument2` pair flagged in
+   T02 stage 1 produced **0 twin errors** in the round-3 benchmark, so no
+   instrument swap is needed.
+
+Residual (does **not** block anything): nobody has confirmed that
+`model/data/instruments/instrument{1..8}` are the same physical specimens on the
+demo tray. That question moved to [T07](T07-capture-reference-gallery.md).

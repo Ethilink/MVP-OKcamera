@@ -10,8 +10,8 @@ thresholds are **parameters filled by [T02](../../docs/wayfinder/session-linker/
 doc pins *behaviour*; the build is [T05](../../docs/wayfinder/session-linker/tickets/T05-implementation-spec.md).
 
 Companion to the seam contract in [`tracker-interface.md`](./tracker-interface.md)
-(§ "tracker_id across absence") and the demo app in
-[`app/docs/DESIGN.md`](../../app/docs/DESIGN.md) (D8).
+(§ "Identity semantics") and the demo app in
+[`app/docs/DESIGN.md`](../../app/docs/DESIGN.md) (D8/D8a).
 
 ---
 
@@ -21,7 +21,7 @@ An instrument leaves the table and comes back. A plain tracker (we use
 **Deep OC-SORT**, vendored — see below) spawns a *fresh* id on return. The seam
 promises the opposite: an instrument returns under its **original** id, within
 ≤ 1.0 s, with no id-rewrites leaking to the consumer
-(`tracker-interface.md` § "tracker_id across absence"). The **session linker**
+(`tracker-interface.md` § "Identity semantics"). The **session linker**
 is the layer that keeps that promise. It is **session re-identification, open-set**:
 it only ever decides *"is this the same physical object as one that left?"* —
 never *which catalog instrument it is*. Labels stay generic "Instrument N";
@@ -302,6 +302,20 @@ All guarded numbers come from the 8×15 synthetic crop set — **expect a
    invariant, § "Where it composes").
 
 ## 7 · Rejection & Pending — app-side encoding
+
+> ⚠️ **UNBUILT, and the premise below is false as written (2026-07-15).** The app
+> half of this section does not exist — see
+> [T10](../../docs/wayfinder/session-linker/tickets/T10-app-side-unknown.md).
+> Both claims in the next paragraph are currently wrong: the app has **no** roster
+> (`grep -i roster app/backend/backend/` → nothing), and the roster is **not**
+> `{1…N}` — session ids are Deep OC-SORT's raw counter, so a tray of 8 yields e.g.
+> `{3,5,7,9,10,11,12,14}` (the "Instrument 10" symptom;
+> [T08](../../docs/wayfinder/session-linker/tickets/T08-gallery-binding.md)).
+> Every `> N` test and the colour mapping below assume contiguity from 1 and break
+> without it. T10 carries the two routes (app derives the roster at Start vs. the
+> roster crosses the seam) — **that is a grilling item for Bram**, since it moves
+> the seam contract D8 and `tracker-interface.md` pin. Until T10 lands, a foreign
+> object still renders as `"Instrument N"` and counts toward completeness.
 
 Nothing new crosses the seam. The app already has the frozen roster `{1…N}` and a
 1 s entry debounce (`Session`).

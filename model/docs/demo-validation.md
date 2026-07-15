@@ -140,6 +140,48 @@ detection caches; no detector output was regenerated or altered between passes.
 | maximum matcher batch latency | 90.3 ms | 142.6 ms |
 | full uncached throughput | 2.38 fps | 2.88 fps |
 
+### Synchronous-path latency — both halves (re-measured 2026-07-15, Take B cached)
+
+`update()` does its matcher work synchronously. Two costs sit on that path, and
+they are timed by **separate** counters — an earlier pass quoted only `total_ms`
+(the solve) and concluded §9 async was unnecessary. That conclusion holds, but
+only once the embed is timed too, since the embed is the half everyone assumed
+was expensive:
+
+| synchronous cost | counter | n | median | max |
+|---|---|---:|---:|---:|
+| SRC solve (score + assign) | `total_ms` | 46 | 40.1 ms | 70.1 ms |
+| embed at track death | `build_ms` | 25 | 41.0 ms | 67.3 ms |
+| embed at enrolment freeze | `build_ms` | 1 | — | 260.4 ms |
+
+Worst case both land on one frame: **~137 ms** of linker work on top of the
+detector's ~330 ms — an occasional ~470 ms frame against a 333 ms nominal budget
+at 3 fps. A spike, not a stall, and far inside the 1.0 s resolve contract. The
+260 ms enrolment freeze is by design: the table is still and nothing is tracked
+yet.
+
+This retires the original **"~0.2–0.5 s per link event"** estimate (MAP.md) — a
+guess, and ~6× pessimistic. Embeds are ~3 crops, batched, on MPS.
+
+**Reproduce:**
+
+```
+model/.venv/bin/python model/scripts/replay_session.py \
+  --video matching/data/testing/15-07-26-002/videos/15-07-26-002.mp4 \
+  --out <prefix> --cache /private/tmp/orc-take-b-final-uncached.dets.npz --from-cache
+```
+
+then read `build_ms` / `total_ms` out of the trace's `logs` array. The **batch
+count** (46 on Take B) reproduces exactly; **absolute latency drifts with machine
+load** — the 142.6 ms above is from the uncached run competing with the detector,
+70.1 ms from the cached re-run. Compare counts, not milliseconds, across runs.
+
+⚠️ **§3 gallery binding ([T08](../../docs/wayfinder/session-linker/tickets/T08-gallery-binding.md))
+will move these numbers**: a bound gallery embeds 15 persistent views + Start
+crops, not ≤3 crops. Embed persistent galleries **once at enrolment and cache
+them**; re-embedding per event would grow the freeze from 260 ms toward seconds
+and reopen §9. Re-measure after T08.
+
 Take B's deliberate foreign-object introductions produced six raw tracker
 tracks across the phone/pen/keys windows (29.2 s, 122.2–123.8 s, and 165.0 s).
 All six settled Unknown; none borrowed a Missing identity.

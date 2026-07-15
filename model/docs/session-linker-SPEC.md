@@ -1,10 +1,30 @@
 # SPEC — `SessionLinker`
 
+> ## ⚠️ SUPERSEDED 2026-07-15 — HISTORICAL BUILD RECORD, NOT A CONTRACT
+>
+> This was the blind-TDD build contract that produced `session_linker.py`. It is
+> kept for provenance only. **`model/docs/linker-design.md` is canonical.** Do
+> not "fix" the code to match this file — three of its clauses were deliberately
+> reversed during the build, for measured reasons:
+>
+> | This file says | What shipped, and why |
+> |---|---|
+> | Score against the **Missing** dictionary | Score against the **full frozen roster**. Missing-only collapses the ordinary one-missing case to K=1, where SCI is `0/0` and `sim` floors at ~0.47 — above `tau=0.30`, so nothing can be rejected. Measured: all 7 other instruments force-linked into instrument1's slot. Eligibility (Missing-only) is filtered *after* the gate. |
+> | `scipy.optimize.linear_sum_assignment` (Hungarian) | **Greedy per-identity** assignment. Hungarian needs a full row×column matrix; `interface.py`'s `score() -> dict` + `accept() -> one id \| REJECT` seam collapses each row to a single decision. Not reachable without assembling the matrix yourself. |
+> | "**Round 2 (exactly one)**" re-score round | **No second round.** Removing a claimed candidate changes K and invalidates every remaining SCI, so scores stop being comparable across rows. Losers settle Unknown; a **coasting-handoff deferral** covers OC-SORT id changes near death. |
+>
+> Also absent here: the `cos_tau = 0.60` absolute gate that is the real
+> foreign-object safety valve at K=1. See `linker-design.md` §6/§6.5.
+>
+> Greedy assignment and the deferral path were engineering calls made during the
+> build; they were **not** grilled with Bram.
+
 **Target:** `model/src/orc_model/pipelines/session_linker.py`
 **Test file:** `model/tests/pipelines/test_session_linker.py`
 **Design source:** `model/docs/linker-design.md` §§1–7 (rationale lives there; THIS
 file is the build contract). Consumer contract:
-`model/docs/tracker-interface.md` § "`tracker_id` across absence".
+`model/docs/tracker-interface.md` § "Identity semantics" (this pointer originally
+read § "`tracker_id` across absence" — that section was removed on 2026-07-15).
 
 ## Goal
 

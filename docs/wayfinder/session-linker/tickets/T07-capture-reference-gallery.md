@@ -38,3 +38,27 @@ demo machine](T02-benchmark-embeddings.md), which makes those decisions.
 Resolution = gallery folder + manifest location recorded here, physical demo
 set confirmed, and enough coverage to run the hybrid-gallery/viewpoint-flip and
 open-set rejection benchmark without inventing synthetic evidence.
+
+## Status update — 2026-07-15: the data appears to already exist
+
+Re-scoped to a **one-question confirmation for Bram**. This ticket was written as
+"go capture the image set", and the code still carries a TODO saying *"T07's
+photos don't exist yet"* (`session_linker.py`). That statement looks stale:
+
+- `model/data/instruments/instrument{1..8}/images/` — **15 views each** (120 crops
+  with COCO masks)
+- `model/data/other_objects/` — **60** adversarially tool-like negatives
+- Both are exactly what §3 needs, and both were what the matcher-autoresearch
+  benchmark and its tuned tau/margin ran on.
+
+**The only open question — and nobody has checked it:** are those photos of the
+*same physical specimens* that will be on the UZ Leuven demo tray? §3 binds to a
+specimen, not to an instrument type, so this is load-bearing:
+
+- **Yes** -> [T08](T08-gallery-binding.md) is unblocked with the data in hand.
+- **No** -> a fresh capture is needed (the original checklist below still applies),
+  or T08 ships knowing every identity will fall back to session-only.
+
+This does **not** block T08 from being built: §3 degrades gracefully by design —
+no usable persistent gallery means everyone runs session-only and the linker
+still works. The answer decides whether T08 *helps*, not whether it *runs*.
