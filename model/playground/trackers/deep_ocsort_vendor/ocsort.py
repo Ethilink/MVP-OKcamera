@@ -12,6 +12,12 @@ embedding-fused cost matrix are unchanged. Differences from upstream:
     last matched to (`last_det_index`), so `update()` can return that
     alongside each output row -- upstream doesn't need this since its output
     rows are written straight to a results file.
+  - `KalmanBoxTracker` also remembers the *raw* per-frame appearance
+    embedding of that same matched detection (`last_det_emb`), separate from
+    `self.emb` (the track's EMA-smoothed embedding used for association).
+    `update()` returns `last_det_emb` per output row alongside
+    `last_det_index` -- downstream tracklet refinement (GTA-Link-style
+    split/connect) needs the raw per-frame feature, not the smoothed one.
 """
 
 import numpy as np
@@ -124,11 +130,13 @@ class KalmanBoxTracker:
         self.emb = emb
         self.frozen = False
         self.last_det_index = None
+        self.last_det_emb = emb
 
-    def update(self, bbox, det_index=None):
+    def update(self, bbox, det_index=None, det_emb=None):
         if bbox is not None:
             self.frozen = False
             self.last_det_index = det_index
+            self.last_det_emb = det_emb
 
             if self.last_observation.sum() >= 0:
                 previous_box = None
@@ -244,7 +252,7 @@ class OCSort:
 
     def update(
         self, dets: np.ndarray, frame: np.ndarray, masks: np.ndarray | None = None
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Params:
           dets: (N, 5) array of [x1, y1, x2, y2, score] in `frame`'s own pixel
@@ -254,11 +262,19 @@ class OCSort:
             Forwarded to the embedder -- only used if it was built with
             `mask_crop=True`.
         Returns:
-          (tracked, det_indices): `tracked` is an (M, 5) array of
-          [x1, y1, x2, y2, track_id]; `det_indices` is the input-`dets` row
-          each tracked box came from (only detections matched to a track
-          this frame are ever returned -- OC-SORT doesn't emit boxes for
-          coasted/predicted-only tracks).
+          (tracked, det_indices, det_embeddings): `tracked` is an (M, 5)
+          array of [x1, y1, x2, y2, track_id]; `det_indices` is the
+          input-`dets` row each tracked box came from (only detections
+          matched to a track this frame are ever returned -- OC-SORT doesn't
+          emit boxes for coasted/predicted-only tracks); `det_embeddings` is
+          an (M, D) array, row-aligned with `tracked`/`det_indices`, of the
+          *raw per-frame* appearance embedding of the detection each track
+          matched this frame (not the track's EMA-smoothed `trk.emb` used
+          internally for association -- tracklet refinement downstream needs
+          the unsmoothed per-frame feature). When `embedding_off=True`,
+          `det_embeddings` is a dummy `(M, 1)` array of ones (same
+          pass-through as `dets_embs` internally) -- callers must not treat
+          it as a real embedding in that case.
         """
         self.frame_count += 1
         remain_inds = dets[:, 4] > self.det_thresh
@@ -317,7 +333,9 @@ class OCSort:
             grid_off=True,
         )
         for det_idx, trk_idx in matched:
-            self.trackers[trk_idx].update(dets[det_idx, :], det_index=int(original_indices[det_idx]))
+            self.trackers[trk_idx].update(
+                dets[det_idx, :], det_index=int(original_indices[det_idx]), det_emb=dets_embs[det_idx]
+            )
             self.trackers[trk_idx].update_emb(dets_embs[det_idx], alpha=dets_alpha[det_idx])
 
         # second round: OCR -- re-try unmatched dets against unmatched tracks'
@@ -333,7 +351,9 @@ class OCSort:
                     det_ind, trk_ind = unmatched_dets[m[0]], unmatched_trks[m[1]]
                     if iou_left[m[0], m[1]] < self.iou_threshold:
                         continue
-                    self.trackers[trk_ind].update(dets[det_ind, :], det_index=int(original_indices[det_ind]))
+                    self.trackers[trk_ind].update(
+                        dets[det_ind, :], det_index=int(original_indices[det_ind]), det_emb=dets_embs[det_ind]
+                    )
                     self.trackers[trk_ind].update_emb(dets_embs[det_ind], alpha=dets_alpha[det_ind])
                     to_remove_det_indices.append(det_ind)
                     to_remove_trk_indices.append(trk_ind)
@@ -348,7 +368,7 @@ class OCSort:
             trk.last_det_index = int(original_indices[det_idx])
             self.trackers.append(trk)
 
-        ret, ret_det_indices = [], []
+        ret, ret_det_indices, ret_embeddings = [], [], []
         i = len(self.trackers)
         for trk in reversed(self.trackers):
             if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
@@ -359,10 +379,19 @@ class OCSort:
                 d = trk.get_state()[0] if trk.last_observation.sum() < 0 else trk.last_observation[:4]
                 ret.append(np.concatenate((d, [trk.id + 1])).reshape(1, -1))
                 ret_det_indices.append(trk.last_det_index)
+                ret_embeddings.append(trk.last_det_emb)
             i -= 1
             if trk.time_since_update > self.max_age:
                 self.trackers.pop(i)
 
         if len(ret) > 0:
-            return np.concatenate(ret), np.array(ret_det_indices, dtype=int)
-        return np.empty((0, 5)), np.empty((0,), dtype=int)
+            return (
+                np.concatenate(ret),
+                np.array(ret_det_indices, dtype=int),
+                np.array(ret_embeddings),
+            )
+        return (
+            np.empty((0, 5)),
+            np.empty((0,), dtype=int),
+            np.empty((0, self.embedder.embedding_dim)),
+        )
