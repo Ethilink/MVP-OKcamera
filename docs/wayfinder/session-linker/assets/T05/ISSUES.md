@@ -258,6 +258,13 @@ cd app/backend && uv run python -m backend.main --camera 0 \
   --weights ../../model/weights/checkpoint_best_regular.onnx
 ```
 
+**Pre-flight (found during W7's real smoke):** Deep OC-SORT's torchvision
+embedder downloads `mobilenet_v3_small-047dcff4.pth` from download.pytorch.org
+on first use if `~/.cache/torch/hub/checkpoints/` doesn't have it. It is
+cached on this machine now (2026-07-15), but verify before demo day — an
+offline demo room + cold cache = load_tracker() hangs at startup. Same check
+for the HF cache (`facebook/dinov2-base`).
+
 Physically pick up and set down an instrument; its tile must keep its
 colour/id in the frontend. Measure real end-to-end fps here and pin it (C4).
 Expect to retune `tau`/`margin` after this — every guarded number is from a

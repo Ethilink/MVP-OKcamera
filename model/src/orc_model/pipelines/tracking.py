@@ -11,11 +11,18 @@ See `docs/tracker-interface.md` for the full contract and rationale.
 
 from __future__ import annotations
 
+import hashlib
 import math
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 import numpy as np
 import supervision as sv
+
+from orc_model.components.detector.detector import Detector
+from orc_model.pipelines.deep_ocsort.tracker import DeepOCSortTracker
+from orc_model.pipelines.matching import ChampionMethod
+from orc_model.pipelines.session_linker import SessionLinker
 
 
 @runtime_checkable
@@ -142,3 +149,136 @@ class FakeInstrumentTracker:
             tracker_id=np.array(tracker_ids, dtype=int),
             data={"class_name": np.array(["surgical_instrument"] * len(boxes))},
         )
+
+
+def load_tracker(
+    weights_path: str | Path,
+    confidence: float = 0.5,
+    *,
+    fps: float = 12.0,
+    max_age_seconds: float = 1.0,
+    absent_death_s: float | None = None,
+) -> InstrumentTracker:
+    """Compose the real `InstrumentTracker`: RF-DETR detector -> Deep OC-SORT
+    -> SessionLinker, per `model/docs/linker-design.md` "Where it composes".
+    This is the concrete unblock for `app/backend/backend/main.py`'s
+    `load_tracker(args.weights)` call site.
+
+    `weights_path` is the only required argument -- every other knob has a
+    workable default, so `load_tracker(weights_path)` alone (the app's call
+    site) just works.
+
+    `fps` is an HONEST ESTIMATE, not a measurement: live inference is the
+    bottleneck and has historically run ~10-15 fps end-to-end on this
+    hardware, so 12.0 is a conservative midpoint. TODO(W9, T05 brief): replace
+    this default with the value the first live-camera run actually measures.
+    NEVER let this default drift to 30 -- `DeepOCSortTracker.frame_rate`
+    defaults to 30 internally, which is exactly why `fps` is threaded through
+    explicitly to both the tracker and the linker below (T05 brief C4): a
+    wrong fps here silently stretches the tracker's "1.0 s" coast window to
+    ~2.5 s of wall time at real fps, breaching the tracker/linker boundary
+    described in linker-design.md §9.
+
+    `max_age_seconds` is Deep OC-SORT's coasting window before it frees a raw
+    id. `absent_death_s` is the linker's window before it declares a
+    *session* identity Missing. These must satisfy
+    `absent_death_s >= max_age_seconds` -- otherwise the linker could bury an
+    identity while the tracker is still coasting its raw id, and a coasted
+    reactivation would silently resurrect a "dead" identity's raw id without
+    ever crossing the linker's re-id gate. By default `absent_death_s` is
+    pinned to `max_age_seconds`; pass it explicitly only to widen it further,
+    a narrower value raises `ValueError`.
+
+    Constructs the SRC matcher (`ChampionMethod`) eagerly, which loads
+    DINOv2-B from the local HF cache -- so this call fails fast at startup on
+    a missing/mismatched cache instead of on the first tracked frame.
+    """
+    if absent_death_s is None:
+        absent_death_s = max_age_seconds
+    elif absent_death_s < max_age_seconds:
+        raise ValueError(
+            f"absent_death_s ({absent_death_s}) must be >= max_age_seconds "
+            f"({max_age_seconds}): the linker must never declare an identity "
+            "dead before the tracker itself has given up coasting its raw id."
+        )
+
+    weights_path = Path(weights_path)
+    detector = Detector(weights_path, confidence_threshold=confidence)
+    matcher = ChampionMethod()  # loads DINOv2-B eagerly -- fail fast, not on first frame
+    session_linker = SessionLinker(matcher, fps=fps, absent_death_s=absent_death_s)
+
+    return _RealInstrumentTracker(
+        detector=detector,
+        confidence=confidence,
+        fps=fps,
+        max_age_seconds=max_age_seconds,
+        session_linker=session_linker,
+        model_version=_model_version(weights_path),
+    )
+
+
+def _model_version(weights_path: Path) -> str:
+    """Weights filename stem + first 8 hex chars of the file's sha256 -- a
+    cheap one-time provenance stamp, hashed once at load."""
+    digest = hashlib.sha256(weights_path.read_bytes()).hexdigest()[:8]
+    return f"{weights_path.stem}-{digest}"
+
+
+class _RealInstrumentTracker:
+    """The real `InstrumentTracker`: RF-DETR detector -> Deep OC-SORT ->
+    SessionLinker. Built by `load_tracker()`; not meant to be constructed
+    directly.
+
+    `update()` runs the three-stage composition from
+    `model/docs/linker-design.md` "Where it composes" every call. `reset()`
+    re-creates the Deep OC-SORT tracker (it has no `reset()` of its own -- a
+    fresh instance IS the reset) and resets the linker's session state, but
+    keeps the already-loaded detector session and matcher/DINOv2-B model, so
+    repeated recordings don't pay the load cost twice.
+    """
+
+    def __init__(
+        self,
+        *,
+        detector: Detector,
+        confidence: float,
+        fps: float,
+        max_age_seconds: float,
+        session_linker: SessionLinker,
+        model_version: str,
+    ) -> None:
+        self.confidence = confidence
+        self._detector = detector
+        self._fps = fps
+        self._max_age_seconds = max_age_seconds
+        self._session_linker = session_linker
+        self._model_version = model_version
+        self._deep_ocsort = self._new_deep_ocsort()
+
+    def _new_deep_ocsort(self) -> DeepOCSortTracker:
+        # det_thresh stays fixed at the startup confidence (T05 brief C8):
+        # OC-SORT's internal gate, distinct from the per-call detector
+        # threshold below, which does track `self.confidence` live.
+        return DeepOCSortTracker(
+            det_thresh=self.confidence,
+            frame_rate=self._fps,
+            max_age_seconds=self._max_age_seconds,
+        )
+
+    @property
+    def class_names(self) -> dict[int, str]:
+        return {0: "surgical_instrument"}
+
+    @property
+    def model_version(self) -> str:
+        return self._model_version
+
+    def reset(self) -> None:
+        self._deep_ocsort = self._new_deep_ocsort()
+        self._session_linker.reset()
+
+    def update(self, frame: np.ndarray) -> sv.Detections:
+        detections = self._detector.predict(frame, confidence_threshold=self.confidence)
+        detections = self._deep_ocsort.update(detections, frame)
+        detections = self._session_linker.update(detections, frame)
+        return detections
