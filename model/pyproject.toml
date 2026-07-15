@@ -14,6 +14,12 @@ dependencies = [
     "trackers",
     "plotly>=6.8.0",
     "pyorbbecsdk2>=2.1.1",
+    "torch>=2.13.0",
+    "torchvision>=0.28.0",
+    "transformers>=4.50",
+    "scikit-learn>=1.6",
+    "scipy>=1.15",
+    "pillow>=11.0",
 ]
 
 [build-system]
@@ -25,8 +31,6 @@ dev = [
     "ipykernel>=7.3.0",
     "jupyterlab>=4.6.1",
     "pytest>=9.1.1",
-    "torch>=2.13.0",
-    "torchvision>=0.28.0",
 ]
 
 [tool.uv.sources]
