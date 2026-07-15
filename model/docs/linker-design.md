@@ -303,19 +303,20 @@ All guarded numbers come from the 8×15 synthetic crop set — **expect a
 
 ## 7 · Rejection & Pending — app-side encoding
 
-> ⚠️ **UNBUILT, and the premise below is false as written (2026-07-15).** The app
-> half of this section does not exist — see
-> [T10](../../docs/wayfinder/session-linker/tickets/T10-app-side-unknown.md).
-> Both claims in the next paragraph are currently wrong: the app has **no** roster
-> (`grep -i roster app/backend/backend/` → nothing), and the roster is **not**
-> `{1…N}` — session ids are Deep OC-SORT's raw counter, so a tray of 8 yields e.g.
-> `{3,5,7,9,10,11,12,14}` (the "Instrument 10" symptom;
-> [T08](../../docs/wayfinder/session-linker/tickets/T08-gallery-binding.md)).
-> Every `> N` test and the colour mapping below assume contiguity from 1 and break
-> without it. T10 carries the two routes (app derives the roster at Start vs. the
-> roster crosses the seam) — **that is a grilling item for Bram**, since it moves
-> the seam contract D8 and `tracker-interface.md` pin. Until T10 lands, a foreign
-> object still renders as `"Instrument N"` and counts toward completeness.
+> ⚠️ **Premise resolved by grilling (Bram, 2026-07-15); build in flight (T10).**
+> The paragraph below originally claimed the app already has the frozen roster
+> `{1…N}` — both halves were false (no roster app-side; ids are OC-SORT's raw
+> counter). **Decided route: (b) the roster crosses the seam** — `InstrumentTracker`
+> gains a read-only `roster` property (frozenset of session ids, empty until the
+> enrolment freeze), a deliberate widening of the `tracker-interface.md`/D8 pin;
+> the app reads it instead of deriving its own Start snapshot (route (a) was
+> rejected for its ~0.7 s snapshot-vs-freeze coordination risk). Every "`> N`"
+> membership test below is therefore a **set-membership test against that
+> property**, and contiguity is not assumed (T08 numbering: bound → specimen
+> number 1–8, session-only → 9+, foreign ids offset out of the roster range).
+> Also grilled the same day: unknowns are **video-only** (gray mask on the feed,
+> no panel row), and each roster instrument's `/status` entry carries its mask
+> colour so panel and overlay can never drift.
 
 Nothing new crosses the seam. The app already has the frozen roster `{1…N}` and a
 1 s entry debounce (`Session`).
