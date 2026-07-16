@@ -7163,3 +7163,1128 @@ native-scale silhouette Fourier magnitude, log-polar spectral encoding, and
 circular angular phase alignment. A genuinely different follow-up would need
 to retain local phase structure with a different representation, rather than
 another sampling or threshold variant of this global-spectrum method.
+
+---
+
+## Round 1, challenger 0 — episodic leave-one-view-out dissimilarity-space profile matching
+
+**Family:** `episodic dissimilarity-space / relational-profile matching` —
+the offered candidate galleries become a landmark coordinate system. Each crop
+is represented by a short vector whose coordinate `j` is its top-K-mean cosine
+distance to candidate `j`'s enrolled views. Each candidate's expected
+relational signature ("how my views relate to every offered identity") is
+estimated from its own gallery views, with the self-coordinate computed
+leave-one-view-out so a gallery crop cannot identify itself through a trivial
+zero distance. A query matches the candidate whose signature distribution it
+conforms to, with candidate-specific signature spread supplying the native
+open-set gate.
+
+This is a genuinely new matcher family in this log. It does not classify from
+a direct crop-to-gallery similarity/prototype (round 0/r2-c0), reconstruct a
+query from atoms (SRC), propagate labels on a crop graph (r4-c0), fit a density
+or one-class cloud (r2-c2/r6-c2), compare view sets by assignment/two-sample
+statistics (r2-c1/r8-c1), or change the metric manifold (r3-c0/r8-c2/r9-c1).
+The novel representation is the episode-specific **dissimilarity space**: an
+identity is recognized from its relation to the complete offered roster, not
+from one absolute pairwise distance.
+
+**Implementation:** `runs/r1-c0/method.py` (`DissimilaritySpaceMethod`) behind
+the unchanged `build_gallery / score / accept` contract. Masked, frozen
+DINOv2-B CLS plus the champion's lawful mask-size coordinates are shared
+feature plumbing. `build_gallery` stores only that candidate's offered view
+features. `score` rebuilds all relational prototypes from the currently
+offered galleries, maps each query frame into the same roster-relative
+coordinate system, combines profile distance (selected weight 0.75) with its
+own-candidate coordinate (0.25), discounts by candidate profile-spread
+conformity, and applies the established per-frame argmax-consistency window
+discount. No backbone parameter is learned or changed.
+
+`runs/r1-c0/run_eval.py` evaluated 991 actual frozen five-seed `run_cv` rows:
+five structurally different profile points over a disclosed coarse tau/margin
+lattice, then a local 0.001 refinement around the best floor-clearing point.
+Selection was strictly maximum re-ID subject to `foreignReject >= 0.9733`.
+Selected: `size_alpha=0.5, top_k=3, profile_weight=0.75,
+direct_weight=0.25, profile_spread_margin=2.0, distance_temp=0.1,
+consensus_power=1.0, tau=0.11, margin=0.0`, window 3.
+
+**Result — frozen CV (5 seeds):** re-ID top-1 / true-accept **0.9250 +/-
+0.0408**, foreign-reject **0.9867 +/- 0.0267**, twin errors (1<->2) **0**.
+Per-seed re-ID: `[1.0000, 0.9167, 0.9167, 0.8750, 0.9167]`; per-seed reject:
+`[1.0000, 0.9333, 1.0000, 1.0000, 1.0000]`. Every genuine miss at the selected
+point is a conservative false reject; wrong-link rate is zero in all seeds.
+
+**Verdict: NOT PROMOTED.** It safely clears the reject floor (`0.9867 >=
+0.9733`) and has no twin errors, but does not beat SRC's point estimate
+(`0.9250 < 0.9333`), much less the supplied strict seed-band bar
+(`0.9333 + 0.0408 = 0.9741`). Per the task's conditional gate, neither
+end-to-end take was run.
+
+**What worked / failed:** the ungated relational ranking ceiling was 1.0000
+with zero twin errors, so the representation contains excellent identity
+ordering. The open-set operating cliff persists: rejecting at least 73/75 CV
+foreign windows costs nine of 120 genuine windows. The core ablation is
+decisive: replacing the relational profile with direct distance at the same
+gate collapses re-ID to **0.5167** (reject 1.0000). Removing the
+profile-conformity gate keeps re-ID at 0.9250 but drops reject to **0.9333**,
+so roster-relative representation and profile-spread gating are both
+load-bearing. Removing size drops to re-ID 0.8083 / reject 0.8667 and
+reintroduces 6 twin errors. Window=1 drops to re-ID 0.8607 / reject 0.8682.
+
+**Round-9 hyperbolic reconstruction:** the lost candidate was separately
+reconstructed in `runs/r1-c0/hyperbolic_reference.py` at its prose-reported
+fixed parameters, with no tuning and no locked holdout. Preserving the fused
+tangent vector's radial norm reproduces its quoted re-ID exactly at **0.9833
++/- 0.0204** and 0 twin errors, but reconstructs foreign-reject as **0.9733
++/- 0.0327**, not the quoted 0.9867. The current reconstruction passes the
+new source/split/hash leak audit; that cannot retroactively clear the missing
+original artifacts, and its exact rejection claim remains unreproduced.
+
+**cheatRisk: false.** `runs/r1-c0/leak_check.json` records `clean=true`: zero
+gallery/query overlap by item, group, or crop+mask content across all five
+seeds; no `score()` query-meta/identity read; no hardcoded identity/frame
+table; no `run_locked_holdout` call; and identical SHA-256 hashes for every
+`frozen/*.py` file before/after. No shipping, `matching/`, or frozen code was
+edited.
+
+**Family now covered** (do not repeat as a profile-weight/top-K/threshold
+search): `episodic dissimilarity-space profile matching via leave-one-view-out
+roster-relative distance signatures`. A genuinely different follow-up would
+need to learn a generic metric in dissimilarity space from external episodes,
+or use ordinal/rank signatures instead of these continuous distance profiles,
+rather than resweeping this family's scalar gates.
+
+---
+
+## Round 1 (2026-07-16 e2e-autoresearch), challenger 1 — discriminative null-space collapse (Null Foley-Sammon Transform)
+
+> **Path-name collision, read this first:** this challenger's artifacts live in
+> `runs/r1-c1/`, the same path the historical "Round 1, challenger 1 — dense
+> local patch-correspondence (Chamfer)" entry (TRIED.md:111) cites. `runs/` is
+> gitignored and was **empty** at the start of this session, so no Chamfer
+> artifact was overwritten — but a reviewer following the Chamfer entry's
+> `runs/r1-c1/` references will now find NFST code. The orchestrator assigned
+> the `r1-c1` label for this new round; flagging rather than silently renaming.
+
+**Family:** `discriminative null-space collapse (Null Foley-Sammon Transform):
+a closed-form small-sample linear projection onto the EXACT null space of the
+within-class scatter, in which every enrolled view of an identity collapses to
+a single point; open-set rejection via null-space distance normalized by the
+intrinsic inter-class collapse scale`. Not a distance/kernel on the raw DINO
+space (r0, r3-c0 SPD, r9-c1 hyperbolic, r6-c0 Fourier-Mellin), not a
+reconstruction (r3-c2 SRC champion, r4-c1 Hopfield), not set-to-set
+correspondence (r1-c1 Chamfer, r1-c2 OT, r2-c1 Hungarian, r8-c2 Grassmannian,
+r8-c1 MMD), not a fitted density (r2-c2 UBM-LLR, r6-c1 GP, r6-c2 DP-vMF), not a
+discrete partition (r5-c1 Extra-Trees), not a graph over gallery material
+(r4-c0 leaky diffusion). Verified absent from TRIED.md before starting
+(`null space`/`null-space`/`Foley`/`discriminant`/`within-class`/`PLDA`/`LMNN`/
+`metric learning` all grep to 0). It is the "discriminative head (metric
+learning / logistic) over generic features" that program.md §6 names as a seed
+family and that no round 0-9 challenger developed. Full artifacts:
+`runs/r1-c1/` (`nfst.py`, `sweep.py`, `nested.py`, `d_curve.py`, `run_eval.py`,
+`cv_sweep.json`, `d_curve.json`, `nested_report.json`, `cv_report.json`,
+`ablations.json`, `holdout_report.json`).
+
+**Hypothesis:** with D=770 features and only N=40 enrolled atoms, S_w is
+massively rank-deficient (rank <= N-c = 32 inside a rank-<=39 data span), so a
+(c-1)=7-dim subspace exists where S_w is EXACTLY zero and S_b is not. Projected
+there, every enrolled view of an instrument collapses to one point — viewpoint/
+flip/lighting variation is *annihilated in closed form*, not down-weighted. If
+the demo's residual re-ID errors are enrolment-COVERAGE errors (memory:
+"rongeur = enrolment-coverage problem"; instruments 4/6/7 bleed in every
+family), a genuine return should land on its class point even from an unseen
+pose, while a foreign object — whose deviation from every class mean is
+identity-discriminative, not nuisance — should not.
+
+**Implementation:** `runs/r1-c1/nfst.py` (`NullSpaceMethod`), unchanged
+`build_gallery/score/accept`. Frozen DINOv2-B CLS + the licensed mask-size cue
+(same representation as the champion, so the projection is the only variable).
+The projection is fit INSIDE `score()` from the `galleries` dict only — those
+are enrolment labels the interface hands over by design, never query labels;
+the query never participates in the fit (no transductive step), and no gallery
+outside the offered candidate set is read (no cross-seed/cross-episode
+registry). `smoke.py` verifies the family's load-bearing claim numerically:
+worst enrolment-atom collapse residual **1.6e-15** relative to R — the collapse
+is exact, as the theory requires.
+
+**Selection — and a correction worth recording.** The flat sweep reported
+139,680 grid points and an argmax of re-ID `0.9917` @ reject `0.9733`. That
+number is an artifact twice over: (a) with `margin=0`, `score_mode` x
+`temperature` x `tau` are a pure monotone REPARAMETRIZATION of one number (the
+null-space distance threshold), so the real search space is **4,680** points,
+not 139,680 (`d_curve.py`); (b) that argmax clears the champion bar at exactly
+**1 of 97** tau steps, sitting on the shoulder where 2 foreign windows of 75
+flip. It was discarded. The reported config was instead chosen by
+`nested.py` — leave-one-seed-out selection, which re-runs the whole selection
+procedure on 4 seeds and scores the 5th — which picked it in **4 of 5 folds**
+with a selection optimism of only **+0.0021** re-ID. Caveat kept in view: the
+5 seeds re-split the SAME 96 crops, so nested CV understates optimism here; it
+is not independent data.
+
+**Locked config:** `size_alpha=1.0, null_dims=None (=c-1=7), dir_norm=none,
+score_mode=inv, temperature=0.5, tau=0.55, margin=0.0, mask_dilate_px=2`.
+
+**Result — frozen CV (5-seed, `frozen.eval.run_cv`):** re-ID / true-accept
+**0.9833 +- 0.0204**, foreign-reject **0.9867 +- 0.0267**, twin errors (1<->2)
+**0**. Per-seed re-ID `[1.0, 1.0, 0.9583, 1.0, 0.9583]`; per-seed reject
+`[0.9333, 1.0, 1.0, 1.0, 1.0]` (24 genuine + 15 foreign windows/seed). Per
+instrument: 1,2,3,6,7,8 = `1.0000`; instrument4 `0.9334`; instrument5 `0.9334`.
+**This clears the promotion bar on the crop eval** (`0.9833 > 0.9333+0.0425`;
+reject `0.9867 >= 0.9733`) — champion SRC is `0.9333 +- 0.0425` / `0.9733`.
+
+**Result — locked holdout (one-time, never searched):** re-ID **1.0000** (8/8),
+foreign-reject **0.6667** (4/6), twin errors 0. Champion holdout: re-ID `1.00`,
+reject `0.8333` (5/6). The only never-searched data puts this method **below**
+the champion on the safety axis — one window, n=6, so it resolves nothing on
+its own, but it does not corroborate the CV win either.
+
+**Result — END-TO-END demo-safety gate (the decision-relevant signal), both
+takes replayed from cache through the real pipeline, variant injected by
+monkeypatching `ChampionMethod` before `load_tracker()`
+(`experiments/e2e-autoresearch/runs/r1-c1-nfst/driver.py`, no shipping edit):**
+
+| | roster | foreign_reject | wrong_links | link_retention | hardcase | binding |
+|---|---|---|---|---|---|---|
+| baseline (SRC) take A | ok | 1.0 | 0 | **1.0** (15/15) | none | baseline |
+| **NFST take A** | ok | 1.0 | **0** | **0.9333** (14/15) | none | baseline |
+| baseline (SRC) take B | ok | 1.0 | 0 | **1.0** (19/19) | none | baseline |
+| **NFST take B** | ok | 1.0 | **0** | **0.8947** (17/19) | none | baseline |
+
+Regressions: take A `raw 70: linked:3 -> unknown`; take B `raw 37: linked:5 ->
+unknown`, `raw 60: linked:2 -> unknown`. **NOT DEMO-SAFE** by the gate's
+definition (`link_retention == 1.0` required on both takes): it loses 3 correct
+links the champion keeps. Note `score_e2e.py`'s own `demo_safe` field reports
+`true` here — that field does not include `link_retention`; the brief's
+demo-safe definition does, and it fails. Neither hard case (raw 72 @302s, raw
+88 @368s) changed: `hardcase_changes: []`.
+
+**Verdict: NOT PROMOTED.** The first challenger in a while to clear the crop
+bar and then be refuted by the end-to-end gate — which is exactly what the
+brief predicts ("treat all crop-eval numbers as directional (tiny data); the
+end-to-end result is the decision-relevant signal"). The +0.05 crop-CV re-ID
+gain did not transfer; end-to-end the method is strictly MORE conservative than
+SRC (3 lost links, 0 gained, 0 hard cases fixed) at identical foreign-reject.
+
+**Why it fails end-to-end (the useful finding).** The crop eval always offers
+c=8 balanced classes of 5 photo atoms each. The linker offers something else
+entirely: `_comparison_galleries()` (session_linker.py:525-547) merges
+persistent specimen photos with live session views, so bound identities carry
+~18 atoms and unbound ~3, and the dominant within-class direction becomes the
+**photo-vs-video domain gap**, not viewpoint. NFST annihilates whatever S_w
+says varies — so in the linker it spends its 7 precious null directions
+annihilating the domain gap and the class-size imbalance, and the projection is
+refit on every batch decision against a *changing* candidate set, so the
+distance scale R (and hence the meaning of tau=0.55) moves between events. A
+threshold calibrated on balanced 8x5 photo folds is simply not the same
+threshold in there. This is a structural mismatch between the crop eval and the
+linker, not a tuning miss — and it is a caution for any future family whose
+score is normalized by a statistic of the candidate set.
+
+**What worked / failed (ablations, each re-tuned to its OWN best feasible tau,
+`ablations.json`):** the null projection is genuinely load-bearing — removing
+it (same representation, window rule, scale and accept; plain nearest-class-
+mean) drops re-ID `0.9833 -> 0.9417`. The EXACT null space is the object:
+truncating it destroys the method (`null_dims=5` -> `0.8750`, `null_dims=3` ->
+`0.7750`), consistent with the theory rather than with a lucky subspace. The
+size cue is heavily load-bearing (`size_alpha=0` -> `0.7417`); `size_alpha=0.5`
+(the champion's value) -> `0.9750`. `dir_norm` none == unit (`0.9833`),
+`bc_white` -> `0.9500`. Notably, plain nearest-class-mean at `0.9417` already
+edges the champion's `0.9333` on this eval — more evidence that the crop eval's
+top end is not resolving real differences at n=120.
+
+**cheatRisk: false.** No file outside `experiments/` was touched (`git status`:
+the modified `app/backend/**` and `model/tests/**` entries in the tree belong to
+other agents running concurrently, not to this challenger; `runs/` is
+gitignored). `run_eval.py` hashes `frozen/*.py` before and after and records
+both in `holdout_report.json`: **`frozen_unchanged: true`**, with
+`eval.py = 73e714df16bc473dfad9521ce99f038ab0108c3a656a6330860c4531aa961acd` —
+identical to the digest recorded in the Round 9 leak-check verdict. No frozen/
+shipping edit, no monkeypatch of the eval, no threshold lowered anywhere: the
+K=1 branch of the e2e driver reuses the SHIPPED `cos_tau=0.60` verbatim rather
+than inventing or relaxing a gate. `run_locked_holdout` was called exactly once,
+after the config was frozen. Query labels stay eval-side; the embedding cache is
+keyed by a sha1 of masked-crop PIXELS (`cached_embedder.py`), carries no
+identity, and is pure memoization.
+
+**Family now covered** (do not repeat as a threshold/subspace-dimension
+search): `discriminative null-space collapse / Null Foley-Sammon Transform /
+null-space LDA`, including exact-null vs truncated (`null_dims` 7/5/3),
+direction scalings (raw / unit-norm / between-class whitening), size-fusion
+weights, and inv/exp score transforms. A genuinely different follow-up would
+have to fit the null space over a class structure that MATCHES the linker's
+(mixed photo+session atoms, unequal class sizes), or replace the candidate-set-
+relative scale R with an absolute one so tau survives a changing Missing set —
+not resweep this family's scalars.
+
+---
+
+## Round 2, challenger 0 (2026-07-16 e2e-autoresearch) — validated reconstruction of the lost round-9 Poincare-ball matcher
+
+**Family:** `hyperbolic Poincare-ball embedding matching: exponential-map
+frozen DINOv2/size tangent features, Poincare distance, and gallery-spread
+open-set calibration`. This is the task's explicit exception to the normal
+"not already in TRIED" rule: the round-9 family was never validly reviewed
+because its declared artifacts were lost. `runs/r2-c0/` is a fresh,
+independently testable implementation, not an import or copy of that run.
+
+**Reconstruction finding:** the surviving prose-fixed parameters reproduce the
+lost result exactly only when mask dilation matches the champion's actual 3x3
+structuring element. The earlier `r1-c0` reference used SciPy's default
+cross-shaped dilation, which explained its lower reconstructed reject result.
+Fixed before grading from the champion implementation, not selected against CV.
+
+**Implementation:** `runs/r2-c0/method.py` behind unchanged
+`build_gallery / score / accept`. DINOv2-B is frozen. Parameters recovered from
+the prose: `size_alpha=0.5, curvature=0.5, feature_scale=0.75,
+distance_temp=0.75, spread_margin=0.8, top_k=5, tau=0.0, margin=0.03,
+mask_dilate_px=2`, window 3. `cv_sweep.json` records a bounded 24-row
+one-factor stability resweep; it does not post-hoc replace the reconstructed
+point. `cv_replay_adapter.json` verifies that the uniform replay score-unit
+conversion (`x100`, margin `3.0`) is decision-identical to raw margin `0.03`.
+
+**Result — frozen CV (5 seeds):** re-ID top-1 **0.9833 ± 0.0204**,
+foreign-reject **0.9867 ± 0.0267**, twin errors **0**. This beats the supplied
+strict crop bar (`0.9833 > 0.9333 + 0.0204`) and reject floor (`0.9867 >=
+0.9733`). `leak_check.json` reports `clean=true`: zero split/content overlap,
+no query-meta or identity answer path, no holdout call, content-only cache, and
+unchanged frozen hashes.
+
+**Result — end-to-end gate:** **NOT DEMO-SAFE.** Both takes preserve roster
+`{1..8}` and baseline physical bindings, with no hardcase changes. Take A:
+foreign reject `1.0` (no labelled foreign), link retention **0.9333** (14/15),
+zero wrong links; regression `raw 70: linked:3 -> unknown`. Take B: link
+retention `1.0` (19/19), foreign reject **0.8333** (5/6), one wrong link:
+foreign `raw 28 -> linked:6`. Raw 72 and raw 88 remain Unknown. Note the scorer
+prints Take A `demo_safe=true` because its boolean omits safe lost links; the
+task's explicit `link_retention==1.0` contract makes Take A false.
+
+**Verdict: NOT PROMOTED.** The crop result and old round-9 claim are now
+legitimately reconstructed, but the end-to-end gate refutes deployment: one
+lost correct link on A and one foreign wrong link on B. Keep SRC. No threshold
+was lowered; the replay conversion changes only score units and scales the
+method margin identically. No frozen or shipping file was edited.
+
+**cheatRisk: false.** Six tests pass; `leak_check.json clean=true`; frozen
+hashes are stable; locked holdout was never called; the driver monkeypatches
+`ChampionMethod` before `load_tracker()` and uses a from-cache-only detector
+stub because the stock script otherwise constructs an unused CoreML detector.
+
+---
+
+## Round 2 (2026-07-16 e2e-autoresearch), challenger 1 — analogical nuisance-transport gallery hallucination
+
+**Family:** `training-free generative gallery hallucination: match against the
+Minkowski sum of each candidate's real atoms and a pooled bank of
+identity-cancelled view-change (delta) vectors harvested cross-identity, with
+the transport distance charged as an explicit cost that gates open-set
+rejection`
+
+**Hypothesis:** every round 0–9 family scores a query against gallery
+*material* (distance, reconstruction, correspondence, density, partition,
+graph, relational profile); r1-c1 (NFST) opened a second axis by changing the
+*space*. This opens a third and is the only family that ADDS material: change
+the *gallery*. If identity and pose are approximately additively separable in
+DINO CLS space, then for any other instrument `b` enrolled at views i and j,
+`delta = e_b[j] - e_b[i]` cancels b's identity and retains only the view
+change. Transport it onto candidate c's real atom — `normalize(e_c[i] + lam *
+delta)` — and you render "instrument c under a view it was never enrolled at",
+training-free (the training-free limit of Hariharan & Girshick 2017 /
+Schwartz et al. 2018 delta-encoder). Motivation: the residual errors are
+believed to be enrolment-COVERAGE errors (memory: "rongeur = enrolment-coverage
+problem"; the 368s flip). Coverage errors are missing gallery views, so make
+the gallery thick. Open-set safety was meant to be the same quantity: a genuine
+return is reachable with a SHORT transport, a foreign object only via a LONG
+one, so charging `beta*||lam*delta||` buys coverage while making foreign
+acceptance strictly harder (real atoms keep cost 0). Size is deliberately NOT
+transported (it is identity-discriminative on this rig); a hallucinated atom
+keeps the real size of the atom it grew from.
+
+**Implementation:** `runs/r2-c1/transport.py` behind the frozen
+build_gallery/score/accept interface. Masked crop (dilate 2px) → DINOv2-B CLS →
+L2 → fuse with `size_alpha * size_feature`. `evidence()` returns B[f,c] = max
+over c's expanded atoms of `cos(q_f, atom) - beta*cost(atom)`; `_from_evidence`
+reads B as `raw` (absolute), `softmax` (competition-normalized share) or `gap`
+(lead over best rival). Sweep: 486 structural configs × {raw, softmax×5 temps,
+gap} × tau grid × 3 margins = 287k feasible rows; tau/margin vectorized
+(`_accept_vec`, proven equal to the real `accept()` on 5031 cases by
+`test_sweep_agrees.py`). Locked config chosen by nested leave-one-seed-out
+(`nested.py`), restricted to lam>0.
+
+**Result — LOSES. Frozen `run_cv` at the locked config
+(`size_alpha=0.5, lam=0.25, beta=0.0, topk=1, delta_source=cross,
+score_mode=softmax, T=0.05, tau=0.74, margin=0.0`):**
+
+- re-ID top-1 **0.9250 ± 0.0408** (champion 0.9333; promotion bar ≈ 0.9758)
+- foreign-reject **0.9733 ± 0.0327** (exactly at the floor)
+- twin errors **0**; wrong-link rate **0.0000** on every seed
+- nested honest estimate: **0.9083 ± 0.0312** (even the flat argmax, 0.9250,
+  is already below the champion — no honest selection can rescue it)
+- locked holdout deliberately NOT called (non-winner; don't erode the one-time
+  report). No e2e gate run, as required for a crop-eval non-winner.
+- `leak_check.json` `clean=true` (8/8), frozen hashes byte-identical.
+
+**The finding that matters — the hypothesis is FALSIFIED, and so is the
+premise it shares with r1-c1:**
+
+1. **There is no coverage problem to fix.** UNGATED top-1 (argmax correct, no
+   tau/margin anywhere) is **0.9917 ± 0.0167 at lam=0** — plain nearest-
+   neighbour already ranks the right instrument first ~99% of the time.
+   Hallucination cannot improve a ranking that is already at ceiling, and at
+   lam≥0.5 with beta=0 it slightly HURTS it (0.9833). Coverage is a ranking
+   claim; the ranking is fine.
+2. **100% of the loss is the open-set gate.** At the locked point
+   `wrong_link_rate = 0.0` on all 5 seeds and `false_reject_rate = 0.075`.
+   Every single re-ID miss is a genuine return that was ranked correctly and
+   then rejected to hold F ≥ 0.9733. Per-instrument: 1/2/3/5/8 = 1.000,
+   4/6/7 ≈ 0.800 — the same instruments every family bleeds on, and they bleed
+   as false rejects, not confusions.
+3. **The mechanism's apparent benefit is scorer-weakness compensation, not
+   information.** Best feasible re-ID by score_mode × hallucination:
+
+   | score_mode | lam=0 (off) | lam>0 (on) | delta |
+   |---|---:|---:|---:|
+   | raw (absolute cosine gate) | 0.8333 | 0.8667 | **+0.033** |
+   | gap | 0.8667 | 0.9083 | **+0.042** |
+   | softmax (competition-normalized) | **0.9250** | **0.9250** | **+0.000** |
+
+   The matched-pair test looks like a win (lam>0 better in 117/153 configs,
+   mean +0.0416) and is a mirage: the wins are all rescues of the weak `raw`/
+   `gap` scorers. Give the method a properly competition-normalized reject
+   signal and the synthesized atoms add exactly nothing. Any future family
+   should report this contrast — a mechanism that only helps under a weak
+   accept surface is not a mechanism.
+
+**Family now covered** (don't repeat without a genuinely new angle):
+`generative/hallucinated gallery expansion` — feature-space view synthesis by
+transporting identity-cancelled nuisance deltas (cross-identity analogy or
+own-view interpolation, `delta_source=all` tested and identical at 0.9250),
+with or without a transport-cost penalty. Do not re-run this as a
+lam/beta/delta-bank/threshold search: the ceiling is set by the ungated ranking
+(0.9917), which the gate cannot reach, not by gallery thickness.
+
+**Read this before proposing another coverage-motivated family.** The
+"enrolment-coverage" story motivated both r1-c1 and this challenger and is not
+supported by the crop eval: ranking is at 0.9917 and wrong links are at 0.
+The only lever with headroom on this surface is **reject calibration** — how
+cheaply a method can hold F ≥ 0.9733 without false-rejecting instruments 4/6/7.
+That is precisely why r1-c1's NFST (0.9833) wins: not because it "annihilates
+nuisance" for coverage, but because collapsing each class to a point makes the
+genuine/foreign score distributions separable enough that the floor stops
+costing true accepts. Note this is a statement about the 8×15-crop frozen eval
+only — the 368s flip and 302s twin hard cases live end-to-end, where a real
+coverage gap may still exist; this result does not speak to them.
+
+---
+
+## Round 3 (2026-07-16 e2e-autoresearch), challenger 1 — error-correcting output-code (ECOC) class-decomposition matching
+
+**Family:** `error-correcting output-code class-decomposition matching: the
+candidate set is decomposed into L binary dichotomies (exhaustive
+Dietterich-Bakiri code), each solved by its own low-capacity shrinkage-Fisher
+discriminant fit on gallery atoms, with loss-based codeword decoding and
+coding-theoretic decoding-sphere open-set rejection.`
+
+**Family boundary — why this is not r7-c0.** r7-c0 (`episodic Beta-Bernoulli
+hyperplane-code channel`) also has the word "code" in it, and a future round
+will be tempted to conflate them. They are different objects. r7-c0's code is a
+*representation* code: bits are signs of fixed random hyperplanes applied to the
+feature vector, one string per crop, matched by a per-bit noisy-channel
+likelihood. This round's code is a *class-decomposition* code: bits index
+DICHOTOMIES OF THE CANDIDATE SET, nothing about the feature vector is binarized,
+and each bit is produced by a discriminant *fit to that particular partition of
+the identities*. r7-c0's code lives over features; this one lives over
+identities. It is also not SRC (no reconstruction, no dictionary), not
+set-to-set assignment, not tree partitioning, not graph diffusion, not a
+backbone swap.
+
+**Hypothesis:** the instrument1<->2 near-twins are hard for a one-vs-rest rule
+because a single direction must separate one identity from seven very different
+others at once. Under output coding, 64 of the 127 exhaustive dichotomies put
+the twins on OPPOSITE sides — each an easy, dedicated binary problem with its
+own within-class metric — and errors on individual dichotomies get corrected by
+the code's minimum Hamming distance (64 of 127 bits => ~31 correctable errors).
+Foreign objects should decode to a codeword inside NO identity's decoding
+sphere, making rejection the code's own error-correction radius rather than a
+tuned similarity threshold.
+
+**Implementation:** `runs/r3-c1/ecoc.py` (`ECOCMethod`) implements the unchanged
+`build_gallery/score/accept` interface. Representation is DELIBERATELY IDENTICAL
+to the champion's (masked crop, 2px dilation -> DINOv2-B CLS -> L2-norm ⊕
+`size_alpha`·z-scored size), so any delta is attributable to the decision rule
+rather than to features. Discriminants are fit in the dual/Gram domain via a
+Woodbury identity, so cost is independent of the 770-dim feature and 127
+discriminants take milliseconds; they are cached per candidate SET (keyed by a
+monotone serial, NOT `id()` — CPython recycles ids of freed objects, which would
+silently serve one seed's discriminants to the next). Selection: `sweep.py`
+(75,980 feasible rows over size_alpha × lam × loss × beta × agg × tau × margin),
+`nested.py` (nested leave-one-seed-out), `code_ablation.py` (code length),
+`code_seed_sensitivity.py` (the lottery check). Every headline number is
+re-measured through the real `frozen.eval.run_cv` in `run_eval.py`;
+`test_sweep_agrees.py` verifies the fast sweep path reproduces the frozen
+evaluator exactly.
+
+**Result — frozen five-seed CV (LOCKED: exhaustive code, size_alpha=0.25,
+lam=0.001, loss=exp, beta=4.0, agg=loss, tau=0.66, margin=0.0):** re-ID top-1 /
+true-accept **0.9167 ± 0.0263**, foreign-reject **0.9733 ± 0.0327** (exact floor
+tie), twin errors **0**. Nested honest estimate **0.8833 ± 0.0486** — the flat
+argmax is ~3.3pp optimistic. Per-instrument mean top-1: `instrument1=1.0000,
+instrument2=0.8668, instrument3=1.0000, instrument4=0.8668, instrument5=0.9334,
+instrument6=0.8666, instrument7=0.8002, instrument8=1.0000`.
+
+**Verdict: NOT PROMOTED — honest loss.** Holds the champion's foreign-reject
+point estimate exactly and keeps 0 twin errors, but re-ID `0.9167` is below the
+champion's `0.9333`, let alone the `0.9758` promotion bar. The end-to-end gate
+was not run (reserved for a crop-eval winner).
+
+**THE COLLAPSE THEOREM — the transferable finding. Do not re-try ECOC with a
+ridge / kernel-ridge / least-squares / nearest-centroid dichotomizer: it is
+provably one-vs-rest ridge and the code buys exactly nothing.**
+For ridge, `ŷ = k(q)ᵀ(G+λI)⁻¹Y` with `Y = M[owner,:]`, so `ŷ = Mᵀ C` where `C_j`
+is the sum of dual weights on candidate j's atoms — the codeword is a fixed
+linear image of the K-dim class-affinity vector `C`. For the exhaustive code the
+columns enumerate every bipartition, so any factorizing loss decodes to
+`d(k) ∝ e^(-β C_k) Π_{j≠k} cosh(β C_j) = [Π_all cosh(β C_j)] · e^(-β C_k)/cosh(β C_k)`,
+whose bracket is IDENTICAL for every k — the partition function cancels and the
+ranking collapses to a monotone function of `C_k`. The exhaustive code's perfect
+symmetry is exactly what makes it cancel. Verified numerically in `smoke.py`
+(`ridge codeword == Mᵀ C -> True`; `exp-decode ranking == C ranking -> True`).
+The only escape is a dichotomizer that depends on the partition NONLINEARLY —
+here shrinkage-Fisher, which rebuilds the pooled within-super-class scatter from
+whichever identities each column groups together.
+
+**What worked:**
+- Both escape routes from the collapse theorem are load-bearing, and each is
+  worth more than the whole family's remaining gap to the champion:
+  nonlinear decoding `loss=linear -> exp` is **+0.19** (0.7250 -> 0.9167); the
+  Fisher discriminant `lam=10 (-> nearest centroid) -> lam=0.001` is **+0.25**
+  (0.6667 -> 0.9167).
+- **The code itself is real: +0.11** (one-vs-rest 8 columns `0.8083` -> long code
+  `0.9167`) with the SAME dichotomizers and decoder. one-vs-rest is
+  deterministic, so unlike the code-length result below this gap is not a
+  lottery. The family's central hypothesis — error correction over many easy
+  dichotomies beats one hard one-vs-rest decision — is directionally CONFIRMED.
+  It just recovers to slightly below where SRC already sits.
+- Per-column confidence helps a little: hard-Hamming decoding (magnitude
+  discarded) `0.8917` vs exp decoding `0.9167`.
+- Longer codes are more STABLE, which is error correction showing up as variance
+  reduction rather than accuracy: across 10 code draws the std falls `0.054
+  (L=16) -> 0.039 (L=32) -> 0.021 (L=64)`.
+- Size fusion still resolves the twins under this paradigm too (`size_alpha=0`
+  -> re-ID `0.7750`, **1 twin error**), consistent with every previous round.
+- Errors are conservative: 0 twin errors and 0 wrong links at every reported
+  point — the right failure direction for this product, just not accurate enough.
+
+**What failed / caveats:**
+- **A "code-length sweet spot" appeared and was then killed by its own check —
+  the round's main methodological lesson.** At `code_seed=0`, `random32` hit
+  re-ID **0.9333** at reject **0.9867** (champion re-ID at a *higher* reject) and
+  looked like the result of the round. `code_seed_sensitivity.py` re-ran the
+  identical protocol over 10 code draws: random16 `0.8617 ± 0.0540`, random32
+  `0.8792 ± 0.0388`, random64 `0.8942 ± 0.0208`. `0.9333` is the **max** of the
+  random32 draws, not its level, and the draw-to-draw spread (±0.039) is as large
+  as the champion's entire seed band (±0.0425). Among long codes (16–127 columns)
+  there is **no sweet spot** — all sit ~0.88–0.92. Only the short one-vs-rest
+  code is robustly worse. **Any future round reporting a random-code result MUST
+  average over code draws; a single draw is a lottery ticket.**
+- **Window-joint decoding HURTS here — the exact opposite of SRC.** SRC's
+  headline win came from the joint window-shared sparse code (reject 0.9733 joint
+  vs 0.9200 per-frame). ECOC prefers per-frame loss averaging (`agg=loss`,
+  0.9167) over the window-joint mean codeword (`agg=code`, 0.8167). Averaging
+  codewords across frames blurs the sign pattern — a bit that flips between
+  frames averages toward zero and loses its vote — whereas averaging *losses*
+  preserves each frame's confidence. **Evidence should be pooled in loss space,
+  not in code space.** "Joint window" is not a universally good idea; it is good
+  for reconstruction and bad for output coding.
+- **The dictionary is too small for the decomposition to pay.** ECOC's classic
+  win is error decorrelation across dichotomies, but with 5 atoms per identity
+  (40 total, 770 dims) every dichotomizer is fit on the SAME 40 points, so their
+  errors are strongly correlated — the code cannot correct what every column gets
+  wrong together. SRC sidesteps this by never fitting a discriminant at all: it
+  solves one convex reconstruction over the atoms as given. This is the
+  structural reason the family cannot reach the champion on this data, and it
+  will not change without more enrolment views per instrument.
+- Same ranking-vs-rejection cliff many earlier families found: pushing reject to
+  the 0.9733 floor converts genuine windows into false rejects. The reject mean
+  is an exact floor tie, and the coding-theoretic decoding-sphere gate
+  (`radius_gate`) never beat a plain tau on the decoded score — the code's
+  nominal correction radius (0.252 normalized) is far looser than the operating
+  point the data actually needs.
+- `instrument7` remains the weakest genuine identity (`0.8002`) — the same
+  instrument r7-c0 found weakest, under a completely unrelated paradigm. That
+  now looks like an enrolment-coverage property of instrument7 rather than a
+  quirk of any one matcher.
+
+**cheatRisk: false.** `runs/r3-c1/leak_check.json` -> `clean: true` across 10
+mechanical checks. SHA-256 identical before/after for every frozen file
+(`frozen/eval.py = 73e714df16bc473d...`); no `holdout` import in the method
+module; `meta` poisoning with the true OR a wrong identity moves no score;
+blanking `Gallery.identity` changes nothing; candidate-order invariant; the
+dichotomizer cache is pure memoization (cold == warm bit-for-bit); scoring other
+queries first cannot change a window's score; no hardcoded identity/frame
+literals in method code; all writes confined to `runs/r3-c1/`. The locked
+holdout was deliberately NOT called (reserved for a champion; this family is a
+clear non-winner). No threshold was lowered to pass anything — this family never
+reached the end-to-end gate.
+
+**Family now covered** (do not repeat as a code-length / loss / lambda search):
+`error-correcting output-code class-decomposition matching`, including
+exhaustive Dietterich-Bakiri and random dense codes, one-vs-rest degeneration,
+shrinkage-Fisher dichotomizers, exp / hinge / hard-Hamming / confidence-
+attenuated-Hamming / linear loss-based decoding, decoding-sphere radius gating,
+and window-joint vs per-frame evidence pooling. **And, per the collapse theorem
+above, the whole sub-branch of ECOC with linear-in-targets dichotomizers is
+closed analytically — it is one-vs-rest ridge, no experiment needed.**
+
+A genuinely different next family, given that the binding constraint here turned
+out to be *5 atoms per identity* rather than the decision rule: attack the
+enrolment budget itself rather than the matcher — e.g. `conditional
+nuisance-factor marginalization`, in which the per-identity gallery is expanded
+by *analytically* marginalizing a learned low-dimensional nuisance subspace
+(estimated ACROSS identities from within-identity view variation, never fit to
+any one specimen), so each identity's effective dictionary covers viewpoints it
+never enrolled. That is orthogonal to every decision-rule family rounds 0-9
+explored, and it is the same diagnosis the flip-augmentation lever (§8 of
+BRIEF.md) is chasing from the data side. NOTE: r2-c1's `analogical
+nuisance-transport gallery hallucination` already tried the *generative* version
+of this (transport a nuisance delta between specimens) and lost at 0.9083; the
+distinction is that it hallucinated explicit extra atoms, whereas marginalization
+would integrate the nuisance direction out of the score in closed form — check
+r2-c1's RESULTS.md before spending a round on it.
+
+---
+
+## Round 3, challenger 0 (2026-07-16 e2e-autoresearch) — episodic maximum-margin verification
+
+**Family:** `episodic maximum-margin verification: fold-local one-vs-rest
+linear support-vector hyperplanes over frozen fused features, scored by signed
+geometric margin with outside-all-half-spaces open-set rejection`. Each offered
+identity is treated as a verification claim; independent hinge-loss SVMs are
+fit only from that CV fold's gallery atoms, and a query window is accepted only
+when its signed hyperplane margin and best-vs-second gap clear the fixed gate.
+This is not SRC reconstruction/SCI, NFST's exact null-space collapse,
+ECOC/Fisher codeword decoding, Extra-Trees partitions, a one-class density, or
+a nearest-gallery metric: the learned family object is a regularized
+maximum-margin separating boundary. The requested round-9 Poincaré candidate
+was checked first but not repeated because `runs/r2-c0/` has already rebuilt,
+leak-checked, and e2e-refuted it.
+
+**Result — frozen CV (5 seeds):** a reproducible 8,712-row `run_cv` sweep over
+balanced/unweighted objectives, `C`, size fusion, mean/min window aggregation,
+non-negative signed `tau`, `margin≥0.02`, and gallery-only leave-one-view-out
+margin calibration selected balanced `C=0.01`, `size_alpha=0`, minimum window
+margin, raw geometric score, `tau=0.04`, `margin=0.05`. Re-ID top-1 is **0.8833
+± 0.0312**, foreign reject **0.9733 ± 0.0327**, and twin errors **6**. It ties
+the reject floor exactly but fails SRC's point estimate and the strict bar
+(`0.8833 < 0.9333 + 0.0312`), with two individual seeds at reject `0.9333` and
+some genuine wrong links; therefore the locked holdout and both e2e takes were
+correctly not run. Cross-fitted gallery-margin calibration was worse
+(`0.8417 ± 0.0553` at the same reject floor), and unweighted SVMs peaked at
+`0.7917 ± 0.0745`. `runs/r3-c0/leak_check.json` is clean: zero item/group/
+content overlap on all five folds, query metadata discarded, no holdout access,
+content-only cache, and byte-identical frozen hashes. **Verdict: NOT PROMOTED;
+keep SRC.** Full artifacts: `runs/r3-c0/RESULTS.md`.
+
+**Family now covered** (do not repeat as another `C`/class-weight/tau/margin/
+calibration search): `episodic maximum-margin half-space verification with
+one-vs-rest linear SVMs`, including balanced/unweighted objectives, raw
+geometric versus gallery-cross-fitted margins, size fusion, and mean/min window
+aggregation.
+
+---
+
+## Round 4, challenger 0 (2026-07-16 e2e-autoresearch) — shared nuisance-factor marginalization (SNFM)
+
+**Family:** `probabilistic shared nuisance-factor marginalization` — fit one
+low-rank within-gallery view covariance across the offered identities and
+analytically integrate that latent factor out of prototype likelihoods. This is
+genuinely different from NFST (no exact null-space collapse) and analogical
+gallery hallucination (no copied nuisance deltas or synthetic atoms); all
+directions retain finite weights and the fitted object is a shared generative
+covariance.
+
+**Result:** frozen 5-seed CV **1.0000 ± 0.0000** re-ID, **0.9867** foreign
+reject, **0** twin errors; repeated `run_cv` was identical and the leak audit
+was clean. End-to-end: **NOT PROMOTED** — Take A lost two safe links
+(`raw15→instrument8`, `raw70→instrument3`), while Take B wrongly linked foreign
+`raw28→instrument6` (foreign reject 5/6); both hard cases stayed Unknown. No
+threshold was lowered. Full artifacts: `runs/r4-c0/RESULTS.md`.
+
+---
+
+## Round 4, challenger 1 (2026-07-16 e2e-autoresearch) — social-choice-theoretic rank aggregation (Condorcet / Schulze beat-path)
+
+**Family:** `social-choice-theoretic rank aggregation: every (query frame ×
+feature block × gallery-aggregation rule) is an independent VOTER casting only
+an ordinal ballot over the offered candidates PLUS an explicit
+none-of-the-above alternative (whose ballot position is fixed by that voter's
+gallery-internal leave-one-view-out self-similarity); the winner is the strict
+Condorcet winner found by the Schulze beat-path method on the pairwise
+majority-margin graph, and open-set rejection is the Condorcet outcome
+"nothing beats none-of-the-above" rather than a threshold on any similarity.`
+
+This is a genuinely new matcher family in this log. Grepped TRIED.md: zero
+prior hits for social-choice / Condorcet / Schulze / beat-path / Borda /
+plurality / rank-aggregation / ordinal-ballot / none-of-the-above (all 79
+"election" hits are the substring "selection"). Family-boundary argument:
+- **Not round 0's / champion's "voting."** The champion averages *cardinal*
+  per-frame scores and discounts by argmax-consistency — a continuous window
+  vote on magnitudes. This family throws the magnitudes away: a voter reports
+  only a preference ORDER, the decision is invariant to any monotone rescaling
+  of any voter's similarity, and there is no global cosine/residual threshold
+  to calibrate. TRIED.md's round-0 note explicitly lists "majority-vote
+  (discrete)" as NOT-yet-tried; this is the Condorcet generalization of it.
+- **Not r1-c0's dissimilarity-space profiling.** r1-c0 still builds a
+  continuous roster-relative coordinate and scores by a distance; here the
+  candidates are alternatives in an ELECTION and the only primitive is
+  pairwise majority.
+- **Not SRC / any cardinal-score family (residual, likelihood, p-value,
+  codelength, energy, posterior).** No score magnitude is ever compared across
+  evidence sources. Open-set rejection is a Condorcet property (no alternative
+  beats none-of-the-above), and cue *conflict* produces Condorcet cycles that
+  collapse the beat-path margin toward REJECT — conflict is detected, not
+  averaged away.
+- The variant also tests an exotic generalization classical social choice
+  forbids: per-candidate REJECT placement lets an individual voter hold an
+  INTRANSITIVE preference (Schulze only ever reads the pairwise majority
+  matrix, so intransitive ballots are well-defined input).
+
+**Implementation:** `runs/r4-c1/social_choice.py` (the family math: voter
+ballot construction, pairwise majority matrix, Schulze beat-path closure,
+Borda/plurality ablation rules) + `runs/r4-c1/method.py`
+(`SocialChoiceMethod`) behind the unchanged `build_gallery / score / accept`
+contract. Feature plumbing (masked-crop → DINOv2-B CLS → L2-norm + the
+champion's lawful mask-size cue) is deliberately IDENTICAL to the champion's,
+so any delta is attributable to the aggregation family, not a representation
+change. No backbone parameter learned or changed.
+
+**Selection:** 1728-config nested grid, every row a real `frozen.eval.run_cv`
+5-seed result (`runs/r4-c1/cv_sweep.json`, `nested_report.json`). Selection
+was strictly maximum CV re-ID subject to `foreignReject >= 0.9733`. Locked
+config: `size_alpha=0.25, top_k=2, reject_q=0.0, reject_mode=global,
+dom_req=0.35`, window 3.
+
+**Result — frozen CV (5 seeds):** re-ID top-1 / true-accept **0.9417 ±
+0.0333**, foreign-reject **0.9867 ± 0.0267**, twin errors (1↔2) **0**,
+wrong-link rate 0 in every seed. Per-seed re-ID `[0.9167, 0.9167, 0.9583,
+1.0, 0.9167]`; per-seed reject `[0.9333, 1.0, 1.0, 1.0, 1.0]`. **Nested
+leave-one-seed-out honest estimate: re-ID 0.9417, reject 0.96** — the honest
+reject falls BELOW the 0.9733 floor, i.e. the floor-clearing operating point
+does not transfer cleanly to an untuned seed.
+
+**Verdict: NOT PROMOTED.** Beats SRC's point estimate by +0.0084 but sits
+well inside SRC's 0.0425 seed band, and far below the supplied seed-band bar
+(`0.9333 + 0.0425 = 0.9758`). Per the task's conditional gate, neither
+end-to-end take was run.
+
+**What worked / failed:**
+- The ordinal ranking ceiling (reject gate off) is **0.9917** (119/120) with
+  0 twin errors — the DINOv2+size representation orders identities almost
+  perfectly. The ENTIRE loss is the open-set gate, which sits on a cliff.
+- **Schulze/Condorcet is load-bearing** (the finding that makes this a real
+  family, not a rank-average knob): at identical ballots, Borda count gets
+  0.9083 and plurality 0.9250, vs Schulze 0.9417 — beat-path is +0.033 / +0.017.
+- **The intransitive-voter generalization is a dead end:** per-candidate
+  REJECT placement collapses re-ID to **0.8583**; pooled-roster (`global`)
+  self-similarity is decisively better.
+- **The multi-frame electorate is essential:** window=1 drops to **0.6857** —
+  a Condorcet election needs enough voters. Voter *diversity* across
+  blocks/aggs, by contrast, is barely needed for re-ID (single fused block or
+  single top-k agg both hit 0.9417); it only buys ~1.3pp reject headroom.
+- Size cue still resolves the twin pair (blocks=cls-only drops to 0.75 with 1
+  twin error) — the same instrument1↔2 finding every prior family reports.
+- Structurally, why it loses: the representation's ordinal signal is already
+  at ceiling, so a fancier aggregator cannot add re-ID; the binding constraint
+  is the open-set gate under 5-atom galleries, and Condorcet's cycle-collapse
+  is a *safe* (reject-biased) failure, not a re-ID gain over SRC.
+
+**cheatRisk: false.** `runs/r4-c1/leak_check.json` records `clean=true`: zero
+gallery/query overlap by (identity, item_id), (identity, group_id), and raw
+crop+mask CONTENT hash across all five seeds (bare-filename overlap is expected
+and harmless — source frame names are reused across instrument dirs, so the
+leak-relevant keys are identity-qualified and content-hashed); identity-blind
+scoring verified by candidate relabelling leaving decisions bit-identical; no
+hardcoded identity/frame table; no `run_locked_holdout` / `frozen.holdout`
+import in the selection path; identical SHA-256 for every `frozen/*.py` before
+and after and matching the prior round's hashes. No shipping, `matching/`, or
+frozen code was edited; no threshold lowered.
+
+**Family now covered** (do not repeat as a rule/quantile/dom_req search):
+`social-choice ordinal rank aggregation via Condorcet/Schulze beat-path with a
+none-of-the-above alternative`. A genuinely different follow-up would need a
+different social-choice mechanism with a fundamentally different property
+(e.g. a strategy-proof cardinal-utilitarian rule, or a randomized/maximal-
+lottery Condorcet method), not a re-sweep of these ordinal gates — and given
+the 0.9917 ranking ceiling, the leverage is in the representation/open-set
+gate, not the aggregator. Full artifacts: `runs/r4-c1/RESULTS.md`.
+
+---
+
+## Round 5, challenger 0 (2026-07-16 e2e-autoresearch) — nearest convex-hull barycentric projection matching
+
+**Family:** `nearest convex-hull classification (NCH):
+per-identity simplex-constrained barycentric projection of a query onto the
+convex hull of that identity's enrolled views, with gallery-only
+leave-one-view-out hull coverage used for open-set calibration`. Each identity
+is a feasible convex set rather than a prototype, density, subspace, or
+unconstrained reconstruction dictionary. A query frame is projected onto each
+offered candidate's hull by solving a non-negative, sum-to-one least-squares
+problem; its residual is zero only when the query lies inside the enrolled
+view polytope. The three-frame window aggregates those projection residuals
+before the frozen `accept` gate.
+
+This family is absent from the prior log (`convex hull`, `nearest convex`,
+`barycentric`, `simplex projection`, `convex combination`, and `affine hull`
+all had zero hits before this entry). It is not SRC: SRC performs one
+unconstrained signed reconstruction over the joint cross-identity dictionary
+and classifies by residual contribution/SCI, whereas NCH solves an independent
+simplex-constrained projection for every identity and admits no negative
+coefficients or cross-class atoms. It is not Grassmannian/affine-subspace
+matching because the convex hull is bounded, and it is not analogical
+nuisance transport because it synthesizes no gallery atoms. DINOv2 remains
+frozen; all fitted coverage statistics are computed only from the currently
+offered gallery.
+
+**Round-9 prerequisite check:** the lost Poincare candidate has already been
+cleanly reconstructed in `runs/r2-c0/`, where it reproduced crop CV
+`0.9833 +/- 0.0204` but failed the two-take end-to-end gate. Repeating it here
+would violate the genuinely-new-family rule, so this challenger proceeds with
+NCH.
+
+**Implementation and selection:** `runs/r5-c0/convex_hull.py`
+(`ConvexHullMethod`) implements the unchanged frozen interface. The broad
+family-level resweep (`cv_sweep.json`) covered seven size weights, absolute
+versus gallery-coverage-normalized hull residuals, three coverage quantiles,
+mean/worst-frame aggregation, three consistency strengths, six temperatures,
+`tau` at 0.005 resolution, and six margins. Selection used only the frozen CV
+pool and maximized re-ID subject to mean foreign reject `>= 0.9733`; no locked
+holdout call occurred. Selected: `size_alpha=0.75, coverage_weight=0,
+aggregation=mean, consistency_power=0, temperature=2.0, tau=0.59,
+margin=0.005`.
+
+**Result — real frozen `run_cv` (5 seeds):** re-ID top-1 **0.9667 +/-
+0.0312**, foreign reject **0.9733 +/- 0.0533**, twin errors **0**. Per-seed
+re-ID `[1.0, 0.9583, 1.0, 0.9583, 0.9167]`; reject `[0.8667, 1.0, 1.0,
+1.0, 1.0]`. Every genuine miss is a conservative reject and wrong-link rate
+is zero in every seed. The point narrowly clears the task's crop bar
+(`0.9667 > 0.9333 + 0.0312 = 0.9645`) and ties the reject floor. The selected
+run repeated identically, and the E2E affine-score adapter reproduced the same
+decisions in a third real `run_cv`.
+
+**Leak check:** `leak_check.json clean=true`: zero gallery/query overlap by
+item, group, or crop+mask content in all seeds; query meta is not read; no
+identity/frame table or holdout call; cache keys use masked pixel content only;
+and every frozen hash is unchanged. Six focused tests pass. Replay uses the
+positive affine score map `y=4x-2.06`, which maps raw `tau=.59` / `margin=.005`
+exactly to the linker's fixed `.30` / `.02` binding gates. No threshold was
+lowered.
+
+**End-to-end:** both cached takes preserved roster `{1..8}`, baseline physical
+binding, foreign reject `1.0`, and zero wrong links. Take B is strictly safe:
+retention `1.0` (19/19), six of six foreign events rejected, no regressions.
+Take A is **not** safe under the brief: retention **0.9333** (14/15), regression
+`raw70: linked:3 -> unknown`. Neither hard case changed; raw 72 @302s and raw
+88 @368s remain Unknown.
+
+**Verdict: NOT PROMOTED.** This is a crop-level win but an end-to-end retention
+loss. The strict two-take gate rejects it; keep SRC. The crop evidence is also
+fragile: only `+0.0022` above the strict bar, mean reject exactly at the floor,
+and seed 0 reject only 0.8667. Full artifacts: `runs/r5-c0/`; E2E traces and
+scores: `experiments/e2e-autoresearch/runs/r5-c0-nch/`.
+
+**Family now covered** (do not repeat as a hull solver/coverage/tau search):
+`nearest convex-hull classification via per-identity simplex-constrained
+barycentric projection`, including absolute and gallery-coverage-normalized
+residuals, mean/worst-frame window aggregation, and consistency discounting.
+
+---
+
+## Round 5 (2026-07-16 e2e-autoresearch), challenger 1 — k-reciprocal re-ranking (Jaccard distance on contextual neighbour-set encodings)
+
+**Family:** `k-reciprocal re-ranking (Zhong et al. 2017, CVPR — "Re-ranking
+Person Re-identification with k-reciprocal Encoding"), used as the WHOLE
+matcher`. The probe->atom distance is the JACCARD distance between the
+k-reciprocal nearest-neighbour ENCODINGS of the query probe and each candidate
+gallery atom over a pooled context (all offered candidate atoms + the query
+probe), blended with the original cosine distance:
+`d = (1-lambda)*d_jaccard + lambda*d_cosine`. Per-candidate score = top-k mean
+of `(1 - d)` over that candidate's atoms. Open-set rejection is the collapse of
+reciprocal-neighbour overlap for outliers, gated by the champion's own
+tau+margin `accept`. No learned parameters; representation is byte-identical to
+the champion (masked DINOv2-B CLS, L2-normed, + z-scored mask-size cue), so any
+delta is attributable to the matching family alone.
+
+**Genuinely new — grep-verified before starting:** `Jaccard` -> 0 hits in
+TRIED.md; and TRIED.md's own round-1 menu explicitly lists "k-reciprocal
+re-ranking" as an embedding-space trick that is *NOT yet tried*. It is NOT
+r4-c0's leaky absorbing graph diffusion: there is no random walk, no absorbing
+reject sink, and no propagated label mass — the Jaccard distance is a
+closed-form set overlap of contextual neighbourhoods; r4-c0 merely borrowed
+reciprocal *gating* to prune diffusion edges. It is also not champion top-K
+cosine (the operative distance is set-overlap of contextual neighbourhoods, not
+raw cosine), not SRC reconstruction/SCI, not set-to-set assignment/two-sample
+(r2-c1/r8-c1), not OT/Chamfer token correspondence (r1-c1/r1-c2), not a
+metric-manifold change (r3-c0/r8-c2/r9-c1), not a one-class/OOD density
+(r2-c2/r6-c1/r6-c2/r7-c1), not the NFST discriminative head (r1-c1-nfst), and
+not a backbone swap.
+
+**Hyperparameters swept** (`runs/r5-c1/sweep.py`, `cv_sweep.json`): 150
+structural configs — `k1 in {4,6,8,10,14}` (reciprocal neighbourhood size),
+`k2 in {1,2,3}` (local query expansion), `lambda in {0,0.1,0.3,0.5,0.7}`
+(jaccard/cosine blend), `size_alpha=0.5`, `top_k=3`, `win_mode in {pool,vote}`
+(mean the window into one probe vs. per-frame probes averaged) — each crossed
+with the operating-point grid `tau in [0.50..0.95 step 0.025]` x
+`margin in {0,0.01,0.02,0.05,0.10}`. Scores computed once per structural config
+through the FROZEN split (`frozen.cv_split.group_split` / `make_windows`,
+`frozen.holdout` selection pools), tau/margin swept in memory; the single
+selected config re-confirmed end-to-end through the REAL `frozen.eval.run_cv`.
+
+**Selection rule:** max CV re-ID s.t. CV foreign-reject >= 0.9733. Best feasible
+point: `k1=4, k2=2, lam=0.3, size_alpha=0.5, top_k=3, win_mode=pool, tau=0.675,
+margin=0.0`.
+
+**Result — CV (5-seed, REAL frozen run_cv):**
+- re-ID top-1 **0.8833 +/- 0.0612** (per-seed `[0.9583, 0.9167, 0.9167, 0.8333,
+  0.7917]`)
+- foreign-reject **0.9733 +/- 0.0327** (per-seed `[0.9333, 1.0, 1.0, 0.9333,
+  1.0]`)
+- twin errors (1<->2): **0**
+
+**Verdict: REJECTED.** Clears the reject floor but does NOT beat the champion —
+0.8833 is below the champion point estimate (0.9333) and far below the seed-band
+bar (0.9758). `PROMOTED=False`. The end-to-end demo-safety gate was therefore
+NOT run (the task triggers it only on a crop-eval win; spending it on a loser
+adds no information — same discipline as the deferred locked holdout). Leak
+check `clean=true` (frozen untouched, zero split overlap all seeds,
+identity-blind scoring, holdout never touched in selection, content-keyed cache
+sound).
+
+**What helped:** k-reciprocal encoding genuinely sharpens the metric — with the
+reject gate OFF, raw top-1 reaches **0.9833** (k1=14, k2=2, lam=0.5, win=pool),
+tying the best raw ranking any family has produced. Larger contextual
+neighbourhoods (high k1) and local query expansion (k2=2) both improve raw
+discrimination.
+
+**What didn't (the diagnostic trade-off):** the two knobs pull in OPPOSITE
+directions. Raw re-ID peaks at LARGE k1 (14); open-set reject needs SMALL k1
+(4) — only tight, mutually-agreed neighbourhoods deny a foreign outlier shared
+reciprocal mass. Every feasible operating point (reject >= floor) sits at k1=4
+and tops out at 0.8833, a ~10pp collapse from the raw 0.9833. The reciprocity
+signal that rejects foreigners also rejects the harder genuine returns (flipped
+/ low-overlap views), so pushing tau to the floor costs real true-accepts. This
+is the same shape (strong ranking, weak reject-at-floor) that sank most prior
+families; SRC's algebraic SCI reject still separates foreign from hard-genuine
+better at a fixed operating point.
+
+**Family now covered** (don't repeat without a genuinely new angle):
+`k-reciprocal re-ranking / Jaccard distance on contextual k-reciprocal
+neighbour-set encodings (Zhong 2017)`, including local query expansion and the
+jaccard/cosine blend. A follow-up inside this family could try a two-threshold
+scheme (Jaccard-only for reject, cosine for rank) or query-adaptive k1, but
+that is a knob-search on this family, not a new one, and the k1 tension above
+bounds the expected upside. Artifacts: `runs/r5-c1/`.
+
+---
+
+## Round 6, challenger 0 (2026-07-16 e2e-autoresearch) — episodic Siamese pair-relation metric learning
+
+**Family:** `episodic Siamese pair-relation metric learning: a gallery-only,
+low-rank non-negative diagonal Mahalanobis head learned from same/different
+enrolled-view pairs with balanced logistic loss`. Every offered CV gallery
+creates positive pairs (two views of the same candidate) and negative pairs
+(views from different candidates). Gallery-only PCA limits capacity, then one
+candidate-agnostic relation head learns which latent feature differences make
+two views belong to the same specimen. Query crops never participate in that
+fit; their learned same-pair probabilities are aggregated across gallery views
+and the return window.
+
+This is genuinely new relative to this log's discriminative families. NFST is
+an exact null-space LDA projection that learns class-collapse directions; the
+one-vs-rest SVM learns a separate class half-space; ECOC learns label-code
+dichotomizers. This method instead learns one generic Siamese verifier from
+PAIR labels, has no per-identity coefficient or class prototype in its learned
+head, and scores query-gallery relations directly. It is also not SRC joint
+reconstruction/SCI, shared nuisance covariance, a one-class/OOD density, a
+tree partition, or a nearest-neighbour knob change. DINOv2-B remains frozen;
+the brief's low-capacity held-out-CV combiner exception applies directly.
+
+**Selection:** `runs/r6-c0/cv_sweep.json` records 72 structural configs
+(`size_alpha x pca_dim x l2 x top_k x consensus_power`) crossed with 243
+`tau x margin` operating points each, 17,496 rows total. Selection was maximum
+mean re-ID subject to `foreignReject >= 0.9733`, then lower seed standard
+deviation. There were 4,113 floor-clearing points. Selected:
+`size_alpha=0.5, pca_dim=32, l2=0.1, top_k=1,
+consensus_power=0.5, tau=0.925, margin=0.0`.
+
+**Result — frozen CV (5 seeds, real `run_cv`, repeated):** re-ID top-1
+**0.9250 +/- 0.0312**, foreign reject **0.9733 +/- 0.0327**, twin errors
+**0**, wrong links **0**. Per-seed re-ID
+`[0.9583, 0.8750, 0.9583, 0.9167, 0.9167]`; per-seed reject
+`[0.9333, 1.0000, 0.9333, 1.0000, 1.0000]`. The second final `run_cv` is
+dictionary-identical to the first. The permissive-grid ranking ceiling reaches
+`0.9917 +/- 0.0167`, but foreign reject is only `0.0933` there and one wrong
+link occurs; moving to the floor costs eight correct windows out of 120.
+
+**Verdict: NOT PROMOTED.** It meets the reject floor exactly but is below
+SRC's point estimate (`0.9250 < 0.9333`) and cannot meet the task's strict
+crop gate (`0.9250 < 0.9333 + 0.0312`). The locked holdout and both end-to-end
+takes were therefore not run; hardcase improvement is `none`.
+
+**Leak check:** `runs/r6-c0/leak_check.json` records `clean=true`: every seed
+has zero gallery/query overlap by identity-qualified item, source-frame group,
+and crop+mask content hash; poisoned query metadata changes no score; candidate
+relabeling preserves scores; scoring another fold first cannot change an old
+result; no specimen/frame literal or holdout import appears in method code;
+and all frozen SHA-256 hashes are identical before/after both final CV runs.
+The PCA and relation head are refit only from the currently offered gallery
+views. No frozen, champion, matching, or shipping file was edited.
+
+**Family now covered** (do not repeat as a `pca_dim`/regularization/top-K/gate
+search): `episodic Siamese pair-relation metric learning via balanced
+same/different gallery-view logistic loss over a low-rank non-negative
+Mahalanobis distance`. A genuinely different follow-up would need a true
+set-to-set neural relation architecture trained on external generic episodes,
+not another scalar search on this fold-local pair head.
+
+**Path note:** the historical log also names an older Fourier-Mellin challenger
+`r6-c0`; its ignored run directory was absent when this task began. This task
+explicitly assigned `runs/r6-c0/`, so no on-disk historical artifact was
+overwritten.
+
+
+---
+
+## Round 6, challenger 1 (2026-07-16 e2e-autoresearch) — tangent-distance one-shot invariant matching
+
+**Family:** `tangent-distance one-shot invariant matching (Simard/LeCun/Denker/
+Victorri 1993/1998, "Transformation Invariance in Pattern Recognition — Tangent
+Distance and Tangent Propagation")`: match a query not to a gallery POINT but to
+the local LINEAR approximation of the manifold swept out by applying nuisance
+image transformations (horizontal flip, 180deg rotation, +/- in-plane rotation,
+mild scale) to that atom. The tangent plane is built from FINITE-DIFFERENCE
+augmentation deltas `t_k = f(aug_k(a)) - f(a)`, orthonormalised; the match is a
+ridge-regularised point-to-plane (one-sided) or plane-to-plane (two-sided)
+projection. Genuinely new (grep-verified): the only prior "tangent" in TRIED.md
+is the Riemannian tangent SPACE of a manifold (SPD log-Euclidean r3-c0;
+hyperbolic Poincare-ball r9-c1 / r2-c0-e2e) — a different object entirely. Full
+boundary argument in `runs/r6-c1/method.py` module docstring; summary:
+
+  RIDGE-REGULARISED tangent distance is the family's own open-set control:
+    d^2_lambda(q,a) = min_alpha ||(f_a + U_a alpha) - f_q||^2 + lambda ||alpha||^2
+                    = ||g||^2 - ||U_a^T g||^2 / (1+lambda),   g = f_q - f_a
+  `lambda` SMOOTHLY interpolates the whole family between plain nearest-neighbour
+  (lambda->inf: tangent plane ignored) and full unconstrained tangent-plane
+  projection (lambda=0). A foreign object can only shrink its residual by moving
+  FAR along the invariance directions (large ||alpha||), which the ridge charges
+  for; a genuine return — INCLUDING a flipped one, since the flip delta IS a
+  tangent direction — lies near the plane at a small coefficient. That
+  coefficient-plausibility charge is the analogue of SRC's SCI. Two-sided:
+  `d^2 = ||g||^2 - g^T W(W^T W + lambda I)^{-1} W^T g`, `W = [U_a | -U_q]`.
+
+**Why this is a DIFFERENT family** (not a knob-tweak of anything covered):
+  - NOT nearest-neighbour / top-K cosine (champion round-0): NN is the
+    `lambda->inf` degenerate LIMIT of this family, not its operating point.
+  - NOT analogical nuisance-transport gallery hallucination (r2-c1 e2e): that
+    ADDS transformed views as EXTRA gallery ATOMS and matches by plain NN. Here
+    augmentations are NEVER atoms — they define a LINEAR SUBSPACE of invariance
+    directions at each atom, matched by point-to-plane projection with a ridge
+    charge (a plane at t in [-inf,inf] covers a continuum discrete hallucinated
+    atoms do not, and the ||alpha|| charge has no analogue there).
+  - NOT Grassmannian view-subspace / principal angles (r8-c2): that spans ONE
+    subspace from an identity's SET of views and compares principal angles. Here
+    every SINGLE atom carries its OWN local tangent plane from ITS OWN transform
+    deltas, and the distance is an affine point/plane residual, not a principal
+    angle between two set-spans.
+  - NOT SRC/SCI (r3-c2), nearest convex/affine-hull (r5-c0 e2e), one-class
+    density/UBM (r2-c2), spherical-cap (r4-c0), data-depth (r5-c1-a3),
+    k-reciprocal (r5-c1), OT/Chamfer (r1-c1/c2), a metric-manifold change
+    (r3-c0/r8-c2/r9-c1), a discriminative head (nfst/max-margin), or a backbone
+    swap. Representation is byte-identical to the champion's fused vector, so any
+    delta is the MATCHING FAMILY alone.
+
+**Hypothesis:** the demo's two hard cases are nuisance transforms (raw 88 @368s
+= a FLIP); flip/rotation are exactly the invariance directions a tangent plane
+models, so a tangent matcher should re-link a flipped genuine while a ridge
+charge keeps foreign objects out.
+
+**Frozen CV (real `frozen.eval.run_cv`, 5-seed, sweep replicated it exactly):**
+
+| sided | best feasible config | re-ID (CV) | seedBand | foreign-reject | twins |
+|---|---|---|---|---|---|
+| **both** (2-sided) | flip+rot, sa0.5, lam0.05, topk3, tau0.53 | **0.9833** | 0.0204 | 0.9733 | 0 |
+| both (safe pt) | same, tau0.535 | 0.9750 | 0.0204 | **0.9867** | 0 |
+| **query** only | flip+rot, sa0.5, lam0.05, topk3, tau0.52 | **0.9583** | 0.0264 | 0.9867 | 0 |
+| gallery only | flip+rot, sa0.5, lam0.1, topk3, tau0.515 | 0.9250 | 0.0486 | 0.9867 | 0 |
+
+Champion 0.9333; seed-band bar 0.9758; reject floor 0.9733.
+
+**Verdict: NOT PROMOTED.** The two-sided flat argmax (0.9833) clears the bar, but
+that is the optimistic max over a 139,776-row grid at 0.005 tau resolution.
+**Nested leave-one-seed-out honest estimate = 0.9750 +- 0.0204 re-ID, 0.9733
+reject** (`nested.py` / `nested_report.json`) — the LOSO folds robustly re-select
+the same lam=0.05/both/tau~0.53 config, so the honest number is trustworthy, and
+it lands **0.0008 BELOW the bar** (a near-tie, +0.042 over champion point). This
+is the strongest challenger since SRC on the crop eval, but it does not clear the
+strict seed-band bar on the honest estimate.
+
+**The win is two-sided-only and does NOT transfer end-to-end.** The two tangent
+planes (gallery + query) are both load-bearing: dropping the gallery plane
+(query-only) costs 0.025 re-ID (0.9833 -> 0.9583); dropping the query plane
+(gallery-only) is worse than the champion (0.9250). The shipping linker stores
+`gallery.views` and rebuilds a POINTS-ONLY `ChampionGallery` for scoring
+(`session_linker.py:337,486,546`), and persistent/merged galleries never had
+crops — so the gallery-side tangent plane is **not reconstructable end-to-end**.
+Only the query-side plane is injectable (`runs/r6-c1-tangent/driver.py`,
+`sided="query"`), i.e. the 0.9583 variant. That the champion-beating crop result
+requires a representation the production linker cannot supply is a **finding**:
+promoting tangent distance would need the gallery to carry per-atom crops (or
+precomputed tangent bases), a gallery-representation change — NOT a matcher swap.
+
+**End-to-end demo-safety gate (query-only variant, both takes, `--from-cache`):**
+- Take A: roster {1..8} OK, binding_matches_baseline **true**, foreign N/A,
+  **link_retention 13/15 (0.8667)** — raw 63 (linked:1->unknown) and raw 70
+  (linked:3->unknown) LOST — 0 wrong_links.
+- Take B: roster {1..8} OK, binding_matches_baseline **true**, **foreign 6/6
+  reject (1.0)**, **link_retention 18/19 (0.9474)** — raw 37 (linked:5->unknown)
+  LOST — 0 wrong_links, hardcases raw 72 & raw 88 both stay unknown.
+- **NOT demo-safe** (strict rule requires link_retention==1.0 on BOTH takes): the
+  query-only tangent is conservative-safe (no wrong links, all foreign rejected,
+  binding intact — cleaner than the Poincare experiment which made a wrong
+  foreign link) but sheds 3 correct links to unknown, because tau=0.52 is
+  calibrated on the tangent score scale, not the shipping bind/decision contract.
+- **hardcase NOT improved**: raw 88 (the flip) stays unknown. The flip case is a
+  K=1 decision, where the driver faithfully replicates the shipped cos_tau=0.60
+  gate (never lowered) — so it is baseline-identical there and the query tangent
+  never gets to act on it. The family's flip hypothesis is untestable end-to-end
+  through the shipped K=1 path without lowering cos_tau (forbidden).
+
+**What didn't:** the crop-eval win is real but two-sided-dependent and
+non-injectable; the injectable query-only form is sub-bar and drops genuine
+links end-to-end; the flip hardcase is gated by the K=1 cosine path.
+
+**What a future round could still try (this family, new angle):** carry per-atom
+tangent bases INTO the gallery representation (a gallery-schema change, flagged
+as the promotion prerequisite) so two-sided tangent distance is injectable; or
+BOUND the tangent coefficient to plausible transform magnitudes (a box/trust-
+region constraint instead of ridge) so foreigners get less tangent help and the
+operating point clears the floor with headroom; or fuse the query tangent plane
+with SRC's SCI reject rule instead of a tau on 1/(1+d).
+
+**Leak-check:** `runs/r6-c1/leak_check.json` `clean: true` (frozen/*.py sha256
+identical to r5-c1's record and unchanged before/after run_eval; zero
+gallery/query overlap by item_id, group_id, and content-hash across all 5 seeds;
+CV pool never touches locked holdout order>=12; identity-blind under candidate
+relabelling in BOTH query and two-sided modes; no hardcoded instrument names;
+identity read only in build_gallery; locked holdout never imported in the
+selection path; FeatureCache content-keyed, hit == cold miss). The locked holdout
+was deliberately NOT called (honest nested reid < bar -> not a champion report;
+same discipline as r2-c1/r3-c1/r4-c1/r5-c1).
+
+**cheatRisk:** false — no shipping/`frozen/` edits; no threshold lowered (K=1
+cos_tau=0.60 copied verbatim; tau/lam selected on the frozen crop CV, never to
+pass a hard case); e2e injects via monkeypatching `matching.ChampionMethod`.
+
+**Family now covered** (don't repeat without a genuinely new angle):
+`tangent-distance one-shot invariant matching` — ridge-regularised point/plane-
+to-plane projection onto per-atom finite-difference transformation tangent
+planes (flip/rotate/scale), coefficient-plausibility as the open-set signal. A
+future round must bring a genuinely different mechanism (see "future round"
+above for the non-repeat angles).

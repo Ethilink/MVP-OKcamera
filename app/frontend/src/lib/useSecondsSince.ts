@@ -3,7 +3,7 @@ import { useEffect, useState } from "react"
 /**
  * Seconds elapsed since `anchor` (by identity) last changed — 0 right after a
  * change. The live screen anchors on the freshest `/status` object so every
- * server counter in that payload (elapsed_s, each off_since_s) can be shown as
+ * server counter in that payload (`elapsed_s`) can be shown as
  * `serverValue + delta`, smoothly filling the ½-second gaps between 2 Hz polls;
  * the next poll hands back a new object → delta re-anchors to 0 and the backend
  * value is authoritative again (T06 "Ticking ownership").

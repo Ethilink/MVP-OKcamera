@@ -86,20 +86,17 @@ export const recordingAllOn: Status = {
   recording: {
     started_at: STARTED_AT,
     elapsed_s: 12.0,
-    on_table_count: 5,
     instruments: [1, 2, 3, 4, 5].map((id) => ({
       tracker_id: id,
       label: `Instrument ${id}`,
       on_table: true,
-      off_since_s: null,
-      pickup_count: 0,
       thumbnail: PIXEL,
       colour: maskColour(id),
     })),
   },
 }
 
-/** recording, instrument 3 off the table with off_since_s ticking. */
+/** recording, instrument 3 off the table. Analytics remain report-only. */
 export const recordingOneOff: Status = {
   phase: "recording",
   capture_health: "ok",
@@ -108,16 +105,15 @@ export const recordingOneOff: Status = {
   recording: {
     started_at: STARTED_AT,
     elapsed_s: 74.3,
-    on_table_count: 4,
     instruments: [
-      { tracker_id: 1, label: "Instrument 1", on_table: true, off_since_s: null, pickup_count: 1, thumbnail: PIXEL, colour: maskColour(1) },
-      { tracker_id: 2, label: "Instrument 2", on_table: true, off_since_s: null, pickup_count: 0, thumbnail: PIXEL, colour: maskColour(2) },
+      { tracker_id: 1, label: "Instrument 1", on_table: true, thumbnail: PIXEL, colour: maskColour(1) },
+      { tracker_id: 2, label: "Instrument 2", on_table: true, thumbnail: PIXEL, colour: maskColour(2) },
       // Off the table this frame → no live crop (the app shows its last-seen one).
       // Its colour is unchanged by the absence: the backend keys it off the id,
       // so the swatch still matches the mask when it comes back (T10).
-      { tracker_id: 3, label: "Instrument 3", on_table: false, off_since_s: 13.2, pickup_count: 2, thumbnail: null, colour: maskColour(3) },
-      { tracker_id: 4, label: "Instrument 4", on_table: true, off_since_s: null, pickup_count: 0, thumbnail: PIXEL, colour: maskColour(4) },
-      { tracker_id: 5, label: "Instrument 5", on_table: true, off_since_s: null, pickup_count: 0, thumbnail: PIXEL, colour: maskColour(5) },
+      { tracker_id: 3, label: "Instrument 3", on_table: false, thumbnail: null, colour: maskColour(3) },
+      { tracker_id: 4, label: "Instrument 4", on_table: true, thumbnail: PIXEL, colour: maskColour(4) },
+      { tracker_id: 5, label: "Instrument 5", on_table: true, thumbnail: PIXEL, colour: maskColour(5) },
     ],
   },
 }

@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import { useStatus } from "./useStatus"
-import { BASE } from "./client"
+import { api, BASE } from "./client"
 import { server } from "@/test/server"
 import { setupStable, setupUnstable } from "@/test/fixtures"
 
@@ -76,5 +76,34 @@ describe("useStatus", () => {
 
     await tick(500) // recovery
     expect(result.current.error).toBeNull()
+  })
+
+  test("times out a hung request, retries, and aborts pending work on cleanup", async () => {
+    vi.useFakeTimers()
+    const signals: AbortSignal[] = []
+    const statusSpy = vi.spyOn(api, "status").mockImplementation((signal) => {
+      if (signal) signals.push(signal)
+      return new Promise((_, reject) => {
+        signal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("Aborted", "AbortError")),
+          { once: true },
+        )
+      })
+    })
+
+    const { result, unmount } = renderHook(() => useStatus(500, 250))
+    await tick(0)
+    expect(statusSpy).toHaveBeenCalledTimes(1)
+
+    await tick(250)
+    expect(result.current.error).not.toBeNull()
+
+    await tick(250)
+    expect(statusSpy).toHaveBeenCalledTimes(2)
+    expect(signals[1]?.aborted).toBe(false)
+
+    unmount()
+    expect(signals[1]?.aborted).toBe(true)
   })
 })

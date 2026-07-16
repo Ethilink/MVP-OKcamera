@@ -376,8 +376,9 @@ One operator screen, three phases:</p>
       <em>eyeballs</em> that every instrument is detected, then presses <strong>Start</strong>
       (enabled once the detected count has been stable ≥ 2 s at any value ≥ 1 — the gate is
       human judgment, not a configured count).</li>
-  <li><span class="kt cheese">Recording</span> — live feed + a live per-instrument panel
-      (on table / off table, off-since, pickup count). Any instrument may be picked up, carried
+  <li><span class="kt cheese">Recording</span> — live feed + elapsed timer + a lean
+      per-instrument panel (identity and on-table / off-table state only). Usage timing,
+      pickup history, and Completeness are withheld until the Report. Any instrument may be picked up, carried
       out of frame, and returned — any order, repeatedly, <strong>one off the table at a time</strong>.</li>
   <li><span class="kt cheese">Report</span> (after <strong>Stop</strong>) — per instrument: a
       <span class="kt">Usage</span> timeline (its off-table windows) and a
@@ -428,7 +429,7 @@ stateDiagram-v2
     direction LR
     OnTable : On table
     OffTable : Off table<br/>(usage window open)
-    OnTable --> OffTable : absent ≥ 1.5 s<br/>(off-debounce, D9)<br/>pickup count +1
+    OnTable --> OffTable : absent ≥ 1.5 s<br/>(off-debounce, D9)<br/>usage window opens
     OffTable --> OnTable : present ≥ 1.0 s<br/>(on-debounce, D9)<br/>usage window closes
     OnTable --> Present✅ : Stop
     OffTable --> Lost🚨 : Stop

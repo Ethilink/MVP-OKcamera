@@ -126,7 +126,7 @@ class TestAC2StartGate:
 
 class TestAC3SteadyPresenceNoAbsences:
     """AC3: steady presence, no absences -> every instrument "present",
-    usage == (), pickup_count == 0."""
+    with no usage windows in the final report."""
 
     def test_ac3_report_shows_every_instrument_present_with_empty_usage(
         self,
@@ -143,7 +143,7 @@ class TestAC3SteadyPresenceNoAbsences:
             assert instrument.usage == ()
             assert instrument.label == f"Instrument {instrument.tracker_id}"
 
-    def test_ac3_live_status_shows_on_table_with_zero_pickups(self) -> None:
+    def test_ac3_live_status_shows_only_identity_and_table_state(self) -> None:
         session = Session()
         session.start(100.0)
         _confirm_presence(session, frozenset({1, 2, 3}), 101.0, 103.0)
@@ -153,15 +153,14 @@ class TestAC3SteadyPresenceNoAbsences:
         assert {inst.tracker_id for inst in instruments} == {1, 2, 3}
         for inst in instruments:
             assert inst.on_table is True
-            assert inst.pickup_count == 0
-            assert inst.off_since_s is None
+            assert set(inst.__dataclass_fields__) == {"tracker_id", "label", "on_table"}
 
 
 class TestAC4ScriptedPickupAtNonZeroOrigin:
     """AC4: start(100), instrument absent for absolute t in (120,135) (last
     seen 120, back at 135) -> report window is SESSION-relative (off_s~20,
-    on_s~35), not absolute; live status mirrors off_since_s~20 and
-    pickup_count==1 during the gap."""
+    on_s~35), not absolute; live status exposes table state but withholds
+    analytics until the final report."""
 
     START_T = 100.0
     OTHERS = frozenset({2, 3})
@@ -194,7 +193,7 @@ class TestAC4ScriptedPickupAtNonZeroOrigin:
         assert target.usage[0].off_s == pytest.approx(20.0, abs=0.05)
         assert target.usage[0].on_s == pytest.approx(35.0, abs=0.05)
 
-    def test_ac4_live_status_during_absence_shows_relative_off_since_and_one_pickup(
+    def test_ac4_live_status_during_absence_shows_off_table_state(
         self,
     ) -> None:
         session = self._session_after_confirmed_absence()
@@ -205,13 +204,11 @@ class TestAC4ScriptedPickupAtNonZeroOrigin:
         assert candidates
         target = candidates[0]
         assert target.on_table is False
-        assert target.off_since_s == pytest.approx(20.0, abs=0.05)
-        assert target.pickup_count == 1
 
 
 class TestAC5DebounceFlicker:
-    """AC5: an absence of 0.9s (< off_debounce 1.5) leaves NO window and
-    pickup_count 0; a presence blip of 0.5s during a real absence
+    """AC5: an absence of 0.9s (< off_debounce 1.5) leaves NO window; a
+    presence blip of 0.5s during a real absence
     (< on_debounce 1.0) does NOT close the window."""
 
     def test_ac5_short_absence_below_off_debounce_leaves_no_trace(self) -> None:
@@ -226,8 +223,6 @@ class TestAC5DebounceFlicker:
         candidates = [i for i in instruments if i.tracker_id == 1]
         assert candidates
         assert candidates[0].on_table is True
-        assert candidates[0].off_since_s is None
-        assert candidates[0].pickup_count == 0
 
         report = session.stop(10.0)
         report_candidates = [ir for ir in report.instruments if ir.tracker_id == 1]
@@ -476,7 +471,6 @@ class TestAC10NonMutatingProjection:
         later_candidates = [i for i in later if i.tracker_id == 1]
         assert later_candidates
         assert later_candidates[0].on_table is False
-        assert later_candidates[0].off_since_s == pytest.approx(2.0, abs=0.05)
 
     def test_ac10_polling_accessors_before_stop_does_not_perturb_the_report(
         self,
@@ -549,8 +543,8 @@ def _recorded_ids(session: Session, t: float) -> set[int]:
 class TestBS1RecordingIsFilteredByTheRoster:
     """B-S1: only the RECORDING half of `observe` changes. It uses
     `present_ids & roster`, so a not-in-roster id never becomes a track, never
-    confirms, and never reaches `recording_status()`, the report, or
-    `on_table_count`. The Start gate (`setup_status`) keeps using the FULL
+    confirms, and never reaches `recording_status()` or the report. The Start
+    gate (`setup_status`) keeps using the FULL
     `present_ids` — it is the operator's judgment on everything detected."""
 
     def test_b_s1_a_not_in_roster_id_never_enters_the_live_recording_status(
@@ -574,11 +568,10 @@ class TestBS1RecordingIsFilteredByTheRoster:
 
         assert {ir.tracker_id for ir in report.instruments} == {1}
 
-    def test_b_s1_a_not_in_roster_id_never_counts_toward_the_on_table_count(
+    def test_b_s1_a_not_in_roster_id_never_enters_the_live_roster(
         self,
     ) -> None:
-        # `on_table_count` is derived from these statuses, so a foreign object
-        # must not swell it: three on the tray plus a phone is still three.
+        # A foreign object must not enter the rows shown during recording.
         session = Session()
         session.start(0.0)
         roster = frozenset({1, 2, 3})
@@ -587,7 +580,7 @@ class TestBS1RecordingIsFilteredByTheRoster:
 
         _, instruments = session.recording_status(3.0)
 
-        assert sum(1 for instrument in instruments if instrument.on_table) == 3
+        assert {instrument.tracker_id for instrument in instruments} == {1, 2, 3}
 
     def test_b_s1_a_not_in_roster_id_leaving_creates_no_usage_window(self) -> None:
         session = Session()

@@ -24,18 +24,21 @@ The whole app is **3 screens** and **3 buttons** (Start, Stop, New recording). O
 
 ## Screen 2 — Recording
 
-![Recording screen](assets/02-recording.png)
+_The previous recording-screen capture was removed from this page because it
+showed analytics that are now report-only. Refresh this screenshot after the
+next visual documentation pass._
 
 **Purpose:** monitor the instruments live while the procedure runs.
 
 **Functionality:**
 - Show the **live feed** with overlay.
-- Show a **running timer** (time since Start) and a **count of instruments currently on the table**.
+- Show a **running timer** (time since Start).
 - Show a **per-instrument list**, one row each:
   - instrument **name**,
-  - an **ON TABLE / OFF TABLE** state,
-  - how long it's been **off** (ticks up while off the table),
-  - how many times it's been **picked up**.
+  - an **ON TABLE / OFF TABLE** state.
+
+Usage timing, pickup history, and Completeness are not shown live. They appear
+only on the Report after Stop.
 
 **Buttons:**
 - **Stop** — ends the recording and jumps to the Report. Always enabled while recording.

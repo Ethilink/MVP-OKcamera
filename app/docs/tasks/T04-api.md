@@ -62,7 +62,8 @@ def main(argv: list[str] | None = None) -> None:
   allowed to touch the tracker — DESIGN §Threading), THEN
   `session.start(clock())`, so the session begins observing only post-reset
   frames. If `reset_tracker()` times out (stalled camera — see T03) → `503
-  {"detail": "capture stalled"}`, session unchanged. Records wall-clock
+  {"detail": "capture stalled"}`; if the tracker reset itself fails → `503
+  {"detail": "tracker reset failed"}`. In both cases the session is unchanged. Records wall-clock
   `started_at = now().isoformat()` app-side. `POST /recording/stop` records
   `stopped_at = now()` and returns the report body directly (same shape as
   `GET /report`); `duration_s` comes from the session.
@@ -82,9 +83,10 @@ def main(argv: list[str] | None = None) -> None:
   `detected_count`/`stable_for_s`, `recording` null; report/stop → 409.
 - **AC2** start → 200 with ISO `started_at` (aware, carries an offset) and
   invokes `capture.reset_tracker()` before `session.start` (assert ordering with
-  a spy capture); second start while recording → 409; `/status` flips to
-  `recording` with `elapsed_s`, `on_table_count`, and instrument rows matching
-  the contract field names exactly.
+  a spy capture); reset timeout/failure → 503 with the session unchanged;
+  second start while recording → 409; `/status` flips to `recording` with
+  `elapsed_s` and lean identity/state instrument rows matching the contract
+  field names exactly.
 - **AC3** Drive the fakes through a scripted pickup: stop returns the contract
   report shape (`usage` windows with `off_s`/`on_s`, `completeness`,
   `model_version`, `duration_s`) and `GET /report` returns the identical body;

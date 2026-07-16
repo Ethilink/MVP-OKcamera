@@ -22,8 +22,9 @@ One operator screen:
    once the detected **id-set** has held unchanged (count ≥ 1) for ≥ 2 s; an
    instrument swap that keeps the count the same still resets the window. (a) is
    unconfigured; (b) is not negotiable.
-2. **Recording** — live feed + a live per-instrument panel (on table /
-   off table, off-since, pickup count). Any instrument may be picked up,
+2. **Recording** — live feed + elapsed timer + a lean per-instrument panel
+   (identity and on-table / off-table state only). Usage timing, pickup history,
+   and Completeness are deliberately withheld until the final Report. Any instrument may be picked up,
    carried out of frame, and returned — any order, repeatedly, **one off the
    table at a time** (a *demo choreography* constraint, not an engine limit:
    `Session` tracks each `tracker_id` independently and handles ≥ 2 simultaneous
@@ -73,7 +74,7 @@ seam is **frozen** in [`model/docs/tracker-interface.md`](../../model/docs/track
 | D13 | Process: **blind-TDD** (`/blind-tdd`) for backend tasks; frontend tasks single-agent TDD + **Claude-in-Chrome** visual verification against the fake backend | Bram's call, 2026-07-07 |
 | D14 | TS API types hand-written from `api-contract.md` at scaffold; swapped for `openapi-typescript` generation at integration | breaks the chicken-and-egg with the not-yet-built backend |
 | D15 | **`finished` keeps live-observing** the table (tracker running, overlay drawn, detected-count updating) and carries the same `setup` block as `setup`, so the Start gate applies identically for a second run | the camera never stopped; lets the operator re-confirm the table before re-recording without a separate "back to setup" transition (Bram, 2026-07-07) |
-| D16 | **`VideoFeed` degrades gracefully when `/stream` is unreachable.** It stays a bare `<img src={api.streamUrl}>`, but an `onError` handler swaps in a plain styled **"no stream (dev mode)"** panel (no bundled image asset). MSW cannot intercept an `<img>` MJPEG load, so in pre-backend dev/`npm run dev` (T05 AC6) and MSW-only component tests the feed always shows this panel; the real MJPEG is only exercised against the `--fake` or real backend (T06 AC7, T08). Same fallback covers a genuinely dead camera in production. | Bram, 2026-07-08. Unblocks building/verifying every live screen with no backend, without pretending there's a video source that isn't there |
+| D16 | **`VideoFeed` degrades gracefully when `/stream` is unreachable and recovers automatically.** It stays a bare `<img>`, but an `onError` handler swaps in a plain styled **"no stream (dev mode)"** panel (no bundled image asset), then retries after 1 s with a cache-busting query parameter. MSW cannot intercept an `<img>` MJPEG load, so in pre-backend dev/`npm run dev` (T05 AC6) and MSW-only component tests the fallback appears; the real MJPEG is exercised against the `--fake` or real backend (T06 AC7, T08). Same fallback/retry covers a backend or camera restart in production. | Bram, 2026-07-08; recovery hardened 2026-07-16. Avoids requiring a page refresh after a transient stream failure. |
 | D17 | **Setup detection thumbnails are derived in `app/backend` from the owned camera frame plus public `InstrumentTracker` output, then returned inline in `/status`. The model never emits UI crops or transport-specific bytes.** | preserves the frozen model seam; Constantijn supplies same-frame, row-aligned `xyxy`/`mask`/`tracker_id`, while crop geometry, encoding and presentation remain consumer concerns (2026-07-13) |
 
 ### D8a in practice — what the roster gates, and what it must NOT
@@ -82,7 +83,7 @@ seam is **frozen** in [`model/docs/tracker-interface.md`](../../model/docs/track
 filters by roster.** `Session.observe(t, present_ids, roster)` passes
 `present_ids & roster` to `_observe_recording`, so a not-in-roster id never
 becomes a track, never confirms, never reaches `recording_status()`, the report,
-`on_table_count`, Usage or Completeness. But the **Start/setup gate deliberately
+Usage, or Completeness. But the **Start/setup gate deliberately
 still sees the full `present_ids`** — `detected_count` and `stable_for_s` are
 computed from everything detected. That is not an oversight to tidy up later:
 the Start gate is *the operator's judgment on everything on the table*, made

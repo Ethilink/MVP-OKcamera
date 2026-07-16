@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from backend.capture import CaptureLoop
+from backend.capture import CaptureLoop, TrackerResetError
 from backend.fakes import FakeCaptureSource, ScenarioTracker
 from backend.render import OverlayRenderer, roster_colour
 from backend.session import InvalidPhase, Phase, Session
@@ -46,8 +46,6 @@ class InstrumentStatusModel(BaseModel):
     tracker_id: int
     label: str
     on_table: bool
-    off_since_s: float | None
-    pickup_count: int
     # A live crop of the instrument from the current frame, when it is visible
     # this poll (letterboxed data-URI, same crop path as the setup thumbnails).
     # `None` whenever the instrument is off the table / not detected this frame —
@@ -62,7 +60,6 @@ class InstrumentStatusModel(BaseModel):
 class RecordingStatus(BaseModel):
     started_at: str
     elapsed_s: float
-    on_table_count: int
     instruments: list[InstrumentStatusModel]
 
 
@@ -234,14 +231,11 @@ def create_app(
             recording = RecordingStatus(
                 started_at=timestamps["started_at"],
                 elapsed_s=elapsed_s,
-                on_table_count=sum(1 for status in statuses if status.on_table),
                 instruments=[
                     InstrumentStatusModel(
                         tracker_id=status.tracker_id,
                         label=status.label,
                         on_table=status.on_table,
-                        off_since_s=status.off_since_s,
-                        pickup_count=status.pickup_count,
                         thumbnail=crops.get(status.tracker_id),
                         colour=roster_colour(roster, status.tracker_id),
                     )
@@ -278,6 +272,8 @@ def create_app(
             capture.reset_tracker()
         except TimeoutError:
             raise HTTPException(status_code=503, detail="capture stalled")
+        except TrackerResetError:
+            raise HTTPException(status_code=503, detail="tracker reset failed")
         with lock:
             if session.phase not in (Phase.SETUP, Phase.FINISHED):
                 raise HTTPException(status_code=409, detail=f"cannot start from {session.phase}")

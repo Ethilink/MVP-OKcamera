@@ -54,7 +54,7 @@ import pytest
 import supervision as sv
 from fastapi.testclient import TestClient
 
-from backend.capture import CaptureLoop, DetectionBox, Latest
+from backend.capture import CaptureLoop, DetectionBox, Latest, TrackerResetError
 from backend.fakes import FakeCaptureSource
 from backend.main import create_app
 from backend.render import ROSTER_PALETTE, roster_colour
@@ -220,9 +220,8 @@ class TestAC2RecordingStart:
     """AC2: start -> 200 with an aware ISO started_at, and
     capture.reset_tracker() fires before session.start(); a stalled
     reset_tracker() -> 503, session unchanged; a second start while already
-    recording -> 409; /status then flips to "recording" with elapsed_s,
-    on_table_count, and instrument rows matching the contract's field names
-    exactly."""
+    recording -> 409; /status then flips to "recording" with elapsed_s and
+    lean instrument rows matching the contract's field names exactly."""
 
     def test_ac02_start_resets_tracker_before_starting_session_and_returns_started_at(
         self,
@@ -267,6 +266,21 @@ class TestAC2RecordingStart:
         assert resp.json().get("detail") == "capture stalled"
         assert session.phase == Phase.SETUP
 
+    def test_ac02_start_returns_503_when_tracker_reset_fails_and_session_is_unchanged(
+        self,
+    ) -> None:
+        capture = FakeCapture()
+        capture.fail_reset_with(TrackerResetError("simulated reset failure"))
+        session = Session()
+        app = create_app(capture, session, "test-model", clock=_Clock(0.0))
+        client = TestClient(app)
+
+        resp = client.post("/recording/start")
+
+        assert resp.status_code == 503
+        assert resp.json().get("detail") == "tracker reset failed"
+        assert session.phase == Phase.SETUP
+
     def test_ac02_status_reflects_recording_phase_with_contract_field_names(
         self,
     ) -> None:
@@ -282,7 +296,7 @@ class TestAC2RecordingStart:
 
         assert body.get("phase") == "recording"
         recording = body.get("recording") or {}
-        assert recording.get("on_table_count") == 1
+        assert set(recording) == {"started_at", "elapsed_s", "instruments"}
         assert isinstance(recording.get("elapsed_s"), (int, float))
         instruments = recording.get("instruments") or []
         assert len(instruments) == 1
@@ -290,8 +304,13 @@ class TestAC2RecordingStart:
         assert instrument.get("tracker_id") == 3
         assert instrument.get("label") == "Instrument 3"
         assert instrument.get("on_table") is True
-        assert instrument.get("off_since_s") is None
-        assert instrument.get("pickup_count") == 0
+        assert set(instrument) == {
+            "tracker_id",
+            "label",
+            "on_table",
+            "thumbnail",
+            "colour",
+        }
 
     def test_recording_instrument_carries_live_crop_thumbnail(self) -> None:
         """The recording branch attaches a live crop per visible instrument,
@@ -959,7 +978,6 @@ class TestBA2UnknownsAreAbsentFromTheApi:
 
         recording = client.get("/status").json()["recording"]
         assert [i["tracker_id"] for i in recording["instruments"]] == [1]
-        assert recording["on_table_count"] == 1
 
     def test_b_a2_the_status_instrument_row_gains_only_the_colour_field(self) -> None:
         app = create_app(FakeCapture(), Session(), "test-model")
@@ -972,8 +990,6 @@ class TestBA2UnknownsAreAbsentFromTheApi:
             "tracker_id",
             "label",
             "on_table",
-            "off_since_s",
-            "pickup_count",
             "thumbnail",
             "colour",
         }

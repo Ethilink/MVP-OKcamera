@@ -28,9 +28,9 @@ Screens/components (T06, T07). Generated types (T08 swaps these in).
 export type Phase = "setup" | "recording" | "finished";
 export interface SetupStatus { detected_count: number; stable_for_s: number }
 export interface InstrumentStatus { tracker_id: number; label: string;
-  on_table: boolean; off_since_s: number | null; pickup_count: number }
+  on_table: boolean; thumbnail: string | null; colour: string }
 export interface RecordingStatus { started_at: string; elapsed_s: number;
-  on_table_count: number; instruments: InstrumentStatus[] }
+  instruments: InstrumentStatus[] }
 export interface Status { phase: Phase; capture_health: "ok" | "stalled";
   model_version: string; setup: SetupStatus | null; recording: RecordingStatus | null }
 export interface UsageWindow { off_s: number; on_s: number | null }
@@ -46,22 +46,23 @@ export interface Report { started_at: string; stopped_at: string;
 // absolute URLs.
 export class ApiError extends Error { status: number; detail: string }
 export const api: {
-  status(): Promise<Status>;
+  status(signal?: AbortSignal): Promise<Status>;
   startRecording(): Promise<{ started_at: string }>;
   stopRecording(): Promise<Report>;
   report(): Promise<Report>;
   streamUrl: string;               // `${BASE}/stream` — for <img src={api.streamUrl}>
 };
 
-// src/api/useStatus.ts — poll every `intervalMs` (default 500)
-export function useStatus(intervalMs?: number): {
+// src/api/useStatus.ts — poll every `intervalMs` (default 500), abort a hung
+// request after `requestTimeoutMs` (default 5000), and abort on cleanup.
+export function useStatus(intervalMs?: number, requestTimeoutMs?: number): {
   status: Status | null;          // last good payload (kept during errors)
   error: ApiError | Error | null; // non-null after a failed poll
 }
 
 // src/test/fixtures.ts — scripted Status sequences + a canned Report:
 //   setupUnstable, setupStable, recordingAllOn,
-//   recordingOneOff (instrument off_since_s ticking),
+//   recordingOneOff (one instrument reports on_table: false),
 //   finishedStatus (phase "finished": setup block PRESENT & stable,
 //     recording null — drives the run-2 gate; T06 AC4b needs it),
 //   captureStalled (capture_health "stalled" — T06 AC1 banner + disabled Start),

@@ -168,7 +168,7 @@ Run this end-to-end once before the demo, in the mode you'll present in.
 5. Press **Start** → screen switches to **Recording**; timer runs from 0.
 6. (Fake) Around **t≈28 s** (scripted t=20, dilated ~1.4× — see timing caveat)
    watch **instrument 1** flip to **OFF TABLE**; around **t≈48 s** it returns
-   (one closed usage window, pickup count +1).
+   to **ON TABLE**. The usage window is intentionally not revealed yet.
 7. (Fake) Around **t≈68 s** watch **instrument 3** go OFF and stay off.
 8. Press **Stop** (wait until **after t≈70 s** in fake, so instrument 3's loss is
    confirmed past the off-table debounce) → screen switches to **Report**.
@@ -227,4 +227,3 @@ Run this end-to-end once before the demo, in the mode you'll present in.
 - Ctrl-C each terminal. Nothing is persisted to disk (report is in-memory,
   frames are not saved — D5/D7), so there's no cleanup beyond stopping the two
   processes.
-

@@ -64,7 +64,8 @@ Report visuals (T07). API/polling internals (T05 — consume, don't modify).
 
 - **VideoFeed**: `<img src={api.streamUrl}>`, fixed 16:9 box, shadcn Card. Per
   **D16**, an `onError` handler replaces the `<img>` with a plain styled
-  "no stream (dev mode)" panel (no image asset). MSW can't intercept the MJPEG
+  "no stream (dev mode)" panel (no image asset), then retries after 1 s with a
+  cache-busting URL so a restarted backend recovers without a page refresh. MSW can't intercept the MJPEG
   `<img>` load, so under RTL/MSW and pre-backend `npm run dev` the panel is what
   renders; real video appears only against `--fake`/real backend (AC7). RTL:
   assert the fallback panel shows when the `<img>` errors — don't assert a live
@@ -73,11 +74,12 @@ Report visuals (T07). API/polling internals (T05 — consume, don't modify).
   Start enabled ⟺ `phase ∈ {setup, finished}` ∧ `capture_health=="ok"` ∧
   `detected_count ≥ 1` ∧ `stable_for_s ≥ 2` (gate lives HERE, per contract).
   Disabled Start shows why (e.g. "waiting for stable detections…").
-- **Recording**: feed + elapsed timer + `on_table_count` + **Stop** (always
+- **Recording**: feed + elapsed timer + **Stop** (always
   enabled) + **InstrumentPanel**: one row per instrument (sorted by
   tracker_id): label, ON TABLE / OFF TABLE badge (shadcn Badge,
-  green/destructive), `off_since_s` ticking when off, pickup count.
-  **Ticking ownership:** `off_since_s` and the elapsed timer come from the poll
+  green/destructive), thumbnail, and mask-colour swatch. Usage timing, pickup
+  history, and Completeness are report-only.
+  **Ticking ownership:** the elapsed timer comes from the poll
   (2 Hz), but the UI interpolates smoothly between polls **client-side** (last
   polled value + a local clock delta since that poll arrived); each fresh poll
   re-anchors. The backend value is always the source of truth on arrival — the
@@ -93,9 +95,9 @@ Report visuals (T07). API/polling internals (T05 — consume, don't modify).
   `setupStable` → enabled; `capture_health:"stalled"` → disabled + banner.
 - **AC2** Clicking Start POSTs `/recording/start`; UI switches to the
   recording layout only after a poll returns `phase:"recording"`.
-- **AC3** `recordingOneOff` → the off instrument shows OFF TABLE +
-  `off_since_s` (rendered `12s`-style) + pickup count; others show ON TABLE;
-  header shows `on_table_count`; rows sorted by tracker_id.
+- **AC3** `recordingOneOff` → the off instrument shows OFF TABLE and the others
+  show ON TABLE; no Usage or Completeness analytics appear before Stop; rows are
+  sorted by tracker_id.
 - **AC4** Clicking Stop POSTs `/recording/stop`; when the poll returns
   `phase:"finished"` (and `newRecordingRequested` is false), App routes to
   ReportScreen (LiveScreen no longer rendered).

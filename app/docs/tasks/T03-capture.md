@@ -118,7 +118,10 @@ class CaptureLoop:
   capture thread (never the caller's thread), and returns only after it has been
   applied so the next published frame reflects the reset; calling it before
   `start()` is a safe no-op (must not raise); a capture thread stuck in `read()`
-  past `timeout_s` → `TimeoutError` (assert with a blocking fake read).
+  past `timeout_s` → `TimeoutError` (assert with a blocking fake read). If
+  `tracker.reset()` raises, the waiter receives `TrackerResetError` chained from
+  the cause and the capture loop continues instead of reporting false success
+  or dying.
 - **AC12** Every element of `Latest.present_ids` is a builtin `int`
   (`type(x) is int`, not `np.int64`), so a raw `json.dumps` of a status dict
   built from it round-trips — T04 does no numpy sanitizing (ties to T04 AC3).

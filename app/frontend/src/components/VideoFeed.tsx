@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { api } from "@/api/client"
 import { Card } from "@/components/ui/card"
 
@@ -11,6 +11,22 @@ import { Card } from "@/components/ui/card"
  */
 export function VideoFeed() {
   const [failed, setFailed] = useState(false)
+  const [retryAttempt, setRetryAttempt] = useState(0)
+
+  useEffect(() => {
+    if (!failed) return
+    const retryId = window.setTimeout(() => {
+      setRetryAttempt((attempt) => attempt + 1)
+      setFailed(false)
+    }, 1_000)
+    return () => window.clearTimeout(retryId)
+  }, [failed])
+
+  const retrySeparator = api.streamUrl.includes("?") ? "&" : "?"
+  const streamUrl =
+    retryAttempt === 0
+      ? api.streamUrl
+      : `${api.streamUrl}${retrySeparator}retry=${retryAttempt}`
 
   return (
     <Card className="relative aspect-video w-full overflow-hidden bg-[oklch(0.19_0.02_220)] p-0 ring-1 ring-foreground/10">
@@ -30,7 +46,7 @@ export function VideoFeed() {
         </div>
       ) : (
         <img
-          src={api.streamUrl}
+          src={streamUrl}
           alt="live camera feed"
           className="h-full w-full object-contain"
           onError={() => setFailed(true)}

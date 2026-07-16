@@ -36,7 +36,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  status: () => request<Status>("/status"),
+  status: (signal?: AbortSignal) => request<Status>("/status", { signal }),
   startRecording: () =>
     request<StartedResponse>("/recording/start", { method: "POST" }),
   // POST /stop returns the same body shape as GET /report (contract §/stop).

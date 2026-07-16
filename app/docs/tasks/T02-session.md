@@ -33,8 +33,6 @@ class InstrumentStatus:      # one row of the live panel (contract: /status.reco
     tracker_id: int
     label: str               # f"Instrument {tracker_id}"
     on_table: bool
-    off_since_s: float | None   # relative to recording start; None when on_table
-    pickup_count: int
 
 @dataclass(frozen=True)
 class UsageWindow:
@@ -83,12 +81,12 @@ class InvalidPhase(RuntimeError): ...
   `observe`/`start`/`stop`/`setup_status`/`recording_status` (any origin — the
   API layer passes `clock()`; it need not start at 0). The `Session` records
   `t` at `start()` and reports **everything session-relative**: `elapsed_s`,
-  `off_since_s`, `UsageWindow.off_s`/`on_s`, and `Report.duration_s` are all
+  `UsageWindow.off_s`/`on_s`, and `Report.duration_s` are all
   `t − start_t`. So a pickup with the id absent for absolute `t∈(120,135)` after
   `start(100)` (present again at `t=135`) yields `off_s≈20, on_s≈35`.
 - **Accessors are non-mutating projections of (state, t).** `setup_status(t)`
   and `recording_status(t)` compute what the debounced state WOULD be at `t`
-  (advancing `stable_for_s`/`off_since_s`, surfacing a debounce flip whose
+  (advancing `stable_for_s`, surfacing a debounce flip whose
   threshold `t` has crossed) **without committing anything** — polling at a
   later `t` never changes durable state. Durable state advances ONLY on
   `observe`/`start`/`stop`. `stop(t)` finalizes the report by applying this SAME
@@ -98,8 +96,8 @@ class InvalidPhase(RuntimeError): ...
   `stop` time; repeated accessor calls can't perturb it.)
 - Instrument universe = every id **confirmed** while RECORDING: an id joins the
   universe only once it has been continuously present for `> on_debounce_s`
-  (**entry debounce**, same constant), registering as (on_table, pickup_count
-  0). A shorter-lived id — a spurious detection, or a provisional pre-link id
+  (**entry debounce**, same constant), registering as on-table. A shorter-lived
+  id — a spurious detection, or a provisional pre-link id
   from the tracker's track linking (`model/docs/tracker-interface.md`
   §tracker_id across absence) — never enters the universe and leaves no trace
   in live status or the report. Accepted gap: an instrument that satisfied the
@@ -110,7 +108,7 @@ class InvalidPhase(RuntimeError): ...
   off-table only once absence has lasted `> off_debounce_s`; its window's
   `off_s` is the t of the LAST frame it was seen. Symmetric for return with
   `on_debounce_s`; `on_s` = t of the first frame of the confirmed return run.
-  Blips shorter than the debounce leave no trace (no window, no pickup_count).
+  Blips shorter than the debounce leave no trace (no usage window).
 - `stop(t)`: completeness = the instrument's **debounced** on/off state at Stop
   (D9 debounce / api-contract §Completeness; Bram 2026-07-07). An instrument in
   a **confirmed** off-table window at
@@ -119,7 +117,7 @@ class InvalidPhase(RuntimeError): ...
   debounced state is on-table → `"present"` — this INCLUDES an instrument absent
   only for a sub-`off_debounce_s` blip at Stop (a detector flicker on a tool
   that's physically on the table): it is NOT yet confirmed off, so it stays
-  present and leaves NO phantom window. `pickup_count == len(usage)`. **Mirror
+  present and leaves NO phantom window. **Mirror
   case (intended, not a bug):** an instrument that RETURNED less than
   `on_debounce_s` before Stop is still debounced-off → reported `"missing"` though
   physically back. Same debounce, opposite direction; demo choreography avoids
@@ -137,16 +135,16 @@ class InvalidPhase(RuntimeError): ...
   wrong-phase accessor raises `InvalidPhase`.
 - **AC2** Start gate: after observes with id-set {1,2,3} from t=10 to t=13,
   `setup_status(13) == (3, 3.0)`; one observe with {1,2} resets stability to 0.
-- **AC3** Steady presence, no absences → every instrument `"present"`,
-  `usage == ()`, `pickup_count == 0`.
+- **AC3** Steady presence, no absences → every instrument `"present"` with
+  `usage == ()`; live status contains identity and `on_table` only.
 - **AC4** Scripted pickup at a **non-zero origin** (`start(100)`, id absent for
   absolute `t∈(120,135)` — last seen at 120, present again at 135, debounce
   defaults, ~10 fps observes) → exactly one window with **session-relative**
-  `off_s≈20`, `on_s≈35` (tolerance one frame interval), `pickup_count==1`, live
-  status showed `on_table=False` with `off_since_s≈20` during the absence —
-  proving times are `t − start_t`, not absolute.
-- **AC5** Flicker: absence lasting 0.9 s (< off_debounce 1.5) leaves NO window
-  and pickup_count 0; presence blip of 0.5 s during a real absence (< on_debounce
+  `off_s≈20`, `on_s≈35` (tolerance one frame interval); live status shows only
+  `on_table=False` during the absence. The final window proves report times are
+  `t − start_t`, not absolute.
+- **AC5** Flicker: absence lasting 0.9 s (< off_debounce 1.5) leaves NO window;
+  a presence blip of 0.5 s during a real absence (< on_debounce
   1.0) does NOT close the window.
 - **AC6** Never-returns: id last seen at t=50, absent for all t>50 through
   stop(80) → `"missing"`, last window `(50, None)`; report invariants hold (sorted,
@@ -161,7 +159,7 @@ class InvalidPhase(RuntimeError): ...
   / provisional pre-link id) appears in neither live status nor the report, and
   does not corrupt others' windows.
 - **AC8** `start` after FINISHED discards the old report (`report()` raises
-  until the next `stop`), and debounce/pickup state is fully reset.
+  until the next `stop`), and debounce/usage state is fully reset.
 - **AC9** Non-monotonic `observe` raises `ValueError`; `start`/`stop` with
   `t <` last observe also raise; `observe` in SETUP never creates usage state.
 - **AC10** Non-mutating projection: after a confirmed presence then no further

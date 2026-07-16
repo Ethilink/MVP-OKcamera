@@ -80,20 +80,18 @@ setup ──POST /recording/start──▶ recording ──POST /recording/stop�
     ]
   },
 
-  // phase == "recording": drives the live instrument panel
+  // phase == "recording": drives the lean live instrument panel.
+  // Usage/completeness analytics are available only after Stop via /report.
   "recording": {
     "started_at": "2026-07-20T10:31:04+02:00",
     "elapsed_s": 74.3,
-    "on_table_count": 4,
     "instruments": [
       {
         "tracker_id": 3,
         "label": "Instrument 3",     // single class today; label comes from backend
         "colour": "#4285f4",         // required; the hex this instrument's mask
                                      // is drawn with on /stream (see below)
-        "on_table": false,
-        "off_since_s": 61.0,         // null when on_table
-        "pickup_count": 2
+        "on_table": false
       }
     ]
   }
@@ -104,6 +102,10 @@ setup ──POST /recording/start──▶ recording ──POST /recording/stop�
 block is non-null only when `phase == "recording"`. (So `setup` and `recording`
 are never both non-null, but in `finished` the `setup` block IS present — the
 report is fetched separately via `GET /report`.)
+
+The recording payload intentionally exposes only elapsed time, instrument
+identity/presentation, and current on-table state. Off-table windows and final
+Completeness are report-only so the demo's analytics payoff appears after Stop.
 
 `setup.detections` is sorted by `tracker_id` and contains detections from one
 backend capture snapshot. `thumbnail` is a small aspect-preserving JPEG preview

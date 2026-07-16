@@ -78,3 +78,21 @@ test("AC5 generic failure → non-crashing error state", async () => {
   render(<ReportScreen onNewRecording={() => {}} />)
   expect(await screen.findByText(/could not load the report/i)).toBeInTheDocument()
 })
+
+test("a transient report failure can be retried without navigating away", async () => {
+  let shouldFail = true
+  server.use(
+    http.get(`${BASE}/report`, () => {
+      if (shouldFail) return HttpResponse.json({ detail: "temporary" }, { status: 500 })
+      return HttpResponse.json(demoReport)
+    }),
+  )
+  render(<ReportScreen onNewRecording={() => {}} />)
+
+  expect(await screen.findByText(/could not load the report/i)).toBeInTheDocument()
+  shouldFail = false
+  fireEvent.click(screen.getByRole("button", { name: /retry/i }))
+
+  expect(await screen.findByText("Instrument 1")).toBeInTheDocument()
+  expect(screen.queryByText(/could not load the report/i)).not.toBeInTheDocument()
+})

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { ApiError, api } from "@/api/client"
 import type { Report } from "@/api/types"
 import type { CropMap } from "@/api/useLastSeenCrops"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { CompletenessBadge } from "@/components/CompletenessBadge"
 import { HaloBrand } from "@/components/HaloMark"
@@ -26,9 +27,11 @@ export function ReportScreen({
 }) {
   const [report, setReport] = useState<Report | null>(null)
   const [errorText, setErrorText] = useState<string | null>(null)
+  const [requestVersion, setRequestVersion] = useState(0)
 
   useEffect(() => {
     let cancelled = false
+    setErrorText(null)
     api
       .report()
       .then((r) => {
@@ -46,7 +49,7 @@ export function ReportScreen({
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [requestVersion])
 
   return (
     <main className="mx-auto flex h-svh w-full max-w-[112rem] flex-col gap-5 p-6">
@@ -68,8 +71,15 @@ export function ReportScreen({
       <div className="mx-auto flex w-full min-h-0 max-w-5xl flex-1 flex-col">
         {errorText ? (
           <Card>
-            <CardContent className="py-8 text-center text-muted-foreground">
-              {errorText}
+            <CardContent className="flex flex-col items-center gap-4 py-8 text-center text-muted-foreground">
+              <p>{errorText}</p>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setRequestVersion((version) => version + 1)}
+              >
+                Retry
+              </Button>
             </CardContent>
           </Card>
         ) : !report ? (

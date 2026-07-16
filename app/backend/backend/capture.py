@@ -62,6 +62,10 @@ OnFrame = Callable[[float, frozenset[int], frozenset[int]], None]
 """(t, present_ids, roster) — roster sampled same-tick as present_ids."""
 
 
+class TrackerResetError(RuntimeError):
+    """Raised when the capture thread could not reset the tracker."""
+
+
 class CaptureLoop:
     def __init__(
         self,
@@ -85,6 +89,8 @@ class CaptureLoop:
         self._stop = threading.Event()
         self._reset_request = threading.Event()
         self._reset_done = threading.Event()
+        self._reset_lock = threading.Lock()
+        self._reset_error: BaseException | None = None
 
         self._cap: VideoCaptureLike | None = None
         self._thread: threading.Thread | None = None
@@ -142,12 +148,19 @@ class CaptureLoop:
                         logger.exception("capture release during stop() failed")
 
     def reset_tracker(self, timeout_s: float = 2.0) -> None:
-        if self._thread is None or not self._thread.is_alive():
+        thread = self._thread
+        if thread is None:
             return
-        self._reset_done.clear()
-        self._reset_request.set()
-        if not self._reset_done.wait(timeout_s):
-            raise TimeoutError("tracker reset was not applied (capture thread stalled)")
+        if not thread.is_alive():
+            raise TrackerResetError("capture thread is not running")
+        with self._reset_lock:
+            self._reset_error = None
+            self._reset_done.clear()
+            self._reset_request.set()
+            if not self._reset_done.wait(timeout_s):
+                raise TimeoutError("tracker reset was not applied (capture thread stalled)")
+            if self._reset_error is not None:
+                raise TrackerResetError("tracker reset failed") from self._reset_error
 
     def snapshot(self) -> Latest | None:
         with self._lock:
@@ -203,6 +216,11 @@ class CaptureLoop:
             return
         try:
             self._tracker.reset()
+        except BaseException as exc:
+            self._reset_error = exc
+            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                raise
+            logger.exception("tracker reset failed; capture loop will continue")
         finally:
             self._reset_request.clear()
             self._reset_done.set()

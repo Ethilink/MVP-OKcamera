@@ -64,13 +64,10 @@ const nowS = (from: number) => (Date.now() - from) / 1000
 function liveInstrument(id: number, t: number) {
   // The currently-open off window, if any, at time t.
   const open = SCRIPT[id].find((w) => t >= w.off && (w.on === null || t < w.on))
-  const pickups = SCRIPT[id].filter((w) => t >= w.off).length
   return {
     tracker_id: id,
     label: `Instrument ${id}`,
     on_table: !open,
-    off_since_s: open ? t - open.off : null,
-    pickup_count: pickups,
     // Live crop only while visible (on the table); off-table falls back to the
     // last-seen crop client-side, mirroring the real backend.
     thumbnail: open ? null : fakeCrop(id),
@@ -117,7 +114,6 @@ export const devHandlers = [
         recording: {
           started_at: new Date(recStart).toISOString(),
           elapsed_s: t,
-          on_table_count: instruments.filter((i) => i.on_table).length,
           instruments,
         },
       })

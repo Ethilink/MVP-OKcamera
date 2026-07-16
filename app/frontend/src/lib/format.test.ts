@@ -1,5 +1,5 @@
 import { expect, test } from "vitest"
-import { formatClock, formatSeconds } from "./format"
+import { formatClock } from "./format"
 
 test("formatClock renders mm:ss, flooring fractional seconds", () => {
   expect(formatClock(0)).toBe("0:00")
@@ -10,10 +10,4 @@ test("formatClock renders mm:ss, flooring fractional seconds", () => {
 
 test("formatClock never goes negative", () => {
   expect(formatClock(-5)).toBe("0:00")
-})
-
-test("formatSeconds is whole-second '13s'-style, floored and non-negative", () => {
-  expect(formatSeconds(13.2)).toBe("13s")
-  expect(formatSeconds(0)).toBe("0s")
-  expect(formatSeconds(-1)).toBe("0s")
 })

@@ -20,8 +20,6 @@ class InstrumentStatus:
     tracker_id: int
     label: str
     on_table: bool
-    off_since_s: float | None
-    pickup_count: int
 
 
 @dataclass(frozen=True)
@@ -60,7 +58,6 @@ class _Track:
     run_present: bool = False
     first_present_t: float = 0.0   # start of the current raw presence run
     last_present_t: float = 0.0    # t of the most recent raw-present frame
-    pickup_count: int = 0
     usage: list[UsageWindow] = field(default_factory=list)
 
 
@@ -153,20 +150,11 @@ class Session:
             confirmed, on_table = _project(track, effective_t, self._on_debounce_s, self._off_debounce_s)
             if not confirmed:
                 continue
-            if on_table:
-                off_since_s = None
-            elif not track.on_table:
-                off_since_s = track.usage[-1].off_s
-            else:
-                off_since_s = track.last_present_t - self._start_t
-            pickup_count = track.pickup_count + (1 if track.on_table and not on_table else 0)
             statuses.append(
                 InstrumentStatus(
                     tracker_id=tracker_id,
                     label=f"Instrument {tracker_id}",
                     on_table=on_table,
-                    off_since_s=off_since_s,
-                    pickup_count=pickup_count,
                 )
             )
         return (effective_t - self._start_t, tuple(statuses))
@@ -205,7 +193,6 @@ class Session:
             elif was_confirmed:
                 if was_on_table and not on_table:
                     track.on_table = False
-                    track.pickup_count += 1
                     track.usage.append(UsageWindow(off_s=track.last_present_t - self._start_t, on_s=None))
                 elif not was_on_table and on_table:
                     track.on_table = True

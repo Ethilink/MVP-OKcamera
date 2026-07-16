@@ -40,7 +40,7 @@ import pytest
 import supervision as sv
 
 import backend.capture as capture_module
-from backend.capture import CaptureLoop, Latest
+from backend.capture import CaptureLoop, Latest, TrackerResetError
 from backend.fakes import FakeCaptureSource, ScenarioTracker
 
 _FRAME_SIZE = (64, 48)  # (width, height) — tiny on purpose, keeps ticks cheap
@@ -363,6 +363,11 @@ class _ResetTrackingTracker:
         self.update_call_threads.add(threading.get_ident())
         self._n += 1
         return _growing_ids_detection(self._n, frame.shape[:2])
+
+
+class _FailingResetTracker(_ResetTrackingTracker):
+    def reset(self) -> None:
+        raise RuntimeError("simulated reset failure")
 
 
 def _growing_ids_detection(n: int, frame_shape: tuple[int, int]) -> sv.Detections:
@@ -900,6 +905,28 @@ class TestAC11ResetTracker:
         finally:
             cap.release()  # unblock the stuck read so nothing leaks
             loop.stop()
+
+    def test_ac11_reset_failure_is_reported_without_killing_capture(self) -> None:
+        cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
+        counter = _Counter()
+        loop = _make_loop(
+            _FailingResetTracker(),
+            cap,
+            on_frame=lambda t, ids, roster: counter.hit(),
+        )
+
+        loop.start()
+        try:
+            assert counter.wait_for(1)
+            with pytest.raises(TrackerResetError) as exc_info:
+                loop.reset_tracker(timeout_s=1.0)
+            before = counter.value
+            assert counter.wait_for(before + 1)
+            assert loop.health != "dead"
+        finally:
+            loop.stop()
+
+        assert isinstance(exc_info.value.__cause__, RuntimeError)
 
 
 class _RosterTracker:

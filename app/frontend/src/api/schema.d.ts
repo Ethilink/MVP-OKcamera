@@ -124,10 +124,6 @@ export interface components {
             label: string;
             /** On Table */
             on_table: boolean;
-            /** Off Since S */
-            off_since_s: number | null;
-            /** Pickup Count */
-            pickup_count: number;
             /** Thumbnail */
             thumbnail: string | null;
             /** Colour */
@@ -139,8 +135,6 @@ export interface components {
             started_at: string;
             /** Elapsed S */
             elapsed_s: number;
-            /** On Table Count */
-            on_table_count: number;
             /** Instruments */
             instruments: components["schemas"]["InstrumentStatusModel"][];
         };
