@@ -16,6 +16,7 @@ from backend.debug import (
     ORC_LOGGER,
     OrcDebugFormatter,
     configure_debug_logging,
+    env_flag_enabled,
 )
 
 
@@ -30,6 +31,20 @@ def clean_orc_logger():
     )
     if hasattr(logger, "_orc_debug_attached"):
         delattr(logger, "_orc_debug_attached")
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (None, False), ("", False), ("0", False), ("false", False), ("no", False),
+        ("1", True), ("true", True), ("TRUE", True), ("yes", True), ("on", True),
+        (" 1 ", True),
+    ],
+)
+def test_env_flag_enabled_only_accepts_explicit_true_values(value, expected):
+    # ORC_DEBUG=0 / "" / unset must NOT enable the console (a bare truthiness
+    # check would have enabled it for any non-empty value, e.g. "0").
+    assert env_flag_enabled(value) is expected
 
 
 def _record(orc=None, msg="", name="orc_model.session_linker"):
@@ -117,3 +132,21 @@ def test_plain_record_without_orc_falls_back_to_a_clean_prefixed_line():
     ))
     assert "persistent galleries: 8 specimen(s) loaded" in out
     assert "persistent_gallery" in out, "the fallback should label the step by logger tail"
+
+
+def test_malformed_orc_payload_falls_back_instead_of_raising():
+    """A formatter must NEVER raise — logging would dump a traceback into the very
+    console being watched at T09. A malformed payload (missing key, wrong type,
+    unknown event) falls back to the plain message line."""
+    fmt = OrcDebugFormatter()
+    malformed = [
+        {"event": "death"},                       # missing session_id
+        {"event": "freeze", "roster": [{}]},      # roster entry missing every key
+        {"event": "decision", "outcomes": None},  # wrong type
+        {"event": "totally-unknown-event"},       # unhandled event
+    ]
+    for bad in malformed:
+        out = fmt.format(_record(orc=bad, msg="fallback message"))
+        assert "fallback message" in out, (
+            f"a malformed payload {bad!r} must fall back to the plain message, never raise"
+        )

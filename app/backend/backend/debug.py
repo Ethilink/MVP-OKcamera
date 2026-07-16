@@ -22,6 +22,14 @@ ORC_LOGGER = "orc_model"
 _ATTACHED_FLAG = "_orc_debug_attached"
 _RULE = "─" * 78
 _THIN_MARGIN = 0.05  # score-over-tau below this earns a "thin bind" warning
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+
+
+def env_flag_enabled(value: str | None) -> bool:
+    """True iff an env-var string is an EXPLICIT true value (1/true/yes/on,
+    case-insensitive). ``None`` / ``""`` / ``"0"`` / ``"false"`` -> False, so
+    ``ORC_DEBUG=0`` does not surprisingly enable the console."""
+    return (value or "").strip().lower() in _TRUE_VALUES
 
 
 class OrcDebugFormatter(logging.Formatter):
@@ -35,9 +43,21 @@ class OrcDebugFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         clock = self.formatTime(record, "%H:%M:%S")
         orc = getattr(record, "orc", None)
-        if not isinstance(orc, dict):
-            tail = record.name.rsplit(".", 1)[-1]
-            return f"●  {clock}  {tail:<10} {record.getMessage()}"
+        if isinstance(orc, dict):
+            # A malformed payload (missing key, wrong type) must NEVER raise out
+            # of a formatter -- logging would then dump a traceback into the very
+            # console being watched at T09. Fall back to the plain line instead.
+            try:
+                rendered = self._render_event(clock, orc)
+            except Exception:
+                rendered = None
+            if rendered is not None:
+                return rendered
+        tail = record.name.rsplit(".", 1)[-1]
+        return f"●  {clock}  {tail:<10} {record.getMessage()}"
+
+    def _render_event(self, clock: str, orc: dict) -> str | None:
+        """Render a known structured event, or None to fall back to the message."""
         event = orc.get("event")
         if event == "freeze":
             return self._freeze(clock, orc)
@@ -45,7 +65,7 @@ class OrcDebugFormatter(logging.Formatter):
             return f"●  {clock}  left     Instrument {orc['session_id']}"
         if event == "decision":
             return self._decision(clock, orc)
-        return f"●  {clock}  {record.getMessage()}"
+        return None
 
     def _freeze(self, clock: str, orc: dict) -> str:
         lines = [f"{'─' * 24}  ENROLMENT FREEZE  {clock}  {'─' * 24}"]

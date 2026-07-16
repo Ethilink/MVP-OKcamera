@@ -2185,9 +2185,56 @@ def test_the_freeze_log_carries_a_structured_orc_event_for_the_debug_console(cap
     assert isinstance(freeze["build_ms"], float)
     by_raw = {e["raw_id"]: e for e in freeze["roster"]}
     assert set(by_raw) == {1201, 1202}, "every enrolled raw id must appear in the structured roster"
+    assert by_raw[1201]["session_id"] == 47, "each roster entry must carry its session_id (the console labels by it)"
     assert by_raw[1201]["specimen"] == 47, "the bound identity's raw->specimen must be exposed structurally"
     assert by_raw[1201]["score"] == best
+    assert by_raw[1202]["session_id"] == 63, "the session-only identity must still carry its session_id"
     assert by_raw[1202]["specimen"] is None, "the session-only identity must carry specimen=None"
+
+
+def test_decision_and_death_logs_carry_structured_orc_events_for_the_debug_console(caplog):
+    """Pin the producer side of the console contract for the OTHER two events.
+    A track death and a batch decision must each emit `record.orc` with the right
+    shape, so a model-side regression (a dropped/renamed `extra`) fails here rather
+    than silently blanking the live --debug narrative. Drives real linker events;
+    mirrors test_b3_death_after_absence_threshold_marks_identity_missing."""
+    fps = 4.0
+    enrolment_window_s = 0.25
+    window = round(enrolment_window_s * fps)
+    absent_death_s = 0.5
+    death_threshold = round(absent_death_s * fps)
+    matcher = FakeMatcher()
+    linker = SessionLinker(
+        matcher, fps=fps, unknown_id_offset=UNKNOWN_OFFSET,
+        enrolment_window_s=enrolment_window_s, evidence_window_s=10.0,
+        evidence_frames=1, absent_death_s=absent_death_s, min_mask_area_px=100,
+    )
+    session_id = 1
+    for _ in range(window):
+        frame, dets = build_call([{"tracker_id": 401, "box": BOX_A, "bgr": (70, 70, 70)}])
+        linker.update(dets, frame)
+    assert linker.roster == frozenset({session_id})
+
+    with caplog.at_level(logging.INFO):
+        for _ in range(death_threshold + 1):  # cross the absence threshold -> death event
+            frame, dets = empty_call()
+            linker.update(dets, frame)
+        return_bgr = (5, 15, 200)
+        marker = rgb_marker_for_bgr(return_bgr)
+        matcher.program(marker, [({session_id: 0.9}, session_id)])
+        frame, dets = build_call([{"tracker_id": 402, "box": BOX_B, "bgr": return_bgr}])
+        linker.update(dets, frame)
+
+    orcs = [getattr(r, "orc", None) for r in caplog.records if getattr(r, "orc", None)]
+    death = next((o for o in orcs if o.get("event") == "death"), None)
+    assert death is not None and death.get("session_id") == session_id, (
+        "the death log must carry orc={'event':'death','session_id':...} for the console"
+    )
+    decision = next((o for o in orcs if o.get("event") == "decision"), None)
+    assert decision is not None, "the batch-decision log must carry orc={'event':'decision',...}"
+    assert decision["outcomes"].get(402) == f"linked:{session_id}", (
+        "the decision payload must expose each raw id's outcome (raw 402 -> linked:1)"
+    )
 
 
 def test_b_o2_the_batch_decision_log_exposes_each_candidates_atom_count(caplog):

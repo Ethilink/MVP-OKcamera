@@ -327,10 +327,12 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     # Configure the debug console BEFORE load_tracker() so its startup logs
-    # (galleries loaded, binding-disabled) are captured too.
-    if args.debug or os.environ.get("ORC_DEBUG"):
-        from backend.debug import configure_debug_logging
+    # (galleries loaded, binding-disabled) are captured too. ORC_DEBUG must be an
+    # explicit true value -- ORC_DEBUG=0 / "" / "false" leave it OFF (a bare
+    # truthiness check would enable debug for any non-empty value).
+    from backend.debug import configure_debug_logging, env_flag_enabled
 
+    if args.debug or env_flag_enabled(os.environ.get("ORC_DEBUG")):
         configure_debug_logging()
 
     session = Session()
