@@ -71,6 +71,13 @@ the **frontend** (Vite SPA, the operator screen). The frontend polls
 Two terminals. Start the **backend first** (the frontend and `gen:api` both
 expect `:8000` up).
 
+The detector, Deep OC-SORT, matcher, linker/Unknown re-detection, report
+debounce, and capture tuning are all documented in [`../mvp.toml`](../mvp.toml).
+That file is loaded by default. Use `--config /path/to/profile.toml` to run a
+different tuning profile without editing the default. Camera index and weights
+remain CLI inputs because they identify runtime hardware/artifacts rather than
+algorithm tuning.
+
 ### Fake mode (no camera — scripted scenario, what dev/rehearsal uses)
 
 Terminal 1 — backend:
@@ -108,8 +115,9 @@ uv run --directory app/backend orc-demo --camera 1 \
   ```
   Use the index printed next to `Camo Camera`. Backend boot takes ~11 s (ONNX +
   DINOv2 load) with no "ready" line before it — wait for uvicorn's port-8000 log.
-  Real mode runs at ~3 fps by design (`load_tracker` defaults `fps=3.0`, matching
-  the measured 2.87–3.13; the linker's windows are calibrated to it).
+  Real mode runs at ~3 fps by design (`tracker.expected_processing_fps` in
+  `app/mvp.toml`, matching the measured 2.87–3.13; the linker's frame-based
+  windows are calibrated to it).
 
 Terminal 2 — frontend: same `npm run dev` as above.
 

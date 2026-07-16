@@ -21,12 +21,19 @@ class DeepOCSortTracker:
     def __init__(
         self,
         det_thresh: float,
-        frame_rate: int = 30,
+        frame_rate: float = 30,
         max_age_seconds: float = 1.0,
         min_hits: int = 3,
         iou_threshold: float = 0.3,
+        delta_t: int = 3,
+        association: str = "iou",
+        inertia: float = 0.2,
+        appearance_weight: float = 0.75,
+        embedding_momentum: float = 0.95,
+        adaptive_weight: float = 0.5,
         embedding_off: bool = False,
-        cmc_off: bool = False,
+        camera_motion_compensation_off: bool = False,
+        adaptive_weight_off: bool = False,
         mask_crop: bool = False,
     ):
         self.ocsort = OCSort(
@@ -36,8 +43,15 @@ class DeepOCSortTracker:
             max_age=round(max_age_seconds * frame_rate),
             min_hits=min_hits,
             iou_threshold=iou_threshold,
+            delta_t=delta_t,
+            asso_func=association,
+            inertia=inertia,
+            w_association_emb=appearance_weight,
+            alpha_fixed_emb=embedding_momentum,
+            aw_param=adaptive_weight,
             embedding_off=embedding_off,
-            cmc_off=cmc_off,
+            cmc_off=camera_motion_compensation_off,
+            aw_off=adaptive_weight_off,
         )
 
     def update(self, detections: sv.Detections, frame: np.ndarray) -> sv.Detections:

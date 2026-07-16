@@ -12,4 +12,14 @@ synthetic frames) so the frontend and tests need no camera. Stack (frozen —
 DESIGN D1): **FastAPI + uvicorn**, `uv` project. See
 [`../docs/DESIGN.md`](../docs/DESIGN.md) and tasks T01–T04.
 
-Not yet scaffolded (T01).
+## MVP settings
+
+All tunable KU Leuven MVP behaviour lives in one operator-facing file at the
+app root: [`../mvp.toml`](../mvp.toml). It groups and explains the detector,
+Deep OC-SORT, identity matcher, session linker/Unknown re-detection, report
+debounce, and camera/capture settings. The backend only loads and validates the
+file; it does not own the chosen values. Invalid ranges, misspelled keys, and
+incompatible tracker/linker timing fail clearly at startup.
+
+The default is loaded automatically. A second profile can be selected with
+`orc-demo --config /path/to/profile.toml ...`.

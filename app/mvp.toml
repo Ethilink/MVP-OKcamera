@@ -1,0 +1,111 @@
+# KU Leuven MVP configuration
+#
+# This is the one file to edit when tuning the demo. Values are loaded and
+# validated when `orc-demo` starts. Durations are seconds unless noted.
+
+[tracker]
+# Expected sustained inference rate, not camera FPS and not a speed control.
+# Frame-based tracker/linker windows use it to approximate seconds. Measure it
+# again when detector hardware or model performance changes.
+expected_processing_fps = 3.0
+
+# Pre-captured physical-instrument galleries used to preserve identities.
+# The path is relative to this file. Disable to link within one session only.
+persistent_galleries_enabled = true
+instruments_dir = "../model/data/instruments"
+
+[tracker.detector]
+# RF-DETR score floor. Lower finds more objects but admits more noise.
+confidence = 0.5
+# Maximum detections retained after RF-DETR post-processing.
+top_k = 300
+# Ignore detections whose centre is below this fraction of the image height.
+# This removes tripod/table clutter. Disable to use the complete camera frame.
+workspace_filter_enabled = true
+workspace_max_center_y_ratio = 0.88
+
+[tracker.oc_sort]
+# Keep a lost raw track alive this long before freeing its raw id.
+max_age_seconds = 1.0
+# Consecutive hits required before OC-SORT exposes a new track.
+min_hits = 3
+# Minimum box overlap used during motion association.
+iou_threshold = 0.30
+# History distance used to estimate track direction.
+delta_t = 3
+# Box association metric: iou, giou, ciou, diou, or ct_dist.
+association = "iou"
+# Weight of direction consistency during association.
+inertia = 0.20
+# Weight of appearance embeddings versus motion/box association.
+appearance_weight = 0.75
+# Memory retained when updating a track's appearance embedding.
+embedding_momentum = 0.95
+# Confidence-adaptive appearance-weight strength.
+adaptive_weight = 0.50
+# Diagnostic switches. Disabling these features usually reduces robustness.
+embedding_off = false
+camera_motion_compensation_off = false
+adaptive_weight_off = false
+# Use the segmentation mask when cropping OC-SORT embeddings.
+mask_crop = true
+
+[tracker.matcher]
+# Sparse-reconstruction regularisation. Higher makes codes sparser.
+alpha = 0.0003
+# Influence of the instrument-size cue beside DINO appearance.
+size_alpha = 0.50
+# Minimum SRC/SCI score for accepting a returning identity.
+acceptance_threshold = 0.30
+# Required lead over the runner-up. Higher avoids ambiguous links.
+winner_margin = 0.02
+# Expand masks before embedding to retain a little edge context.
+mask_dilate_px = 2
+# Safety ceiling for the sparse solver; raise only if it fails to converge.
+max_iterations = 2000
+# Changing this Hugging Face model invalidates all gallery embeddings.
+embedding_model = "facebook/dinov2-base"
+# Absolute appearance gate used when only one gallery exists.
+single_gallery_cosine_threshold = 0.60
+
+[tracker.linker]
+# Gates used once at Start to bind tray tracks to specimen galleries.
+bind_threshold = 0.30
+bind_margin = 0.02
+# Offset keeps resolving/Unknown ids disjoint from roster ids.
+unknown_id_offset = 1000
+# Observe the initial still tray this long before freezing the roster.
+enrolment_window_s = 0.50
+# Observe a new raw track this long before attempting re-identification.
+evidence_window_s = 0.50
+# Maximum best-quality crops retained as matching evidence.
+evidence_frames = 3
+# Missing duration before closing a track and building its gallery.
+# This must be greater than or equal to tracker.oc_sort.max_age_seconds.
+absent_death_s = 1.0
+# Smaller masks are too weak/noisy to use as identity evidence.
+min_mask_area_px = 200
+
+# Unknown re-detection: reconsider a previously rejected raw track when enough
+# time passed and its appearance, mask, quality, or candidate set changed.
+unknown_recheck_cooldown_s = 0.75
+unknown_recheck_appearance_delta = 0.15
+unknown_recheck_mask_iou = 0.75
+unknown_recheck_quality_gain = 0.25
+# Resolution of the cheap fingerprint used by those change gates.
+unknown_recheck_fingerprint_px = 32
+
+[session]
+# How long an instrument must be absent before the report records a pickup.
+off_debounce_s = 1.5
+# How long it must be visible before the report records its return.
+on_debounce_s = 1.0
+
+[capture]
+# Resolution requested from the overhead camera.
+frame_width = 1920
+frame_height = 1080
+# No successfully processed frame for this long marks capture as stalled.
+stale_after_s = 2.0
+# Fake-mode rate only; keeps the scripted demo close to wall-clock time.
+fake_fps = 10.0

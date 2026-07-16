@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from backend.capture import CaptureLoop, TrackerResetError
 from backend.fakes import FakeCaptureSource, ScenarioTracker
+from backend.mvp_settings import DEFAULT_MVP_CONFIG_PATH, load_mvp_settings
 from backend.render import OverlayRenderer, roster_colour
 from backend.session import InvalidPhase, Phase, Session
 from backend.thumbnails import build_detections
@@ -314,6 +315,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--camera", type=int)
     parser.add_argument("--weights", type=str)
     parser.add_argument(
+        "--config",
+        type=str,
+        default=str(DEFAULT_MVP_CONFIG_PATH),
+        help="MVP TOML configuration (default: app/mvp.toml)",
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="print a readable, event-level pipeline narrative to the console "
@@ -331,16 +338,28 @@ def main(argv: list[str] | None = None) -> None:
     if args.debug or env_flag_enabled(os.environ.get("ORC_DEBUG")):
         configure_debug_logging()
 
-    session = Session()
+    try:
+        settings = load_mvp_settings(args.config)
+    except ValueError as exc:
+        parser.error(str(exc))
+    session = Session(
+        off_debounce_s=settings.session.off_debounce_s,
+        on_debounce_s=settings.session.on_debounce_s,
+    )
 
     if args.fake:
-        tracker = ScenarioTracker(fps=10)
+        tracker = ScenarioTracker(fps=settings.capture.fake_fps)
         # Share ONE ScenarioState so the drawn frames and the detections stay in
         # lockstep (and re-align on Start, which resets the shared clock).
         capture = CaptureLoop(
             tracker,
             0,
-            cap_factory=lambda _idx: FakeCaptureSource(fps=10.0, scenario=tracker.state),
+            cap_factory=lambda _idx: FakeCaptureSource(
+                fps=settings.capture.fake_fps,
+                scenario=tracker.state,
+            ),
+            frame_size=settings.capture.frame_size,
+            stale_after_s=settings.capture.stale_after_s,
         )
     else:
         if args.camera is None or args.weights is None:
@@ -351,8 +370,13 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(
                 f"real camera mode requires orc_model.pipelines.tracking.load_tracker: {exc}"
             )
-        tracker = load_tracker(args.weights)
-        capture = CaptureLoop(tracker, args.camera)
+        tracker = load_tracker(args.weights, config=settings.tracker)
+        capture = CaptureLoop(
+            tracker,
+            args.camera,
+            frame_size=settings.capture.frame_size,
+            stale_after_s=settings.capture.stale_after_s,
+        )
 
     app = create_app(capture, session, tracker.model_version)
     capture.start()

@@ -214,12 +214,17 @@ def stub_models(monkeypatch):
     created: list[_StubMatcher] = []
 
     class _FakeChampion(_StubMatcher):
-        def __init__(self):
+        def __init__(self, **kwargs):
             super().__init__()
+            self.init_kwargs = kwargs
             created.append(self)
 
     monkeypatch.setattr(matching, "ChampionMethod", _FakeChampion)
-    monkeypatch.setattr(tracking, "_build_detector", lambda weights_path, confidence: object())
+    monkeypatch.setattr(
+        tracking,
+        "_build_detector",
+        lambda weights_path, confidence, top_k: object(),
+    )
     return created
 
 
@@ -274,11 +279,11 @@ def test_b_r2_load_tracker_never_raises_on_a_missing_instruments_dir(
     assert stub_models[0].build_gallery_calls == []
 
 
-def test_b_r2_the_apps_bare_call_site_still_loads_the_shipped_galleries(weights, stub_models):
-    """`app/backend/backend/main.py` calls `load_tracker(args.weights)` with no
-    instruments_dir. That call site must still get the shipped specimen photos,
-    i.e. the parameter defaults to the real directory rather than to None
-    (which would silently disable binding for the demo)."""
+def test_b_r2_a_bare_load_tracker_call_still_loads_the_shipped_galleries(
+    weights, stub_models
+):
+    """The backward-compatible bare call gets the shipped specimen photos,
+    rather than silently disabling persistent binding."""
     if not persistent_gallery.DEFAULT_INSTRUMENTS_DIR.exists():
         pytest.skip("shipped specimen photos are not present in this checkout")
 

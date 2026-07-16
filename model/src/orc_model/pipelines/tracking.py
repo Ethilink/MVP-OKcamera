@@ -27,6 +27,7 @@ from orc_model.pipelines.persistent_gallery import (
 
 if TYPE_CHECKING:
     from orc_model.components.detector.detector import Detector
+    from orc_model.pipelines.config import OCSortConfig, TrackerConfig
     from orc_model.pipelines.deep_ocsort.tracker import DeepOCSortTracker
     from orc_model.pipelines.session_linker import SessionLinker
 
@@ -199,15 +200,17 @@ def load_tracker(
     absent_death_s: float | None = None,
     workspace_max_center_y_ratio: float | None = DEFAULT_WORKSPACE_MAX_CENTER_Y_RATIO,
     instruments_dir: str | Path | None = DEFAULT_INSTRUMENTS_DIR,
+    config: TrackerConfig | None = None,
 ) -> InstrumentTracker:
     """Compose the real `InstrumentTracker`: RF-DETR detector -> Deep OC-SORT
     -> SessionLinker, per `model/docs/linker-design.md` "Where it composes".
-    This is the concrete unblock for `app/backend/backend/main.py`'s
-    `load_tracker(args.weights)` call site.
+    The app passes the typed configuration loaded from ``app/mvp.toml``.
 
     `weights_path` is the only required argument -- every other knob has a
-    workable default, so `load_tracker(weights_path)` alone (the app's call
-    site) just works.
+    workable default, so `load_tracker(weights_path)` alone still works.
+    The KU Leuven app passes its complete, documented ``TrackerConfig`` from
+    ``backend.mvp_settings`` instead; when ``config`` is supplied, it is the
+    source of truth and the legacy individual keyword arguments are ignored.
 
     `fps` is the measured processing rate, not the camera capture rate. The
     final M3 Max pipeline measured 2.87-3.13 fps on the two demo recordings,
@@ -247,54 +250,105 @@ def load_tracker(
     DINOv2-B from the local HF cache -- so this call fails fast at startup on
     a missing/mismatched cache instead of on the first tracked frame.
     """
-    if absent_death_s is None:
-        absent_death_s = max_age_seconds
-    elif absent_death_s < max_age_seconds:
+    from orc_model.pipelines.config import (
+        DetectorConfig,
+        LinkerConfig,
+        MatcherConfig,
+        OCSortConfig,
+        TrackerConfig,
+    )
+
+    if config is None:
+        resolved_absent_death_s = (
+            max_age_seconds if absent_death_s is None else absent_death_s
+        )
+        config = TrackerConfig(
+            expected_processing_fps=fps,
+            instruments_dir=instruments_dir,
+            detector=DetectorConfig(
+                confidence=confidence,
+                workspace_max_center_y_ratio=workspace_max_center_y_ratio,
+            ),
+            oc_sort=OCSortConfig(max_age_seconds=max_age_seconds),
+            matcher=MatcherConfig(),
+            linker=LinkerConfig(absent_death_s=resolved_absent_death_s),
+        )
+
+    detector_config = config.detector
+    oc_sort_config = config.oc_sort
+    matcher_config = config.matcher
+    linker_config = config.linker
+
+    if linker_config.absent_death_s < oc_sort_config.max_age_seconds:
         raise ValueError(
-            f"absent_death_s ({absent_death_s}) must be >= max_age_seconds "
-            f"({max_age_seconds}): the linker must never declare an identity "
+            f"absent_death_s ({linker_config.absent_death_s}) must be >= max_age_seconds "
+            f"({oc_sort_config.max_age_seconds}): the linker must never declare an identity "
             "dead before the tracker itself has given up coasting its raw id."
         )
-    if (
-        workspace_max_center_y_ratio is not None
-        and not 0.0 < workspace_max_center_y_ratio <= 1.0
-    ):
-        raise ValueError("workspace_max_center_y_ratio must be in (0, 1] or None")
 
     weights_path = Path(weights_path)
-    detector = _build_detector(weights_path, confidence)
+    detector = _build_detector(
+        weights_path,
+        detector_config.confidence,
+        detector_config.top_k,
+    )
     from orc_model.pipelines.matching import ChampionMethod
     from orc_model.pipelines.session_linker import SessionLinker
 
-    matcher = ChampionMethod()  # loads DINOv2-B eagerly -- fail fast, not on first frame
+    matcher = ChampionMethod(
+        alpha=matcher_config.alpha,
+        size_alpha=matcher_config.size_alpha,
+        tau=matcher_config.acceptance_threshold,
+        margin=matcher_config.winner_margin,
+        mask_dilate_px=matcher_config.mask_dilate_px,
+        max_iter=matcher_config.max_iterations,
+        model_id=matcher_config.embedding_model,
+        cos_tau=matcher_config.single_gallery_cosine_threshold,
+    )  # loads DINOv2-B eagerly -- fail fast, not on first frame
     galleries = None
-    if instruments_dir is None:
+    if config.instruments_dir is None:
         _log.info("instruments_dir=None -- specimen binding disabled, linking session-only")
     else:
         # Embed the specimen photos ONCE, here, and hand the vectors to the
         # linker; reset() must never re-load or re-embed them.
-        galleries = load_persistent_galleries(matcher, instruments_dir) or None
+        galleries = load_persistent_galleries(matcher, config.instruments_dir) or None
         if galleries is None:
-            _log.info("no persistent galleries under %s -- linking session-only", instruments_dir)
+            _log.info(
+                "no persistent galleries under %s -- linking session-only",
+                config.instruments_dir,
+            )
     session_linker = SessionLinker(
         matcher,
-        fps=fps,
-        absent_death_s=absent_death_s,
+        fps=config.expected_processing_fps,
         persistent_galleries=galleries,
+        bind_tau=linker_config.bind_threshold,
+        bind_margin=linker_config.bind_margin,
+        unknown_id_offset=linker_config.unknown_id_offset,
+        enrolment_window_s=linker_config.enrolment_window_s,
+        evidence_window_s=linker_config.evidence_window_s,
+        evidence_frames=linker_config.evidence_frames,
+        absent_death_s=linker_config.absent_death_s,
+        min_mask_area_px=linker_config.min_mask_area_px,
+        unknown_recheck_cooldown_s=linker_config.unknown_recheck_cooldown_s,
+        unknown_recheck_appearance_delta=linker_config.unknown_recheck_appearance_delta,
+        unknown_recheck_mask_iou=linker_config.unknown_recheck_mask_iou,
+        unknown_recheck_quality_gain=linker_config.unknown_recheck_quality_gain,
+        unknown_recheck_fingerprint_px=linker_config.unknown_recheck_fingerprint_px,
     )
 
     return _RealInstrumentTracker(
         detector=detector,
-        confidence=confidence,
-        fps=fps,
-        max_age_seconds=max_age_seconds,
+        confidence=detector_config.confidence,
+        fps=config.expected_processing_fps,
+        max_age_seconds=oc_sort_config.max_age_seconds,
+        oc_sort_config=oc_sort_config,
         session_linker=session_linker,
         model_version=_model_version(weights_path),
-        workspace_max_center_y_ratio=workspace_max_center_y_ratio,
+        workspace_max_center_y_ratio=detector_config.workspace_max_center_y_ratio,
     )
 
 
-def _build_detector(weights_path: Path, confidence: float) -> Detector:
+def _build_detector(weights_path: Path, confidence: float, top_k: int = 300) -> Detector:
     """The detector on the CoreML EP (Apple Silicon GPU/Neural Engine), falling
     back to plain CPU wherever CoreML isn't available.
 
@@ -329,13 +383,14 @@ def _build_detector(weights_path: Path, confidence: float) -> Detector:
     from orc_model.components.detector.detector import Detector
 
     if "CoreMLExecutionProvider" not in onnxruntime.get_available_providers():
-        return Detector(weights_path, confidence_threshold=confidence)
+        return Detector(weights_path, confidence_threshold=confidence, top_k=top_k)
 
     cache_dir = weights_path.parent / ".coreml_cache"
     cache_dir.mkdir(exist_ok=True)
     return Detector(
         weights_path,
         confidence_threshold=confidence,
+        top_k=top_k,
         providers=["CoreMLExecutionProvider", "CPUExecutionProvider"],
         provider_options=[
             {
@@ -376,6 +431,7 @@ class _RealInstrumentTracker:
         confidence: float,
         fps: float,
         max_age_seconds: float,
+        oc_sort_config: OCSortConfig | None = None,
         session_linker: SessionLinker,
         model_version: str,
         workspace_max_center_y_ratio: float | None,
@@ -383,7 +439,11 @@ class _RealInstrumentTracker:
         self.confidence = confidence
         self._detector = detector
         self._fps = fps
-        self._max_age_seconds = max_age_seconds
+        if oc_sort_config is None:
+            from orc_model.pipelines.config import OCSortConfig
+
+            oc_sort_config = OCSortConfig(max_age_seconds=max_age_seconds)
+        self._oc_sort_config = oc_sort_config
         self._session_linker = session_linker
         self._model_version = model_version
         self._workspace_max_center_y_ratio = workspace_max_center_y_ratio
@@ -398,7 +458,21 @@ class _RealInstrumentTracker:
         return DeepOCSortTracker(
             det_thresh=self.confidence,
             frame_rate=self._fps,
-            max_age_seconds=self._max_age_seconds,
+            max_age_seconds=self._oc_sort_config.max_age_seconds,
+            min_hits=self._oc_sort_config.min_hits,
+            iou_threshold=self._oc_sort_config.iou_threshold,
+            delta_t=self._oc_sort_config.delta_t,
+            association=self._oc_sort_config.association,
+            inertia=self._oc_sort_config.inertia,
+            appearance_weight=self._oc_sort_config.appearance_weight,
+            embedding_momentum=self._oc_sort_config.embedding_momentum,
+            adaptive_weight=self._oc_sort_config.adaptive_weight,
+            embedding_off=self._oc_sort_config.embedding_off,
+            camera_motion_compensation_off=(
+                self._oc_sort_config.camera_motion_compensation_off
+            ),
+            adaptive_weight_off=self._oc_sort_config.adaptive_weight_off,
+            mask_crop=self._oc_sort_config.mask_crop,
         )
 
     @property

@@ -773,6 +773,32 @@ class TestAC7MainFakeSmoke:
         resp = client.get("/status")
         assert resp.status_code == 200
 
+    def test_ac07_main_can_select_a_different_toml_profile(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        import backend.main as main_module
+        from backend.mvp_settings import DEFAULT_MVP_CONFIG_PATH
+
+        custom_config = tmp_path / "rehearsal.toml"
+        custom_config.write_text(
+            DEFAULT_MVP_CONFIG_PATH.read_text().replace(
+                "fake_fps = 10.0", "fake_fps = 7.0"
+            )
+        )
+        captured: dict = {}
+        real_scenario_tracker = main_module.ScenarioTracker
+
+        def scenario_tracker(*, fps):
+            captured["fake_fps"] = fps
+            return real_scenario_tracker(fps=fps)
+
+        monkeypatch.setattr(main_module, "ScenarioTracker", scenario_tracker)
+        monkeypatch.setattr(main_module.uvicorn, "run", lambda app, **kwargs: None)
+
+        main_module.main(["--fake", "--config", str(custom_config)])
+
+        assert captured["fake_fps"] == 7.0
+
 
 def _resolve_schema(openapi: dict, schema: dict) -> dict:
     """Resolve a top-level `$ref` (FastAPI emits these for declared Pydantic
