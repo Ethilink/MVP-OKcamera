@@ -64,6 +64,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import NamedTuple
 
+import cv2
 import numpy as np
 import supervision as sv
 
@@ -76,6 +77,16 @@ class _Crop(NamedTuple):
     mask: np.ndarray
     quality: float  # mask_area * confidence -- ranking only, never admission
     ok: bool  # quality-admitted: big enough mask, not touching the frame edge
+
+
+class _CropFingerprint(NamedTuple):
+    """A cheap, deterministic summary of one usable crop, used only to decide
+    (without DINO/matcher) whether a settled Unknown's evidence changed enough
+    to re-arm. See `unknown-recovery-SPEC.md` § "Cheap crop-change detector"."""
+
+    rgb: np.ndarray  # (S, S, 3) float32 in [0, 1], background masked to neutral gray
+    mask: np.ndarray  # (S, S) bool, nearest-neighbour resized
+    quality: float  # the crop's mask_area * confidence at fingerprint time
 
 
 @dataclass
@@ -99,14 +110,45 @@ class _PendingTrack:
     object)."""
 
     first_seen_frame: int
+    # Each entry is `(rgb, mask, quality)` -- quality is carried alongside so a
+    # rejection can fingerprint the highest-quality crop STILL IN this bounded
+    # window (SPEC § "Fingerprint"), rather than a since-evicted historical best.
     crop_buffer: deque
     absence_streak: int = 0
     not_before_frame: int = 0
 
 
+@dataclass
+class _SettledUnknown:
+    """A raw track whose last decision rejected it. Not terminal: while the raw
+    track stays present the linker cheaply watches for a material crop change or
+    a candidate-target expansion and re-arms a fresh Pending window (SPEC
+    § "Internal state", B-UR1..B-UR8)."""
+
+    decision_fingerprint: _CropFingerprint | None  # None == last decision had no usable crop
+    decision_quality: float
+    candidate_ids_at_decision: frozenset[int]
+    last_decision_frame: int
+    absence_streak: int = 0
+
+
 DEFAULT_BIND_TAU = 0.30
 DEFAULT_BIND_MARGIN = 0.02
 DEFAULT_UNKNOWN_ID_OFFSET = 1000
+
+# Recoverable-Unknown recheck gates (SPEC § "Material-change rule"). Engineering
+# starting points, converted to frames via fps where relevant; tests pass
+# explicit values and never assert these defaults.
+DEFAULT_UNKNOWN_RECHECK_COOLDOWN_S = 0.75
+DEFAULT_UNKNOWN_RECHECK_APPEARANCE_DELTA = 0.15
+DEFAULT_UNKNOWN_RECHECK_MASK_IOU = 0.75
+DEFAULT_UNKNOWN_RECHECK_QUALITY_GAIN = 0.25
+DEFAULT_UNKNOWN_RECHECK_FINGERPRINT_PX = 32
+
+
+def _round4(value: float | None) -> float | None:
+    """Round a metric for the re-arm log, passing None (no measurement) through."""
+    return None if value is None else round(value, 4)
 
 
 class SessionLinker:
@@ -127,6 +169,11 @@ class SessionLinker:
         evidence_frames: int = 3,
         absent_death_s: float = 1.0,
         min_mask_area_px: int = 200,
+        unknown_recheck_cooldown_s: float = DEFAULT_UNKNOWN_RECHECK_COOLDOWN_S,
+        unknown_recheck_appearance_delta: float = DEFAULT_UNKNOWN_RECHECK_APPEARANCE_DELTA,
+        unknown_recheck_mask_iou: float = DEFAULT_UNKNOWN_RECHECK_MASK_IOU,
+        unknown_recheck_quality_gain: float = DEFAULT_UNKNOWN_RECHECK_QUALITY_GAIN,
+        unknown_recheck_fingerprint_px: int = DEFAULT_UNKNOWN_RECHECK_FINGERPRINT_PX,
         logger: logging.Logger | None = None,
     ) -> None:
         # Already embedded by `persistent_gallery.load_persistent_galleries()`
@@ -141,6 +188,12 @@ class SessionLinker:
         self._enrolment_window_frames = max(1, round(enrolment_window_s * fps))
         self._evidence_window_frames = round(evidence_window_s * fps)
         self._death_threshold_frames = round(absent_death_s * fps)
+        # Recoverable-Unknown recheck gates (SPEC § "Cheap crop-change detector").
+        self._unknown_recheck_cooldown_frames = round(unknown_recheck_cooldown_s * fps)
+        self._unknown_recheck_appearance_delta = unknown_recheck_appearance_delta
+        self._unknown_recheck_mask_iou = unknown_recheck_mask_iou
+        self._unknown_recheck_quality_gain = unknown_recheck_quality_gain
+        self._unknown_recheck_fingerprint_px = unknown_recheck_fingerprint_px
         self._logger = logger or logging.getLogger("orc_model.session_linker")
         self.reset()
 
@@ -155,7 +208,11 @@ class SessionLinker:
         self._raw_to_session: dict[int, int] = {}
         self._identities: dict[int, _Identity] = {}
         self._pending: dict[int, _PendingTrack] = {}
-        self._settled_unknown: set[int] = set()
+        # Recoverable Unknown: raw id -> its last-decision baseline (fingerprint,
+        # quality, candidate target set, decision frame). Replaces the old
+        # terminal `set[int]`; a settled Unknown is observed, not forgotten,
+        # until it re-arms or ages out (SPEC B-UR9 clears it here).
+        self._settled_unknown: dict[int, _SettledUnknown] = {}
 
     @property
     def roster(self) -> frozenset[int]:
@@ -173,6 +230,7 @@ class SessionLinker:
         present = set() if is_empty else {int(r) for r in detections.tracker_id}
         self._age_out_missing_actives(present)
         self._age_out_pending(present)
+        self._age_out_settled_unknown(present)
 
         if is_empty:
             self._run_batch_decision(self._collect_closed_pending())
@@ -215,7 +273,7 @@ class SessionLinker:
             return session_id
 
         if raw_id in self._settled_unknown:
-            return raw_id + self._unknown_id_offset
+            return self._observe_settled_unknown(raw_id, crop)
 
         pending = self._pending.get(raw_id)
         if pending is None:
@@ -226,7 +284,7 @@ class SessionLinker:
             self._pending[raw_id] = pending
         pending.absence_streak = 0
         if crop is not None and crop.ok:
-            pending.crop_buffer.append((crop.rgb, crop.mask))
+            pending.crop_buffer.append((crop.rgb, crop.mask, crop.quality))
         # Not (yet) a roster identity: emit in the offset id space, so the
         # roster and the unknown/pending ranges stay disjoint forever. Internal
         # state stays keyed by the raw id.
@@ -470,7 +528,17 @@ class SessionLinker:
 
     def _age_out_missing_actives(self, present: set[int]) -> None:
         for identity in self._identities.values():
-            if identity.active_raw_id is None or identity.active_raw_id in present:
+            if identity.active_raw_id is None:
+                continue
+            if identity.active_raw_id in present:
+                # Reset the streak HERE, in the age pass, not later when this
+                # identity's own row is processed. Otherwise a settled-Unknown row
+                # observed EARLIER in the same frame's row loop would still read a
+                # stale positive streak and wrongly count a fully-present identity
+                # as a coasting candidate target -- a row-order-dependent spurious
+                # re-arm (SPEC § "Candidate target set"; invariant #10). The
+                # `_process_row` reset below is now redundant but harmless.
+                identity.absence_streak = 0
                 continue
             identity.absence_streak += 1
             if identity.absence_streak > self._death_threshold_frames:
@@ -520,6 +588,202 @@ class SessionLinker:
                 del self._pending[raw_id]
         return closed
 
+    # -- B-UR: recoverable Unknown (change-triggered re-identification) -------
+
+    def _age_out_settled_unknown(self, present: set[int]) -> None:
+        """SPEC B-UR8. Present -> reset the absence streak; absent -> increment it
+        and delete the settled state once it exceeds the death threshold, so a
+        later occurrence of the raw id is treated as a fresh Pending track and
+        rejected-track state cannot grow session-long."""
+        for raw_id in list(self._settled_unknown):
+            settled = self._settled_unknown[raw_id]
+            if raw_id in present:
+                settled.absence_streak = 0
+                continue
+            settled.absence_streak += 1
+            if settled.absence_streak > self._death_threshold_frames:
+                del self._settled_unknown[raw_id]
+
+    def _observe_settled_unknown(self, raw_id: int, crop: _Crop | None) -> int:
+        """Cheaply watch a settled Unknown and re-arm it as Pending when its
+        evidence materially changed or a new link target appeared. Returns the
+        offset id to emit while it stays (or becomes) not-in-roster.
+
+        This never calls the matcher (SPEC B-UR5): the only work here is the
+        low-cost fingerprint comparison, and only once the cheap gates pass."""
+        settled = self._settled_unknown[raw_id]
+        offset_id = raw_id + self._unknown_id_offset
+
+        if crop is None or not crop.ok:
+            return offset_id  # no usable evidence this frame -> stay settled
+        if self._frame_count - settled.last_decision_frame < self._unknown_recheck_cooldown_frames:
+            return offset_id  # rate-limit successive decisions for one raw id
+        candidate_ids = self._candidate_target_ids()
+        if not candidate_ids:
+            return offset_id  # nothing this track could legitimately recover into
+
+        trigger, metrics = self._recheck_trigger(settled, crop, candidate_ids)
+        if trigger is None:
+            return offset_id  # unchanged evidence and no target expansion
+
+        self._rearm_unknown(raw_id, crop, settled, candidate_ids, trigger, metrics)
+        return offset_id  # still offset; the fresh Pending window decides later
+
+    def _recheck_trigger(
+        self, settled: _SettledUnknown, crop: _Crop, candidate_ids: frozenset[int]
+    ) -> tuple[str | None, dict[str, float | None]]:
+        """Decide whether (and why) a settled Unknown re-arms. Any one signal
+        crossing its gate is sufficient (SPEC § "Material-change rule")."""
+        metrics: dict[str, float | None] = {
+            "appearance_delta": None,
+            "mask_iou": None,
+            "quality_gain": None,
+        }
+        expanded = bool(candidate_ids - settled.candidate_ids_at_decision)
+
+        if settled.decision_fingerprint is None:
+            # B-UR7: the last decision had no usable crop, so this first usable
+            # crop is itself new evidence.
+            return "no_previous_evidence", metrics
+
+        fingerprint = self._fingerprint(crop.rgb, crop.mask, crop.quality)
+        appearance_delta = float(np.mean(np.abs(fingerprint.rgb - settled.decision_fingerprint.rgb)))
+        mask_iou = self._mask_iou(fingerprint.mask, settled.decision_fingerprint.mask)
+        quality_gain = (crop.quality / max(settled.decision_quality, 1.0)) - 1.0
+        metrics = {
+            "appearance_delta": appearance_delta,
+            "mask_iou": mask_iou,
+            "quality_gain": quality_gain,
+        }
+
+        if appearance_delta >= self._unknown_recheck_appearance_delta:
+            return "appearance", metrics
+        if mask_iou <= self._unknown_recheck_mask_iou:
+            return "mask", metrics
+        if quality_gain >= self._unknown_recheck_quality_gain:
+            return "quality", metrics
+        if expanded:
+            return "target_expanded", metrics
+        return None, metrics
+
+    def _rearm_unknown(
+        self,
+        raw_id: int,
+        crop: _Crop,
+        settled: _SettledUnknown,
+        candidate_ids: frozenset[int],
+        trigger: str,
+        metrics: dict[str, float | None],
+    ) -> None:
+        """Move a raw id from Settled Unknown back to a fresh normal Pending
+        window, seeded with only the triggering crop (SPEC B-UR2: rejected-window
+        crops are never mixed in). This links nothing; the existing batch path
+        makes the eventual decision."""
+        del self._settled_unknown[raw_id]
+        pending = _PendingTrack(
+            first_seen_frame=self._frame_count,
+            crop_buffer=deque(maxlen=self._evidence_frames),
+        )
+        pending.crop_buffer.append((crop.rgb, crop.mask, crop.quality))
+        self._pending[raw_id] = pending
+
+        frames_since = self._frame_count - settled.last_decision_frame
+        old_candidates = sorted(settled.candidate_ids_at_decision)
+        new_candidates = sorted(candidate_ids)
+        self._logger.info(
+            "unknown re-armed: raw_id=%d trigger=%s appearance_delta=%s mask_iou=%s "
+            "quality_gain=%s old_candidates=%s new_candidates=%s frames_since_decision=%d",
+            raw_id, trigger,
+            _round4(metrics["appearance_delta"]), _round4(metrics["mask_iou"]),
+            _round4(metrics["quality_gain"]), old_candidates, new_candidates, frames_since,
+            # Structured payload for the app's optional --debug console (backend.debug).
+            extra={
+                "orc": {
+                    "event": "unknown_rearm",
+                    "raw_id": raw_id,
+                    "trigger": trigger,
+                    "appearance_delta": metrics["appearance_delta"],
+                    "mask_iou": metrics["mask_iou"],
+                    "quality_gain": metrics["quality_gain"],
+                    "old_candidates": old_candidates,
+                    "new_candidates": new_candidates,
+                    "frames_since_decision": frames_since,
+                }
+            },
+        )
+
+    def _settle_unknown(
+        self, raw_id: int, pending: _PendingTrack, candidate_ids: frozenset[int]
+    ) -> None:
+        """Record (or replace) a raw id's Settled Unknown baseline from the just-
+        closed window: the fingerprint of the highest-quality crop STILL IN the
+        window (or None if it had no usable crop), its quality, the candidate
+        target set considered, and this decision frame. Deriving the crop from the
+        current `crop_buffer` -- not a separately tracked all-time best -- keeps
+        the baseline aligned with the crops the matcher actually scored, including
+        after a deferred window evicted its earlier crops (SPEC B-UR6). Never
+        appends decision history (SPEC § "Internal state")."""
+        best = max(pending.crop_buffer, key=lambda entry: entry[2], default=None)
+        if best is None:
+            fingerprint, quality = None, 0.0
+        else:
+            rgb, mask, quality = best
+            fingerprint = self._fingerprint(rgb, mask, quality)
+        self._settled_unknown[raw_id] = _SettledUnknown(
+            decision_fingerprint=fingerprint,
+            decision_quality=quality,
+            candidate_ids_at_decision=candidate_ids,
+            last_decision_frame=self._frame_count,
+        )
+
+    def _candidate_target_ids(self) -> frozenset[int]:
+        """The identities that could legitimately receive or defer a link on this
+        frame AND have a usable gallery (SPEC § "Candidate target set"): every
+        Missing identity, plus every Active identity currently coasting inside its
+        death grace. A cheap trigger only -- matcher comparison stays against the
+        complete frozen roster."""
+        return frozenset(
+            session_id
+            for session_id, identity in self._identities.items()
+            if self._has_usable_gallery(identity)
+            and (identity.active_raw_id is None or identity.absence_streak > 0)
+        )
+
+    @staticmethod
+    def _has_usable_gallery(identity: _Identity) -> bool:
+        """Whether an identity would appear in `_comparison_galleries()` -- i.e.
+        has at least one gallery source (persistent, Start, or last-seen)."""
+        return (
+            identity.bound_specimen is not None
+            or identity.start_views is not None
+            or identity.last_seen_views is not None
+        )
+
+    def _fingerprint(self, rgb: np.ndarray, mask: np.ndarray, quality: float) -> _CropFingerprint:
+        """A small, deterministic RGB+mask thumbnail (SPEC § "Fingerprint"):
+        neutral-gray outside the mask, bilinear-resized RGB, nearest mask."""
+        size = self._unknown_recheck_fingerprint_px
+        rgb = rgb.astype(np.float32)
+        mask = mask.astype(bool)
+        masked = np.where(mask[:, :, None], rgb, 128.0).astype(np.float32)
+        rgb_small = cv2.resize(masked, (size, size), interpolation=cv2.INTER_LINEAR)
+        mask_small = cv2.resize(
+            mask.astype(np.uint8), (size, size), interpolation=cv2.INTER_NEAREST
+        ).astype(bool)
+        return _CropFingerprint(
+            rgb=(rgb_small / 255.0).astype(np.float32),
+            mask=mask_small,
+            quality=quality,
+        )
+
+    @staticmethod
+    def _mask_iou(a: np.ndarray, b: np.ndarray) -> float:
+        intersection = int(np.logical_and(a, b).sum())
+        union = int(np.logical_or(a, b).sum())
+        if union == 0:
+            return 1.0  # both empty -> treat as identical (no mask-change signal)
+        return intersection / union
+
     # -- B5: batched, gated decision ----------------------------------------
 
     def _comparison_galleries(self) -> dict[int, ChampionGallery]:
@@ -562,16 +826,24 @@ class SessionLinker:
         resolved: dict[int, int | None] = {}
         rows = []
         pending_crops_by_raw_id: dict[int, list[tuple[np.ndarray, np.ndarray]]] = {}
+        pending_by_raw_id = dict(closed)
+        # The candidate target set considered for every row settling on this tick.
+        # Sampled BEFORE any link mutates identity state, so it reflects the
+        # targets available when these decisions were made (SPEC § "Candidate
+        # target set"; used as each Settled Unknown's re-arm baseline).
+        candidate_ids = self._candidate_target_ids()
         for raw_id, pending in closed:
-            crop_tuples = list(pending.crop_buffer)
-            crops = [c for c, _ in crop_tuples]
-            masks = [m for _, m in crop_tuples]
+            crop_tuples = list(pending.crop_buffer)  # (rgb, mask, quality)
+            crops = [rgb for rgb, _mask, _quality in crop_tuples]
+            masks = [mask for _rgb, mask, _quality in crop_tuples]
             if not crops:
                 resolved[raw_id] = None
-                self._settled_unknown.add(raw_id)
+                self._settle_unknown(raw_id, pending, candidate_ids)
                 continue
             rows.append((raw_id, crops, masks))
-            pending_crops_by_raw_id[raw_id] = crop_tuples
+            # `_link` transfers these into the identity's rolling buffer, which is
+            # (rgb, mask) pairs -- strip the quality carried for fingerprinting.
+            pending_crops_by_raw_id[raw_id] = [(rgb, mask) for rgb, mask, _quality in crop_tuples]
 
         comparison_galleries = self._comparison_galleries()
         eligible_missing_ids = self._eligible_missing_ids(comparison_galleries)
@@ -593,9 +865,8 @@ class SessionLinker:
             self._link(raw_id, session_id, pending_crops_by_raw_id.get(raw_id, []))
             resolved[raw_id] = session_id
         for raw_id, _crops, _masks in unresolved:
-            self._settled_unknown.add(raw_id)
+            self._settle_unknown(raw_id, pending_by_raw_id[raw_id], candidate_ids)
             resolved[raw_id] = None
-        pending_by_raw_id = dict(closed)
         for raw_id, session_id in deferred.items():
             pending = pending_by_raw_id[raw_id]
             identity = self._identities[session_id]

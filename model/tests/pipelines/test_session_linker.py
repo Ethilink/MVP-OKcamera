@@ -877,7 +877,13 @@ def test_b5_4_simultaneous_conflict_links_best_row_and_leaves_loser_unknown():
     assert len(winner_calls) == 1
 
 
-def test_b5_5_reject_stays_unknown_permanently():
+def test_b5_5_reject_settles_unknown_and_an_unchanged_crop_does_not_retry():
+    # Replaces the old `test_b5_5_reject_stays_unknown_permanently`: settling is
+    # no longer terminal (recovery is now event-driven — see the B-UR section).
+    # What survives from the old contract is the *stable* half: a rejection
+    # settles Unknown and an UNCHANGED settled crop must never re-invoke the
+    # matcher. The recoverable half (a materially changed crop re-arms) is pinned
+    # by test_ur1/test_ur5 below; static-no-retry over many frames by test_ur2.
     fps = 4.0
     enrolment_window_s = 0.25
     window = round(enrolment_window_s * fps)
@@ -893,6 +899,9 @@ def test_b5_5_reject_stays_unknown_permanently():
         evidence_frames=1,
         absent_death_s=absent_death_s,
         min_mask_area_px=100,
+        # cooldown 0 so the no-retry-on-unchanged assertion below actually
+        # exercises the change gate rather than being shielded by a cooldown.
+        unknown_recheck_cooldown_s=0.0,
     )
     raw_roster_id = 1001
     session_id = 1
@@ -917,13 +926,15 @@ def test_b5_5_reject_stays_unknown_permanently():
     calls_so_far = len(score_calls_for_marker(matcher, marker))
     assert calls_so_far == 1, "a rejected row is scored once against the stable comparison dictionary"
 
-    # Reappearance after settling: never re-decided, permanent offset emission.
+    # Reappearance with the SAME crop and the SAME candidate set: no material
+    # change and no target-set expansion, so the settled Unknown is not re-armed
+    # and the matcher is never called again.
     rows2 = [{"tracker_id": unknown_raw_id, "box": BOX_B, "bgr": reject_bgr}]
     frame2, dets2 = build_call(rows2)
     out2 = linker.update(dets2, frame2)
     assert output_tracker_id(out2, rows2, unknown_raw_id) == unknown_raw_id + UNKNOWN_OFFSET
     assert len(score_calls_for_marker(matcher, marker)) == calls_so_far, (
-        "a settled-Unknown raw id must never trigger another matcher call"
+        "an unchanged settled-Unknown raw id must not trigger another matcher call"
     )
 
 
@@ -2323,9 +2334,11 @@ def test_b_o2_the_batch_decision_log_exposes_each_candidates_atom_count(caplog):
 # differently. `data["resolving"]` splits them: True while a track is still
 # being decided (pending in its evidence window, OR deferred behind a coasting
 # active id), False once it has settled — whether it settled into a roster id
-# (linked) or into a permanent Unknown (rejected). Roster ids and enrolment are
-# covered too. This is the truth the overlay spinner gates on, so it must track
-# the linker's ACTUAL decision, never a clock.
+# (linked) or into a settled Unknown (rejected). A settled Unknown is NOT
+# permanent: it can re-arm back to Pending (resolving True again) on a material
+# change or target expansion — see the B-UR section. Roster ids and enrolment
+# are covered too. This is the truth the overlay spinner gates on, so it must
+# track the linker's ACTUAL decision, never a clock.
 # --------------------------------------------------------------------------
 
 
@@ -2518,9 +2531,908 @@ def test_resolving_flag_false_once_a_track_settles_unknown():
     assert output_tracker_id(out, rows, raw_id) == raw_id + UNKNOWN_OFFSET
     assert resolving_of(out, rows, raw_id) is False
 
-    # And it stays settled (not resolving) for the rest of the recording.
+    # And with the same (unchanged) crop it stays settled — not resolving — on
+    # the next frame too. (It is no longer *permanently* settled: a material
+    # change or target expansion could re-arm it; see the B-UR section.)
     rows = [{"tracker_id": raw_id, "box": BOX_C, "bgr": foreign_bgr}]
     frame, dets = build_call(rows)
     out = linker.update(dets, frame)
     assert output_tracker_id(out, rows, raw_id) == raw_id + UNKNOWN_OFFSET
     assert resolving_of(out, rows, raw_id) is False
+
+
+# ==========================================================================
+# B-UR — Recoverable Unknown via change-triggered re-identification
+# (model/docs/unknown-recovery-SPEC.md). A settled Unknown is no longer
+# terminal for the lifetime of its raw id: while the raw track is present, the
+# linker cheaply watches its crop and candidate target set, and re-arms a fresh
+# Pending window when the crop changes materially OR a new link target appears.
+# The tests below pass EXPLICIT recheck thresholds and never assert the defaults.
+# ==========================================================================
+
+
+def recovery_linker(
+    matcher,
+    *,
+    fps=4.0,
+    cooldown_s=0.0,
+    appearance_delta=0.15,
+    mask_iou=0.75,
+    quality_gain=0.25,
+    **kwargs,
+):
+    """A linker wired for the recovery tests. `cooldown_s=0.0` (the default here)
+    makes a re-arm permissible on the very next frame after a decision, so tests
+    that are not about the cooldown never trip over it; test_ur9 sets it."""
+    options = dict(
+        enrolment_window_s=0.25,
+        evidence_window_s=10.0,
+        evidence_frames=1,
+        absent_death_s=0.5,
+        min_mask_area_px=100,
+    )
+    options.update(kwargs)
+    return SessionLinker(
+        matcher,
+        fps=fps,
+        unknown_id_offset=UNKNOWN_OFFSET,
+        unknown_recheck_cooldown_s=cooldown_s,
+        unknown_recheck_appearance_delta=appearance_delta,
+        unknown_recheck_mask_iou=mask_iou,
+        unknown_recheck_quality_gain=quality_gain,
+        **options,
+    )
+
+
+def _enrol(linker, rows_by_frame, *, window):
+    """Drive an enrolment window from a list of per-frame row lists (or a single
+    row list repeated for `window` frames)."""
+    if isinstance(rows_by_frame, list) and rows_by_frame and isinstance(rows_by_frame[0], dict):
+        rows_by_frame = [rows_by_frame] * window
+    for rows in rows_by_frame:
+        frame, dets = build_call(rows)
+        linker.update(dets, frame)
+
+
+def _kill(linker, *, death_threshold):
+    for _ in range(death_threshold + 1):
+        frame, dets = empty_call()
+        linker.update(dets, frame)
+
+
+def test_ur1_hand_occlusion_recovery_reidentifies_original_session_id():
+    """PRIMARY REGRESSION (SPEC TDD #1, definition-of-done). An occluded window
+    rejects; unchanged occluded crops do not retry; a materially different
+    unobstructed crop opens a fresh window; the matcher accepts and the SAME raw
+    id emits the original session id."""
+    fps = 4.0
+    window = round(0.25 * fps)
+    death_threshold = round(0.5 * fps)
+    matcher = FakeMatcher()
+    linker = recovery_linker(matcher, fps=fps, cooldown_s=0.0, evidence_frames=1)
+
+    session_id = 1
+    _enrol(linker, [{"tracker_id": 601, "box": BOX_A, "bgr": (80, 80, 80)}], window=window)
+    assert linker.roster == frozenset({session_id})
+    _kill(linker, death_threshold=death_threshold)  # identity 1 -> Missing
+
+    occluded_bgr = (10, 10, 10)    # hand-covered crop -> rejected
+    clean_bgr = (60, 60, 200)      # hand gone: materially different -> accepted
+    occluded_marker = rgb_marker_for_bgr(occluded_bgr)
+    clean_marker = rgb_marker_for_bgr(clean_bgr)
+    matcher.program(occluded_marker, [({session_id: 0.1}, REJECT)])
+    matcher.program(clean_marker, [({session_id: 0.9}, session_id)])
+
+    recovering_raw_id = 602  # a NEW raw id, born while the hand covered the object
+
+    # Initial evidence window is occluded -> rejected -> settled Unknown.
+    rows = [{"tracker_id": recovering_raw_id, "box": BOX_B, "bgr": occluded_bgr}]
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+    assert output_tracker_id(out, rows, recovering_raw_id) == recovering_raw_id + UNKNOWN_OFFSET
+    assert resolving_of(out, rows, recovering_raw_id) is False, "a rejected track has settled, not resolving"
+    assert len(score_calls_for_marker(matcher, occluded_marker)) == 1
+
+    # Hand still covering: unchanged occluded crops must NOT re-invoke the matcher.
+    for _ in range(4):
+        rows = [{"tracker_id": recovering_raw_id, "box": BOX_B, "bgr": occluded_bgr}]
+        frame, dets = build_call(rows)
+        out = linker.update(dets, frame)
+        assert output_tracker_id(out, rows, recovering_raw_id) == recovering_raw_id + UNKNOWN_OFFSET
+        assert resolving_of(out, rows, recovering_raw_id) is False
+    assert len(score_calls_for_marker(matcher, occluded_marker)) == 1, (
+        "an unchanged settled Unknown must not retry the matcher"
+    )
+
+    # Hand leaves: the crop changes materially -> a fresh Pending window opens,
+    # the matcher scores it once, accepts, and the SAME raw id recovers session 1.
+    rows = [{"tracker_id": recovering_raw_id, "box": BOX_B, "bgr": clean_bgr}]
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+    assert len(score_calls_for_marker(matcher, clean_marker)) == 1, "the material change must re-arm and score once"
+    assert output_tracker_id(out, rows, recovering_raw_id) == session_id, (
+        "recovery links the same raw id back to its original session id"
+    )
+    assert resolving_of(out, rows, recovering_raw_id) is False, "linked and Active -> settled"
+
+
+def test_ur2_static_foreign_object_does_no_repeated_matcher_work():
+    """SPEC TDD #2 / B-UR5. After rejection, many unchanged frames cause no
+    additional score() calls and stay resolving=False."""
+    fps = 4.0
+    window = round(0.25 * fps)
+    death_threshold = round(0.5 * fps)
+    matcher = FakeMatcher()
+    linker = recovery_linker(matcher, fps=fps, cooldown_s=0.0, evidence_frames=1)
+
+    session_id = 1
+    _enrol(linker, [{"tracker_id": 701, "box": BOX_A, "bgr": (80, 80, 80)}], window=window)
+    _kill(linker, death_threshold=death_threshold)  # identity 1 -> Missing
+
+    foreign_bgr = (44, 55, 66)
+    marker = rgb_marker_for_bgr(foreign_bgr)
+    matcher.program(marker, [({session_id: 0.1}, REJECT)])
+    foreign_raw_id = 801
+    rows = [{"tracker_id": foreign_raw_id, "box": BOX_B, "bgr": foreign_bgr}]
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+    assert output_tracker_id(out, rows, foreign_raw_id) == foreign_raw_id + UNKNOWN_OFFSET
+    calls_after_settle = len(matcher.score_calls)
+    assert calls_after_settle == 1
+
+    for _ in range(12):
+        rows = [{"tracker_id": foreign_raw_id, "box": BOX_B, "bgr": foreign_bgr}]
+        frame, dets = build_call(rows)
+        out = linker.update(dets, frame)
+        assert output_tracker_id(out, rows, foreign_raw_id) == foreign_raw_id + UNKNOWN_OFFSET
+        assert resolving_of(out, rows, foreign_raw_id) is False
+    assert len(matcher.score_calls) == calls_after_settle, (
+        "a static Unknown must not add a single matcher call after settling"
+    )
+
+
+def test_ur3_recovery_window_holds_only_fresh_crops_not_rejected_ones():
+    """SPEC TDD #3 / B-UR2. The recovery matcher's crop markers contain the new
+    unobstructed window and none from the original rejected window."""
+    fps = 4.0
+    window = round(0.25 * fps)
+    death_threshold = round(0.5 * fps)
+    matcher = FakeMatcher()
+    # evidence_frames=2 so each window spans two crops: enough to prove the fresh
+    # window carries only clean crops.
+    linker = recovery_linker(matcher, fps=fps, cooldown_s=0.0, evidence_frames=2)
+
+    session_id = 1
+    _enrol(linker, [{"tracker_id": 901, "box": BOX_A, "bgr": (80, 80, 80)}], window=window)
+    _kill(linker, death_threshold=death_threshold)
+
+    occluded_bgr = (10, 10, 10)
+    clean_bgr = (60, 60, 200)
+    occluded_marker = rgb_marker_for_bgr(occluded_bgr)
+    clean_marker = rgb_marker_for_bgr(clean_bgr)
+    matcher.program(occluded_marker, [({session_id: 0.1}, REJECT)])
+    matcher.program(clean_marker, [({session_id: 0.9}, session_id)])
+    raw_id = 902
+
+    # Two occluded crops close the initial window -> rejected.
+    for _ in range(2):
+        rows = [{"tracker_id": raw_id, "box": BOX_B, "bgr": occluded_bgr}]
+        frame, dets = build_call(rows)
+        linker.update(dets, frame)
+    assert len(score_calls_for_marker(matcher, occluded_marker)) == 1
+
+    # Two clean crops: first re-arms + seeds the fresh window, second closes it.
+    for _ in range(2):
+        rows = [{"tracker_id": raw_id, "box": BOX_B, "bgr": clean_bgr}]
+        frame, dets = build_call(rows)
+        out = linker.update(dets, frame)
+    assert output_tracker_id(out, rows, raw_id) == session_id
+
+    clean_calls = score_calls_for_marker(matcher, clean_marker)
+    assert len(clean_calls) == 1, "exactly one recovery decision"
+    markers = crop_markers(clean_calls[0]["crops"])
+    assert markers == {clean_marker}, "the recovery window must contain only fresh (clean) crops"
+    assert occluded_marker not in markers, "no crop from the rejected window may leak into the recovery window"
+
+
+def test_ur4_subthreshold_jitter_does_not_rearm():
+    """SPEC TDD #4 / B-UR5. Below-threshold appearance, mask, and quality changes
+    do not re-arm (no spinner/matcher loop)."""
+    fps = 4.0
+    window = round(0.25 * fps)
+    death_threshold = round(0.5 * fps)
+    matcher = FakeMatcher()
+    linker = recovery_linker(
+        matcher, fps=fps, cooldown_s=0.0, evidence_frames=1, appearance_delta=0.15
+    )
+
+    session_id = 1
+    _enrol(linker, [{"tracker_id": 1001, "box": BOX_A, "bgr": (80, 80, 80)}], window=window)
+    _kill(linker, death_threshold=death_threshold)
+
+    baseline_bgr = (100, 100, 100)
+    marker = rgb_marker_for_bgr(baseline_bgr)
+    matcher.program(marker, [({session_id: 0.1}, REJECT)])
+    raw_id = 1002
+    rows = [{"tracker_id": raw_id, "box": BOX_B, "bgr": baseline_bgr}]
+    frame, dets = build_call(rows)
+    linker.update(dets, frame)
+    calls_after_settle = len(matcher.score_calls)
+    assert calls_after_settle == 1
+
+    # Small per-channel colour jitter (mean |Δ| ≈ 8/255 ≈ 0.03 « 0.15) AND a small
+    # confidence bump (0.9 -> 0.99 ≈ +10% quality « 25%), same box so mask IoU
+    # stays 1.0. Every signal is below its gate. (The synthetic harness always
+    # paints full-box masks, so mask IoU is structurally 1.0 here and the mask
+    # gate is exercised only in the negative — a partial-mask fixture would be
+    # needed to drive it below threshold.) These colours are deliberately NOT
+    # programmed: a wrong re-arm would call score() on an unprogrammed marker and
+    # raise, so this asserts the gate holds.
+    jitter = [
+        ((108, 104, 96), 0.99),
+        ((94, 106, 108), 0.86),
+        ((105, 95, 103), 0.95),
+    ]
+    for jitter_bgr, conf in jitter:
+        rows = [{"tracker_id": raw_id, "box": BOX_B, "bgr": jitter_bgr, "confidence": conf}]
+        frame, dets = build_call(rows)
+        out = linker.update(dets, frame)
+        assert output_tracker_id(out, rows, raw_id) == raw_id + UNKNOWN_OFFSET
+        assert resolving_of(out, rows, raw_id) is False
+    assert len(matcher.score_calls) == calls_after_settle, (
+        "sub-threshold appearance/quality jitter must not re-arm"
+    )
+
+
+def test_ur5_rejected_recovery_advances_the_baseline():
+    """SPEC TDD #5 / B-UR6. A changed crop triggers exactly one retry; rejection
+    updates the baseline; repeated identical crops do not trigger again."""
+    fps = 4.0
+    window = round(0.25 * fps)
+    death_threshold = round(0.5 * fps)
+    matcher = FakeMatcher()
+    linker = recovery_linker(matcher, fps=fps, cooldown_s=0.0, evidence_frames=1)
+
+    session_id = 1
+    _enrol(linker, [{"tracker_id": 1101, "box": BOX_A, "bgr": (80, 80, 80)}], window=window)
+    _kill(linker, death_threshold=death_threshold)
+
+    occluded_bgr = (10, 10, 10)
+    changed_bgr = (60, 60, 200)
+    occluded_marker = rgb_marker_for_bgr(occluded_bgr)
+    changed_marker = rgb_marker_for_bgr(changed_bgr)
+    matcher.program(occluded_marker, [({session_id: 0.1}, REJECT)])
+    # Exactly ONE programmed recovery response: a second retry on the same changed
+    # crop would consume a second (absent) response and raise.
+    matcher.program(changed_marker, [({session_id: 0.2}, REJECT)])
+    raw_id = 1102
+
+    rows = [{"tracker_id": raw_id, "box": BOX_B, "bgr": occluded_bgr}]
+    frame, dets = build_call(rows)
+    linker.update(dets, frame)
+
+    # First changed crop: re-arm -> one retry -> rejected -> new baseline = changed.
+    rows = [{"tracker_id": raw_id, "box": BOX_B, "bgr": changed_bgr}]
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+    assert output_tracker_id(out, rows, raw_id) == raw_id + UNKNOWN_OFFSET
+    assert len(score_calls_for_marker(matcher, changed_marker)) == 1
+
+    # The SAME changed crop is now the baseline: it must not re-arm again.
+    for _ in range(4):
+        rows = [{"tracker_id": raw_id, "box": BOX_B, "bgr": changed_bgr}]
+        frame, dets = build_call(rows)
+        out = linker.update(dets, frame)
+        assert output_tracker_id(out, rows, raw_id) == raw_id + UNKNOWN_OFFSET
+    assert len(score_calls_for_marker(matcher, changed_marker)) == 1, (
+        "the rejected recovery advanced the baseline; the same crop must not retry again"
+    )
+
+
+def test_ur6_target_set_expansion_rearms_with_unchanged_crop():
+    """SPEC TDD #6 / B-UR3. An Unknown first decided with no Missing/deferable
+    identity retries once when the original identity becomes Missing, even if the
+    crop is unchanged."""
+    fps = 4.0
+    matcher = FakeMatcher()
+    # death_threshold = 0 so the roster identity dies (Missing) on its first
+    # absent frame with no coasting-candidate window in between — keeping the
+    # recovery a single, undeferred decision.
+    linker = recovery_linker(
+        matcher, fps=fps, cooldown_s=0.0, evidence_frames=1,
+        enrolment_window_s=0.25, absent_death_s=0.1,
+    )
+    death_threshold = round(0.1 * fps)
+    assert death_threshold == 0
+    window = round(0.25 * fps)
+
+    session_id = 1
+    _enrol(linker, [{"tracker_id": 501, "box": BOX_A, "bgr": (80, 80, 80)}], window=window)
+    assert linker.roster == frozenset({session_id})
+
+    foreign_bgr = (44, 55, 66)
+    marker = rgb_marker_for_bgr(foreign_bgr)
+    # Only consumed at the recovery decision (the initial settle has no candidate,
+    # so the matcher is never called there).
+    matcher.program(marker, [({session_id: 0.1}, REJECT)])
+    foreign_raw_id = 601
+
+    # identity 1 Active-present, foreign present: no candidate target exists, so
+    # the foreign settles Unknown WITHOUT any matcher call (candidate set empty).
+    rows = [
+        {"tracker_id": 501, "box": BOX_A, "bgr": (80, 80, 80)},
+        {"tracker_id": foreign_raw_id, "box": BOX_B, "bgr": foreign_bgr},
+    ]
+    frame, dets = build_call(rows)
+    linker.update(dets, frame)
+    assert not matcher.score_calls, "no candidate target -> settle Unknown with no matcher call"
+
+    # 501 leaves -> identity 1 becomes Missing. The foreign's crop is UNCHANGED,
+    # but the candidate target set expanded from {} to {1}: re-arm once.
+    rows = [{"tracker_id": foreign_raw_id, "box": BOX_B, "bgr": foreign_bgr}]
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+    assert output_tracker_id(out, rows, foreign_raw_id) == foreign_raw_id + UNKNOWN_OFFSET
+    assert len(score_calls_for_marker(matcher, marker)) == 1, "target-set expansion re-armed the Unknown"
+
+    # New baseline saved the expanded set: an unchanged crop must not retry again.
+    for _ in range(4):
+        rows = [{"tracker_id": foreign_raw_id, "box": BOX_B, "bgr": foreign_bgr}]
+        frame, dets = build_call(rows)
+        linker.update(dets, frame)
+    assert len(score_calls_for_marker(matcher, marker)) == 1, "the expansion retry happens at most once per expansion"
+
+
+def test_ur7_recovery_never_links_a_fully_present_active_identity():
+    """SPEC TDD #7 / safety invariant #3. A matcher result naming a fully present
+    Active identity never links it, even on a recovery attempt."""
+    fps = 4.0
+    window = round(0.25 * fps)
+    death_threshold = round(0.5 * fps)
+    matcher = FakeMatcher()
+    linker = recovery_linker(matcher, fps=fps, cooldown_s=0.0, evidence_frames=1)
+
+    missing_id, active_id = 1, 2
+    # Enrol two identities; both present for the whole window.
+    _enrol(
+        linker,
+        [
+            {"tracker_id": 501, "box": BOX_A, "bgr": (80, 80, 80)},
+            {"tracker_id": 502, "box": BOX_B, "bgr": (120, 120, 120)},
+        ],
+        window=window,
+    )
+    assert linker.roster == frozenset({missing_id, active_id})
+
+    # Kill only identity 1 (raw 501); keep identity 2 (raw 502) present.
+    for _ in range(death_threshold + 1):
+        rows = [{"tracker_id": 502, "box": BOX_B, "bgr": (120, 120, 120)}]
+        frame, dets = build_call(rows)
+        linker.update(dets, frame)
+
+    occluded_bgr = (10, 10, 10)
+    clean_bgr = (60, 60, 200)
+    occluded_marker = rgb_marker_for_bgr(occluded_bgr)
+    clean_marker = rgb_marker_for_bgr(clean_bgr)
+    matcher.program(occluded_marker, [({missing_id: 0.1, active_id: 0.1}, REJECT)])
+    # The recovery names the fully-present Active identity 2 -> must never link it.
+    matcher.program(clean_marker, [({missing_id: 0.4, active_id: 0.95}, active_id)])
+    foreign_raw_id = 601
+
+    rows = [
+        {"tracker_id": 502, "box": BOX_B, "bgr": (120, 120, 120)},
+        {"tracker_id": foreign_raw_id, "box": BOX_C, "bgr": occluded_bgr},
+    ]
+    frame, dets = build_call(rows)
+    linker.update(dets, frame)
+
+    rows = [
+        {"tracker_id": 502, "box": BOX_B, "bgr": (120, 120, 120)},
+        {"tracker_id": foreign_raw_id, "box": BOX_C, "bgr": clean_bgr},
+    ]
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+    assert len(score_calls_for_marker(matcher, clean_marker)) == 1, "the change re-armed and scored"
+    assert output_tracker_id(out, rows, foreign_raw_id) == foreign_raw_id + UNKNOWN_OFFSET, (
+        "a fully present Active identity is never an eligible link target"
+    )
+    assert output_tracker_id(out, rows, 502) == active_id, "the present Active identity keeps its own session id"
+
+
+def test_ur8_no_evidence_unknown_recovers_after_first_usable_crop():
+    """SPEC TDD #8 / B-UR7. A no-crop rejection stores a None fingerprint; the
+    first usable crop that later appears (with a candidate target) is sufficient
+    evidence change to open one fresh Pending window."""
+    fps = 4.0
+    window = round(0.25 * fps)
+    death_threshold = round(0.5 * fps)
+    matcher = FakeMatcher()
+    # evidence_frames=1 with a 2-frame evidence window: an all-unusable window
+    # times out on elapsed frames with an empty buffer -> no-crop settle.
+    linker = recovery_linker(
+        matcher, fps=fps, cooldown_s=0.0, evidence_frames=1, evidence_window_s=0.5
+    )
+    evidence_window = round(0.5 * fps)
+    assert evidence_window == 2
+
+    session_id = 1
+    _enrol(linker, [{"tracker_id": 1201, "box": BOX_A, "bgr": (80, 80, 80)}], window=window)
+    _kill(linker, death_threshold=death_threshold)
+
+    good_bgr = (60, 60, 200)
+    good_marker = rgb_marker_for_bgr(good_bgr)
+    matcher.program(good_marker, [({session_id: 0.9}, session_id)])
+    raw_id = 1202
+    tiny_box = (30, 30, 34, 34)  # 16 px^2 -> never a usable crop
+
+    # Two unusable (tiny) crops -> the window times out with no usable crop ->
+    # no-crop settle (fingerprint None), no matcher call.
+    for _ in range(evidence_window):
+        rows = [{"tracker_id": raw_id, "box": tiny_box, "bgr": good_bgr}]
+        frame, dets = build_call(rows)
+        out = linker.update(dets, frame)
+        assert output_tracker_id(out, rows, raw_id) == raw_id + UNKNOWN_OFFSET
+    assert not matcher.score_calls, "a no-crop window settles Unknown without any matcher call"
+
+    # A usable crop finally appears -> that is new evidence for a None fingerprint
+    # -> re-arm -> recovery decision links it back to session 1.
+    rows = [{"tracker_id": raw_id, "box": BOX_B, "bgr": good_bgr}]
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+    assert len(score_calls_for_marker(matcher, good_marker)) == 1, "the first usable crop re-armed a no-evidence Unknown"
+    assert output_tracker_id(out, rows, raw_id) == session_id
+
+
+def test_ur9_cooldown_blocks_additional_decisions_then_allows_one():
+    """SPEC TDD #9 / cooldown. Repeated above-threshold changes inside the
+    configured cooldown do not create additional decisions; once it expires, the
+    next changed crop re-arms."""
+    fps = 4.0
+    window = round(0.25 * fps)
+    death_threshold = round(0.5 * fps)
+    cooldown_s = 0.75
+    cooldown_frames = round(cooldown_s * fps)
+    assert cooldown_frames == 3
+    matcher = FakeMatcher()
+    linker = recovery_linker(matcher, fps=fps, cooldown_s=cooldown_s, evidence_frames=1)
+
+    session_id = 1
+    _enrol(linker, [{"tracker_id": 1301, "box": BOX_A, "bgr": (80, 80, 80)}], window=window)
+    _kill(linker, death_threshold=death_threshold)
+
+    occluded_bgr = (10, 10, 10)
+    changed_bgr = (60, 60, 200)
+    occluded_marker = rgb_marker_for_bgr(occluded_bgr)
+    changed_marker = rgb_marker_for_bgr(changed_bgr)
+    matcher.program(occluded_marker, [({session_id: 0.1}, REJECT)])
+    matcher.program(changed_marker, [({session_id: 0.9}, session_id)])
+    raw_id = 1302
+
+    # Settle at frame F (last_decision_frame = F).
+    rows = [{"tracker_id": raw_id, "box": BOX_B, "bgr": occluded_bgr}]
+    frame, dets = build_call(rows)
+    linker.update(dets, frame)
+    assert len(matcher.score_calls) == 1
+
+    # Frames F+1, F+2 are inside the cooldown (elapsed 1, 2 < 3): even a big,
+    # above-threshold change must not create a decision.
+    for _ in range(cooldown_frames - 1):
+        rows = [{"tracker_id": raw_id, "box": BOX_B, "bgr": changed_bgr}]
+        frame, dets = build_call(rows)
+        out = linker.update(dets, frame)
+        assert output_tracker_id(out, rows, raw_id) == raw_id + UNKNOWN_OFFSET
+    assert len(score_calls_for_marker(matcher, changed_marker)) == 0, "no decision may fire inside the cooldown"
+
+    # Frame F+3: cooldown expired (elapsed 3 >= 3) -> the change now re-arms.
+    rows = [{"tracker_id": raw_id, "box": BOX_B, "bgr": changed_bgr}]
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+    assert len(score_calls_for_marker(matcher, changed_marker)) == 1, "the cooldown gates timing, it is not permanent"
+    assert output_tracker_id(out, rows, raw_id) == session_id
+
+
+def test_ur10_settled_unknown_is_aged_out_and_reoccurrence_is_new_pending():
+    """SPEC TDD #10 / B-UR8. Settled Unknown state is discarded after the death
+    threshold; a later occurrence of the raw id is treated as a new Pending
+    track (so an unchanged crop is decided afresh, not gated by a stale
+    fingerprint)."""
+    fps = 4.0
+    window = round(0.25 * fps)
+    death_threshold = round(0.5 * fps)
+    matcher = FakeMatcher()
+    linker = recovery_linker(matcher, fps=fps, cooldown_s=0.0, evidence_frames=1)
+
+    session_id = 1
+    _enrol(linker, [{"tracker_id": 1401, "box": BOX_A, "bgr": (80, 80, 80)}], window=window)
+    _kill(linker, death_threshold=death_threshold)
+
+    foreign_bgr = (44, 55, 66)
+    marker = rgb_marker_for_bgr(foreign_bgr)
+    # Two REJECTs: one at the first settle, one when the aged-out id is decided
+    # as a fresh Pending. A stale settled state would suppress the second call.
+    matcher.program(marker, [({session_id: 0.1}, REJECT), ({session_id: 0.1}, REJECT)])
+    raw_id = 1501
+
+    rows = [{"tracker_id": raw_id, "box": BOX_B, "bgr": foreign_bgr}]
+    frame, dets = build_call(rows)
+    linker.update(dets, frame)
+    assert len(score_calls_for_marker(matcher, marker)) == 1
+
+    # Absent long enough to age the settled Unknown out entirely.
+    for _ in range(death_threshold + 1):
+        frame, dets = empty_call()
+        linker.update(dets, frame)
+
+    # Reappears with the SAME crop: because the settled state was discarded this
+    # is a brand-new Pending track and gets its own fresh decision.
+    rows = [{"tracker_id": raw_id, "box": BOX_B, "bgr": foreign_bgr}]
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+    assert output_tracker_id(out, rows, raw_id) == raw_id + UNKNOWN_OFFSET
+    assert len(score_calls_for_marker(matcher, marker)) == 2, (
+        "an aged-out raw id is a new Pending track, not a suppressed settled Unknown"
+    )
+
+
+def test_ur11_simultaneous_recovery_collision_keeps_higher_score_wins():
+    """SPEC TDD #11 / safety invariants #1,#2. Two rechecks claiming the same
+    Missing identity preserve the higher-score-wins rule; the loser settles
+    Unknown with its new baseline and does not immediately retry."""
+    fps = 4.0
+    window = round(0.25 * fps)
+    death_threshold = round(0.5 * fps)
+    matcher = FakeMatcher()
+    linker = recovery_linker(matcher, fps=fps, cooldown_s=0.0, evidence_frames=1)
+
+    session_id = 1
+    _enrol(linker, [{"tracker_id": 1601, "box": BOX_A, "bgr": (80, 80, 80)}], window=window)
+    _kill(linker, death_threshold=death_threshold)
+
+    occ_a, occ_b = (10, 10, 10), (12, 12, 12)
+    clean_a, clean_b = (60, 60, 200), (200, 60, 60)
+    m_occ_a, m_occ_b = rgb_marker_for_bgr(occ_a), rgb_marker_for_bgr(occ_b)
+    m_clean_a, m_clean_b = rgb_marker_for_bgr(clean_a), rgb_marker_for_bgr(clean_b)
+    matcher.program(m_occ_a, [({session_id: 0.1}, REJECT)])
+    matcher.program(m_occ_b, [({session_id: 0.1}, REJECT)])
+    # Both recover-claim identity 1; B scores higher and must win.
+    matcher.program(m_clean_a, [({session_id: 0.6}, session_id)])
+    matcher.program(m_clean_b, [({session_id: 0.95}, session_id)])
+    raw_a, raw_b = 1701, 1702
+
+    # Both settle Unknown first (rejected against the Missing identity).
+    rows = [
+        {"tracker_id": raw_a, "box": BOX_B, "bgr": occ_a},
+        {"tracker_id": raw_b, "box": BOX_C, "bgr": occ_b},
+    ]
+    frame, dets = build_call(rows)
+    linker.update(dets, frame)
+
+    # Both change on the same tick -> both re-arm -> both recover-claim identity 1
+    # in one batch. Higher scorer (B) wins; A settles Unknown.
+    rows = [
+        {"tracker_id": raw_a, "box": BOX_B, "bgr": clean_a},
+        {"tracker_id": raw_b, "box": BOX_C, "bgr": clean_b},
+    ]
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+    assert output_tracker_id(out, rows, raw_b) == session_id, "the higher recovery scorer wins the identity"
+    assert output_tracker_id(out, rows, raw_a) == raw_a + UNKNOWN_OFFSET, "the collision loser settles Unknown"
+    assert resolving_of(out, rows, raw_a) is False
+
+    # The loser settled with a fresh baseline. On the next frame it does not
+    # retry: identity 1 is now Active-present, so the loser has no candidate
+    # target and `_observe_settled_unknown` returns before any fingerprint work.
+    # (Baseline-advance-with-a-still-available-candidate is pinned separately by
+    # test_ur5 and test_ur15; this only asserts the collision loser is quiescent.)
+    calls_before = len(matcher.score_calls)
+    rows = [{"tracker_id": raw_a, "box": BOX_B, "bgr": clean_a}]
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+    assert output_tracker_id(out, rows, raw_a) == raw_a + UNKNOWN_OFFSET
+    assert len(matcher.score_calls) == calls_before, "the loser does not immediately retry"
+
+
+def test_ur12_reset_clears_all_recovery_state():
+    """SPEC TDD #12 / B-UR9. reset() clears settled Unknown/recovery state,
+    Pending state, fingerprints, cooldowns, and candidate snapshots."""
+    fps = 4.0
+    window = round(0.25 * fps)
+    death_threshold = round(0.5 * fps)
+    matcher = FakeMatcher()
+    linker = recovery_linker(matcher, fps=fps, cooldown_s=0.0, evidence_frames=1)
+
+    session_id = 1
+    _enrol(linker, [{"tracker_id": 1801, "box": BOX_A, "bgr": (80, 80, 80)}], window=window)
+    _kill(linker, death_threshold=death_threshold)
+
+    foreign_bgr = (44, 55, 66)
+    marker = rgb_marker_for_bgr(foreign_bgr)
+    matcher.program(marker, [({session_id: 0.1}, REJECT)])
+    rows = [{"tracker_id": 1901, "box": BOX_B, "bgr": foreign_bgr}]
+    frame, dets = build_call(rows)
+    linker.update(dets, frame)
+    assert linker._settled_unknown, "sanity: a settled Unknown recovery baseline now exists"
+
+    linker.reset()
+    assert linker._settled_unknown == {}, "reset() must drop every settled Unknown recovery baseline"
+    assert linker._pending == {}, "reset() must drop every Pending track"
+    assert linker.roster == frozenset()
+
+
+def test_ur13_recovery_transitions_stay_row_aligned_with_correct_resolving():
+    """SPEC TDD #13 / seam. Every transition (settled -> re-armed Pending ->
+    linked) keeps all detection fields row-aligned and emits the correct
+    resolving value, alongside an unrelated Active roster row."""
+    fps = 4.0
+    window = round(0.25 * fps)
+    death_threshold = round(0.5 * fps)
+    matcher = FakeMatcher()
+    linker = recovery_linker(matcher, fps=fps, cooldown_s=0.0, evidence_frames=2)
+
+    missing_id, active_id = 1, 2
+    _enrol(
+        linker,
+        [
+            {"tracker_id": 501, "box": BOX_A, "bgr": (80, 80, 80)},
+            {"tracker_id": 502, "box": BOX_D, "bgr": (120, 120, 120)},
+        ],
+        window=window,
+    )
+    assert linker.roster == frozenset({missing_id, active_id})
+    for _ in range(death_threshold + 1):  # kill identity 1, keep identity 2 present
+        rows = [{"tracker_id": 502, "box": BOX_D, "bgr": (120, 120, 120)}]
+        frame, dets = build_call(rows)
+        linker.update(dets, frame)
+
+    occluded_bgr = (10, 10, 10)
+    clean_bgr = (60, 60, 200)
+    occluded_marker = rgb_marker_for_bgr(occluded_bgr)
+    clean_marker = rgb_marker_for_bgr(clean_bgr)
+    matcher.program(occluded_marker, [({missing_id: 0.1, active_id: 0.1}, REJECT)])
+    matcher.program(clean_marker, [({missing_id: 0.9, active_id: 0.1}, missing_id)])
+    foreign_raw_id = 601
+
+    def two_rows(bgr):
+        return [
+            {"tracker_id": 502, "box": BOX_D, "bgr": (120, 120, 120)},
+            {"tracker_id": foreign_raw_id, "box": BOX_B, "bgr": bgr},
+        ]
+
+    def assert_row_aligned(out, dets, rows):
+        assert len(out) == len(rows)
+        assert np.array_equal(out.xyxy, dets.xyxy)
+        assert np.array_equal(out.mask, dets.mask)
+        assert np.array_equal(out.confidence, dets.confidence)
+        assert np.array_equal(out.class_id, dets.class_id)
+        assert "resolving" in out.data and len(out.data["resolving"]) == len(rows)
+
+    # Occluded frame 1: foreign is Pending (window open) -> resolving True.
+    rows = two_rows(occluded_bgr)
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+    assert_row_aligned(out, dets, rows)
+    assert resolving_of(out, rows, foreign_raw_id) is True
+    assert resolving_of(out, rows, 502) is False and output_tracker_id(out, rows, 502) == active_id
+
+    # Occluded frame 2: window closes -> REJECT -> settled Unknown -> resolving False.
+    rows = two_rows(occluded_bgr)
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+    assert_row_aligned(out, dets, rows)
+    assert output_tracker_id(out, rows, foreign_raw_id) == foreign_raw_id + UNKNOWN_OFFSET
+    assert resolving_of(out, rows, foreign_raw_id) is False
+
+    # Clean frame 1: material change -> re-armed to a fresh Pending -> resolving True.
+    rows = two_rows(clean_bgr)
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+    assert_row_aligned(out, dets, rows)
+    assert output_tracker_id(out, rows, foreign_raw_id) == foreign_raw_id + UNKNOWN_OFFSET
+    assert resolving_of(out, rows, foreign_raw_id) is True, "a re-armed track is resolving again (spinner)"
+
+    # Clean frame 2: window closes -> linked -> original session id -> resolving False.
+    rows = two_rows(clean_bgr)
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+    assert_row_aligned(out, dets, rows)
+    assert output_tracker_id(out, rows, foreign_raw_id) == missing_id
+    assert resolving_of(out, rows, foreign_raw_id) is False
+    assert output_tracker_id(out, rows, 502) == active_id
+
+
+def test_ur14_present_active_identity_is_not_a_candidate_regardless_of_row_order():
+    """Regression (Codex review, invariant #10). A settled-Unknown row processed
+    BEFORE a returning present Active row must NOT see that identity as a coasting
+    candidate. The absence streak is reset in the age pass (not deferred to the
+    identity's own row), so candidate classification is row-order independent — a
+    static foreign object is never re-scored just because a legitimately-absent
+    identity came back on the same frame."""
+    fps = 4.0
+    window = round(0.25 * fps)
+    death_threshold = round(0.5 * fps)
+    assert death_threshold == 2  # so identity 1 survives a single absent frame
+    matcher = FakeMatcher()
+    linker = recovery_linker(matcher, fps=fps, cooldown_s=0.0, evidence_frames=1)
+
+    keeper_id, missing_id = 1, 2  # renumbered ascending: raw 501 -> 1, raw 502 -> 2
+    _enrol(
+        linker,
+        [
+            {"tracker_id": 501, "box": BOX_A, "bgr": (80, 80, 80)},
+            {"tracker_id": 502, "box": BOX_D, "bgr": (120, 120, 120)},
+        ],
+        window=window,
+    )
+    assert linker.roster == frozenset({keeper_id, missing_id})
+
+    # Kill identity 2 while identity 1 (raw 501) stays present -> identity 2 Missing.
+    for _ in range(death_threshold + 1):
+        rows = [{"tracker_id": 501, "box": BOX_A, "bgr": (80, 80, 80)}]
+        frame, dets = build_call(rows)
+        linker.update(dets, frame)
+
+    foreign_bgr = (44, 55, 66)
+    marker = rgb_marker_for_bgr(foreign_bgr)
+    # Exactly ONE reject: a spurious re-arm would call score() a second time
+    # against an empty queue and raise.
+    matcher.program(marker, [({missing_id: 0.1}, REJECT)])
+    foreign_raw_id = 601
+
+    # Foreign settles Unknown while identity 1 is present (candidate set = {2}).
+    rows = [
+        {"tracker_id": 501, "box": BOX_A, "bgr": (80, 80, 80)},
+        {"tracker_id": foreign_raw_id, "box": BOX_B, "bgr": foreign_bgr},
+    ]
+    frame, dets = build_call(rows)
+    linker.update(dets, frame)
+    assert len(score_calls_for_marker(matcher, marker)) == 1
+
+    # One frame where identity 1 (raw 501) is absent -> it coasts (streak 1, still
+    # alive), but the foreign is also absent this frame so it is not observed.
+    frame, dets = empty_call()
+    linker.update(dets, frame)
+
+    # Identity 1 RETURNS present, on the SAME frame as the (unchanged) foreign,
+    # with the foreign row placed FIRST. Its stale coasting streak must have been
+    # cleared in the age pass, so it is NOT a candidate and the foreign does not
+    # re-arm. A regression here would re-score the static foreign object.
+    rows = [
+        {"tracker_id": foreign_raw_id, "box": BOX_B, "bgr": foreign_bgr},
+        {"tracker_id": 501, "box": BOX_A, "bgr": (80, 80, 80)},
+    ]
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+    assert output_tracker_id(out, rows, foreign_raw_id) == foreign_raw_id + UNKNOWN_OFFSET
+    assert resolving_of(out, rows, foreign_raw_id) is False
+    assert len(score_calls_for_marker(matcher, marker)) == 1, (
+        "a present Active identity must never be counted as a coasting candidate — no spurious re-score"
+    )
+
+
+def test_ur15_deferred_rejection_fingerprints_the_final_window_not_an_evicted_crop():
+    """Regression (Codex review, B-UR6 / invariant #10). A track that is deferred,
+    keeps collecting crops (evicting an early high-quality one from its bounded
+    buffer), then rejects on revalidation must fingerprint the highest-quality
+    crop STILL IN the final window — not the since-evicted historical best."""
+    fps = 4.0
+    death_threshold = round(0.75 * fps)
+    assert death_threshold == 3
+    matcher = FakeMatcher()
+    linker = recovery_linker(
+        matcher, fps=fps, cooldown_s=0.0, evidence_frames=2,
+        enrolment_window_s=0.25, absent_death_s=0.75,
+    )
+    session_id = 1
+    _enrol(linker, [{"tracker_id": 501, "box": BOX_A, "bgr": (80, 80, 80)}], window=round(0.25 * fps))
+    assert linker.roster == frozenset({session_id})
+
+    colorx = (60, 60, 200)
+    marker = rgb_marker_for_bgr(colorx)
+    # F3 accepts (-> deferred behind coasting identity 1); F5 rejects (-> settle).
+    matcher.program(marker, [({session_id: 0.9}, session_id), ({session_id: 0.1}, REJECT)])
+    r = 601
+    box_area = (24 - 4) * (60 - 40)  # BOX_B = 20x20 = 400 px
+
+    # F2: raw 501 absent -> identity 1 coasts (streak 1). R appears, HIGH quality.
+    frame, dets = build_call([{"tracker_id": r, "box": BOX_B, "bgr": colorx, "confidence": 0.95}])
+    linker.update(dets, frame)
+    # F3: R's second crop closes the window; accepted for coasting identity 1 -> DEFERRED.
+    frame, dets = build_call([{"tracker_id": r, "box": BOX_B, "bgr": colorx, "confidence": 0.6}])
+    linker.update(dets, frame)
+    assert len(score_calls_for_marker(matcher, marker)) == 1, "sanity: deferral scored once (accepted)"
+
+    # F4, F5: lower-quality crops arrive while deferred; the bounded (maxlen=2)
+    # buffer evicts the high-quality F2 crop. Identity 1 finally dies on F5.
+    frame, dets = build_call([{"tracker_id": r, "box": BOX_B, "bgr": colorx, "confidence": 0.5}])
+    linker.update(dets, frame)
+    frame, dets = build_call([{"tracker_id": r, "box": BOX_B, "bgr": colorx, "confidence": 0.5}])
+    out = linker.update(dets, frame)
+
+    assert len(score_calls_for_marker(matcher, marker)) == 2, "the deferred window revalidated and rejected"
+    assert output_tracker_id(out, rows=[{"tracker_id": r}], raw_id=r) == r + UNKNOWN_OFFSET
+    assert r in linker._settled_unknown, "the deferred track settled Unknown after rejection"
+    settled = linker._settled_unknown[r]
+    # The final window held only conf=0.5 crops (q = 400*0.5 = 200). The evicted
+    # F2 crop (q = 400*0.95 = 380) must NOT be the baseline.
+    assert settled.decision_quality == box_area * 0.5, (
+        "the settled baseline must come from the highest-quality crop in the FINAL window"
+    )
+    assert settled.decision_quality != box_area * 0.95, "the evicted historical-best crop must not leak into the baseline"
+
+
+def test_ur16_quality_gain_alone_rearms_a_settled_unknown():
+    """A quality gain at/above the gate re-arms even with an unchanged colour and
+    mask — pinning the quality signal positively (SPEC § "Material-change rule")."""
+    fps = 4.0
+    window = round(0.25 * fps)
+    death_threshold = round(0.5 * fps)
+    matcher = FakeMatcher()
+    linker = recovery_linker(
+        matcher, fps=fps, cooldown_s=0.0, evidence_frames=1,
+        appearance_delta=0.9,   # effectively disable the appearance signal
+        mask_iou=0.0,           # effectively disable the mask signal
+        quality_gain=0.25,      # only a >=25% quality gain may re-arm
+    )
+    session_id = 1
+    _enrol(linker, [{"tracker_id": 701, "box": BOX_A, "bgr": (80, 80, 80)}], window=window)
+    _kill(linker, death_threshold=death_threshold)
+
+    bgr = (60, 60, 200)
+    marker = rgb_marker_for_bgr(bgr)
+    matcher.program(marker, [({session_id: 0.1}, REJECT), ({session_id: 0.9}, session_id)])
+    raw_id = 702
+
+    # Settle at low confidence (quality = 400 * 0.5 = 200).
+    frame, dets = build_call([{"tracker_id": raw_id, "box": BOX_B, "bgr": bgr, "confidence": 0.5}])
+    out = linker.update(dets, frame)
+    assert output_tracker_id(out, [{"tracker_id": raw_id}], raw_id) == raw_id + UNKNOWN_OFFSET
+    assert len(score_calls_for_marker(matcher, marker)) == 1
+
+    # Same colour and box, but confidence 0.7 -> quality 280 -> +40% gain >= 25%.
+    frame, dets = build_call([{"tracker_id": raw_id, "box": BOX_B, "bgr": bgr, "confidence": 0.7}])
+    out = linker.update(dets, frame)
+    assert len(score_calls_for_marker(matcher, marker)) == 2, "a >=25% quality gain must re-arm"
+    assert output_tracker_id(out, [{"tracker_id": raw_id}], raw_id) == session_id
+
+
+def test_ur17_rearm_emits_a_structured_orc_event(caplog):
+    """B-UR10 observability. A re-arm logs one structured `orc` event carrying the
+    raw id, trigger, measured metrics, old/new candidate ids, and frames since the
+    previous decision — the payload the --debug console reads."""
+    fps = 4.0
+    window = round(0.25 * fps)
+    death_threshold = round(0.5 * fps)
+    matcher = FakeMatcher()
+    linker = recovery_linker(matcher, fps=fps, cooldown_s=0.0, evidence_frames=1)
+
+    session_id = 1
+    _enrol(linker, [{"tracker_id": 801, "box": BOX_A, "bgr": (80, 80, 80)}], window=window)
+    _kill(linker, death_threshold=death_threshold)
+
+    occluded_bgr, clean_bgr = (10, 10, 10), (60, 60, 200)
+    matcher.program(rgb_marker_for_bgr(occluded_bgr), [({session_id: 0.1}, REJECT)])
+    matcher.program(rgb_marker_for_bgr(clean_bgr), [({session_id: 0.9}, session_id)])
+    raw_id = 802
+
+    frame, dets = build_call([{"tracker_id": raw_id, "box": BOX_B, "bgr": occluded_bgr}])
+    linker.update(dets, frame)
+
+    with caplog.at_level(logging.INFO):
+        frame, dets = build_call([{"tracker_id": raw_id, "box": BOX_B, "bgr": clean_bgr}])
+        linker.update(dets, frame)
+
+    rearm = next(
+        (getattr(r, "orc", None) for r in caplog.records
+         if getattr(r, "orc", None) and r.orc.get("event") == "unknown_rearm"),
+        None,
+    )
+    assert rearm is not None, "a re-arm must log a structured orc={'event':'unknown_rearm',...}"
+    assert rearm["raw_id"] == raw_id
+    assert rearm["trigger"] == "appearance"
+    assert rearm["appearance_delta"] is not None and rearm["appearance_delta"] >= 0.15
+    # All three measured signals are present in the payload even though appearance
+    # is what tripped the gate (same box/confidence -> mask IoU 1.0, quality gain 0).
+    assert rearm["mask_iou"] == 1.0
+    assert rearm["quality_gain"] == 0.0
+    assert rearm["old_candidates"] == [session_id] and rearm["new_candidates"] == [session_id]
+    assert isinstance(rearm["frames_since_decision"], int) and rearm["frames_since_decision"] >= 1

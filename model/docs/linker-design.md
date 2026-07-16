@@ -391,12 +391,67 @@ All guarded numbers come from the 8×15 synthetic crop set — **expect a
    but still inside its death grace (`deferable_active_ids`), the decision is
    **deferred** until that identity either dies (becomes Missing → revalidate
    and link) or resumes (→ Unknown). This covers an OC-SORT id change one frame
-   before its old id dies. Anything else unresolved settles **Unknown**;
-   recovery is lift-and-replace.
+   before its old id dies. Anything else unresolved settles **Unknown** — but a
+   settled Unknown is **recoverable**, not lift-and-replace (§6.6).
 5. **Edges** (all follow from the above): more new tracks than Missing →
    extras settle Unknown; unclaimed identities stay Missing; a track dying
-   mid-window gets no decision; settled decisions are never revisited (seam
-   invariant, § "Where it composes").
+   mid-window gets no decision. A completed decision is never *rewritten* (seam
+   invariant, § "Where it composes"), but a settled Unknown may **re-arm** a
+   *new* Pending window when its evidence or candidate set changes (§6.6); that
+   opens a fresh decision, it does not retroactively edit the old one.
+
+### 6.6 · Recoverable Unknown — change-triggered re-identification
+
+> **Built 2026-07-16** (`unknown-recovery-SPEC.md`). Event-driven, model-only;
+> no app/API change (the offset id + `resolving` flag already express it).
+
+An enrolled instrument can pick up a **new raw tracker id while a hand covers
+it**; that first evidence window is mostly occluded, so it rejects and settles
+Unknown. Lift-and-replace used to be the only cure. It no longer is: while the
+raw track stays present, the linker keeps a cheap **decision baseline** for it
+(a fingerprint of the clearest crop + the candidate target set at that decision)
+and re-arms a fresh **Pending** window when either changes materially. The
+existing matcher/batch path then makes the decision — nothing here links or
+relaxes a threshold.
+
+- **A settled Unknown stores, not forgets.** `_settled_unknown` is a per-raw-id
+  baseline (fingerprint, quality, `candidate_ids_at_decision`, decision frame),
+  not a terminal set. A **static** Unknown — unchanged crop, unchanged candidate
+  set — performs **zero** repeated matcher calls; the only per-frame work is a
+  32×32 RGB+mask fingerprint diff, never DINO/`score()`.
+- **Two re-arm triggers**, each gated by a cooldown (min frames between
+  decisions for one raw id):
+  1. **Material crop change** — the current usable crop differs from the
+     baseline fingerprint on **any** of three independent signals: masked-RGB
+     mean-abs-difference ≥ gate, mask IoU ≤ gate, or quality gain ≥ gate. This
+     is the hand-removal case (the visible mask/appearance grows once the hand
+     leaves).
+  2. **Target-set expansion** — a roster identity that was **not** a legitimate
+     target at the last decision has since become Missing or coasting
+     (`current_candidate_ids − candidate_ids_at_decision ≠ ∅`). This covers the
+     tracker-handoff ordering where the new raw track is judged before the old
+     raw id has crossed Active → Missing.
+- **Re-arming opens a normal window, seeded only with the triggering crop** —
+  rejected-window crops are never mixed in. The decision uses
+  `_comparison_galleries()` (complete frozen roster), `accept()`, and
+  `_eligible_missing_ids()` exactly as a first-time birth does, so every safety
+  invariant holds: a fully-present Active identity is never a link target, a
+  rejection is never overridden, and collisions keep higher-score-wins.
+- **A rejected recovery advances the baseline** (the changed crop becomes the
+  new fingerprint), so the same change cannot retry twice; only a *later*
+  material change or target expansion, after the cooldown, re-arms again.
+- **No usable crop at the last decision → `None` fingerprint**; the first usable
+  crop that later appears is itself sufficient new evidence (with a candidate
+  target and expired cooldown).
+- **Aged out with the track.** Settled Unknown state is discarded once the raw
+  id is absent past the death threshold; a later reappearance is a fresh Pending
+  track, and rejected-track state cannot grow session-long.
+- **No arbitrary retry cap or max lifetime.** A static object causes no retries
+  because nothing changes; each real retry advances the baseline and the
+  cooldown rate-limits successive changes, so recovery survives a hand held in
+  place for an unpredictable time without ever continuously scoring foreign
+  objects. Thresholds (`unknown_recheck_*`) are constructor parameters, engineering
+  starting points to validate on the KU Leuven replay, not research constants.
 
 ## 7 · Rejection & Pending — app-side encoding
 
@@ -441,7 +496,11 @@ spinner below rides.
     report trace (seam-designed behaviour; the app renders per-box, so the
     transition is visually continuous though the integer changed).
   - **Unknown** → still not-in-roster at debounce → spinner clears to a **gray
-    Unknown** mask.
+    Unknown** mask. This is **stable, not permanent for the raw id**: a settled
+    Unknown is re-checked cheaply while present and can **re-arm** back to
+    Pending — spinner and all — if its evidence changes materially or a new link
+    target appears, then either recovers its original session id or settles gray
+    again (§6.6). It stays gray Unknown only *while* nothing changes.
 - **Unknowns are video-only** (grilled 2026-07-15). A not-in-roster track exists
   on the **feed** and nowhere else: gray mask, ~1 s resolving spinner, then the
   settled label **"Unknown"** — never `"Instrument N"`, at any age, in any state.

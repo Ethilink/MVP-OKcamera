@@ -132,9 +132,20 @@ track *pending* in its evidence window, a track *deferred* behind a still-
 coasting active id, and a *settled Unknown*. `data["resolving"]` (bool, row-
 aligned) splits them: `True` for the first two — the linker is still deciding —
 and `False` once the track has settled, whether it settled into a roster id
-(linked, so its emitted id also flips into `roster`) or into a permanent
-Unknown. Roster ids are always `False`; during the pre-freeze enrolment window
-every track reads `True`, since nothing has a settled identity yet.
+(linked, so its emitted id also flips into `roster`) or into an Unknown. Roster
+ids are always `False`; during the pre-freeze enrolment window every track reads
+`True`, since nothing has a settled identity yet.
+
+A settled Unknown is **stable, not permanent for the raw id.** While the raw
+track stays present the linker watches it cheaply and may **re-arm** it — return
+it to Pending — when its crop changes materially or a new link target becomes
+available (`linker-design.md` §6.6). On a re-arm the flag flips back to `True`
+(the spinner shows again) while a fresh evidence window is collected, then clears
+once the linker either links it to its original session id or settles it Unknown
+again. So a consumer must treat `resolving` as a live per-frame flag, not a
+one-way latch: the same raw id can legitimately read `False → True → False` more
+than once across a recording. The emitted id stays in the offset range for the
+whole Pending re-check and flips into `roster` only if the re-check links.
 
 This exists so a consumer can show a "resolving" spinner that follows the
 linker's *actual* decision instead of a local timer. Before it, the app timed
