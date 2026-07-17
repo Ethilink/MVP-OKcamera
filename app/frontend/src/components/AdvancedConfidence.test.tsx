@@ -26,6 +26,16 @@ function patchHandler(spy: (v: number) => void, status = 200) {
   })
 }
 
+function relinkHandler(spy: () => void, status = 200) {
+  return http.post(`${BASE}/settings/relink`, () => {
+    spy()
+    if (status !== 200) {
+      return HttpResponse.json({ detail: "relink failed" }, { status })
+    }
+    return HttpResponse.json(control)
+  })
+}
+
 function openPanel() {
   fireEvent.click(screen.getByRole("button", { name: /advanced/i }))
   // The base-ui slider thumb (and its range input) is `visibility:hidden` under
@@ -149,4 +159,30 @@ test("F4 reports its PATCH-in-flight up (to disable Track)", async () => {
 
   fireEvent.change(slider, { target: { value: "0.6" } })
   await waitFor(() => expect(onPending).toHaveBeenCalledWith(true))
+})
+
+test("Advanced relink requests a fresh catalogue binding and refreshes setup", async () => {
+  const spy = vi.fn()
+  const onReset = vi.fn()
+  server.use(relinkHandler(spy))
+  render(<AdvancedConfidence control={control} onReset={onReset} />)
+  fireEvent.click(screen.getByRole("button", { name: /advanced/i }))
+
+  fireEvent.click(screen.getByRole("button", { name: /relink current masks/i }))
+
+  await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
+  expect(onReset).toHaveBeenCalledTimes(1)
+})
+
+test("Advanced relink reports a failed command without claiming setup reset", async () => {
+  const spy = vi.fn()
+  const onReset = vi.fn()
+  server.use(relinkHandler(spy, 503))
+  render(<AdvancedConfidence control={control} onReset={onReset} />)
+  fireEvent.click(screen.getByRole("button", { name: /advanced/i }))
+
+  fireEvent.click(screen.getByRole("button", { name: /relink current masks/i }))
+
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/relink failed/i))
+  expect(onReset).not.toHaveBeenCalled()
 })

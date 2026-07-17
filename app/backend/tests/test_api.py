@@ -103,6 +103,7 @@ class FakeCapture:
         # can hold the command while a test exercises mutation serialization.
         self.set_confidence_values: list[float] = []
         self._confidence_error: BaseException | None = None
+        self._reset_error: BaseException | None = None
         self._gate: threading.Event | None = None
         self.on_frame = None
         self.render_fn = None
@@ -173,6 +174,9 @@ class FakeCapture:
     def fail_confidence_with(self, exc: BaseException) -> None:
         self._confidence_error = exc
 
+    def fail_reset_with(self, exc: BaseException) -> None:
+        self._reset_error = exc
+
     def gate_mutations(self) -> threading.Event:
         """Make the tracker-mutating capture command block until the returned
         Event is set, so a test can hold one handler inside its capture command
@@ -187,6 +191,13 @@ class FakeCapture:
             self._gate.wait(timeout_s)
         if self._confidence_error is not None:
             raise self._confidence_error
+
+    def reset_tracker(self, timeout_s: float = 2.0) -> None:
+        self.calls.append("reset_tracker")
+        if self._gate is not None:
+            self._gate.wait(timeout_s)
+        if self._reset_error is not None:
+            raise self._reset_error
 
 
 class _SpySession(Session):
@@ -1591,6 +1602,71 @@ class TestMutationSerialisation:
 
         # B ran its command only after A released the lock — two total, never overlapping.
         assert capture.calls.count("set_confidence_and_reset") == 2
+
+
+class TestRelink:
+    """The explicit setup action is the only way to discard retained links.
+
+    New Recording deliberately does not call this endpoint: it keeps the prior
+    linker roster until the operator asks for a fresh catalogue binding.
+    """
+
+    def _client(self, capture, session, clock=None):
+        return TestClient(create_app(capture, session, "test-model", clock=clock or _Clock(0.0)))
+
+    def test_relink_resets_the_tracker_and_restarts_setup_recognition(self) -> None:
+        capture = FakeCapture()
+        session = Session(setup_stable_s=0.0)
+        _prime_ready(session)
+        clock = _Clock(1.0)
+        client = self._client(capture, session, clock)
+
+        response = client.post("/settings/relink")
+
+        assert response.status_code == 200
+        assert capture.calls == ["reset_tracker"]
+        setup = client.get("/status").json()["setup"]
+        assert setup["ready"] is False
+        assert setup["blocking_reason"] == "recognising"
+
+    def test_relink_is_rejected_during_recording_without_resetting(self) -> None:
+        capture = FakeCapture()
+        session = _ready_session()
+        client = self._client(capture, session)
+        assert client.post("/recording/start").status_code == 200
+
+        response = client.post("/settings/relink")
+
+        assert response.status_code == 409
+        assert capture.calls == []
+
+    def test_relink_is_available_after_new_recording_routes_to_finished_setup(self) -> None:
+        capture = FakeCapture()
+        session = _ready_session()
+        clock = _Clock(0.0)
+        client = self._client(capture, session, clock)
+        assert client.post("/recording/start").status_code == 200
+        clock.set(1.0)
+        assert client.post("/recording/stop").status_code == 200
+
+        response = client.post("/settings/relink")
+
+        assert response.status_code == 200
+        assert capture.calls == ["reset_tracker"]
+        assert client.get("/report").status_code == 200  # old report stays reachable
+
+    def test_relink_failure_does_not_clear_the_existing_links(self) -> None:
+        capture = FakeCapture()
+        capture.fail_reset_with(TrackerResetError("reset failed"))
+        session = Session(setup_stable_s=0.0)
+        _prime_ready(session)
+        client = self._client(capture, session)
+
+        response = client.post("/settings/relink")
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "relink failed"
+        assert client.get("/status").json()["setup"]["ready"] is True
 
 
 class TestConfidencePatch:

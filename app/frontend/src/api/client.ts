@@ -52,5 +52,9 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ confidence }),
     }),
+  // Deliberately rebuild catalogue links from the masks now visible in setup.
+  // New Recording never calls this, so its previous successful links persist.
+  relinkCurrentMasks: () =>
+    request<DetectorControl>("/settings/relink", { method: "POST" }),
   streamUrl: `${BASE}/stream`, // for <img src={api.streamUrl}>
 }

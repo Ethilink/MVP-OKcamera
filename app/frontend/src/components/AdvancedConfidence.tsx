@@ -19,8 +19,9 @@ import { cn } from "@/lib/utils"
 
 /**
  * The Advanced setup control (T11/F4/D6): a collapsed disclosure holding the
- * runtime **Detection confidence threshold**. It is an operational fallback, not
- * an identity-safety knob — the exact-catalog Start gate still owns safety.
+ * runtime **Detection confidence threshold** and an explicit catalogue relink.
+ * Relinking is the operator-controlled fresh enrolment boundary; New Recording
+ * deliberately leaves the existing links alone.
  *
  * Behaviour the spec pins:
  * - min/max/step/current/default all read from `status.detector_control`;
@@ -108,6 +109,19 @@ export function AdvancedConfidence({
     }
   }
 
+  async function relink() {
+    setPending(true)
+    setError(null)
+    try {
+      await api.relinkCurrentMasks()
+      await onReset?.()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : "Couldn't relink masks — try again.")
+    } finally {
+      setPending(false)
+    }
+  }
+
   function onSlide(next: number) {
     setValue(next) // immediate visual feedback
     setError(null)
@@ -174,6 +188,22 @@ export function AdvancedConfidence({
           >
             Reset to default
           </Button>
+
+          <div className="border-t border-border pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={relink}
+              disabled={interactionDisabled}
+              className="self-start"
+            >
+              {pending ? "Relinking…" : "Relink current masks"}
+            </Button>
+            <p className="mt-1 text-[0.7rem] leading-snug text-muted-foreground">
+              Rebuild instrument-gallery links from the masks currently on the tray.
+            </p>
+          </div>
         </div>
       </CollapsibleContent>
     </Collapsible>

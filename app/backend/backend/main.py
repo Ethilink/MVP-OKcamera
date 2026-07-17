@@ -405,6 +405,33 @@ def create_app(
             timestamps["stopped_at"] = now().isoformat()
             return _report_response(report)
 
+    @app.post("/settings/relink", response_model=DetectorControlModel)
+    def post_relink() -> DetectorControlModel:
+        """Discard the current tracker/linker roster and enrol the visible tray.
+
+        A tracker reset is intentionally the only operation here: the next
+        capture frames supply the current masks to the linker's normal
+        catalogue-only freeze, whose one-to-one binding admits at most one
+        track per loaded gallery specimen.  Starting a new recording does not
+        call this endpoint, so its existing links remain intact.
+        """
+        with mutation_lock:
+            with lock:
+                if session.phase is Phase.RECORDING:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="cannot relink during recording",
+                    )
+            try:
+                capture.reset_tracker()
+            except TimeoutError:
+                raise HTTPException(status_code=503, detail="capture stalled")
+            except TrackerResetError:
+                raise HTTPException(status_code=503, detail="relink failed")
+            with lock:
+                session.prepare(clock())
+        return _detector_control()
+
     @app.get("/report", response_model=ReportResponse)
     def get_report() -> ReportResponse:
         with lock:
