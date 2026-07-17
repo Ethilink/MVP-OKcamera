@@ -47,6 +47,10 @@ class DetectionBox:
     xyxy: tuple[float, float, float, float]
     resolving: bool
     mask: np.ndarray | None = field(default=None, compare=False, repr=False)
+    # Experimental (feat/matching-tests): the detector's raw per-box confidence
+    # this frame, straight from the tracker's `sv.Detections.confidence` -- a
+    # testing aid, not part of the frozen api-contract.
+    confidence: float | None = None
 
 
 class Latest(NamedTuple):
@@ -70,6 +74,11 @@ class Latest(NamedTuple):
                                    # for the tracker's life; carried so /status
                                    # can report the expected set without touching
                                    # the tracker — T11/B1.
+    match_debug: dict = {}         # Experimental (feat/matching-tests): tracker.
+                                   # match_debug sampled the same tick — last
+                                   # matcher score per emitted id, keyed to match
+                                   # detections[].tracker_id / instrument ids.
+                                   # Empty in fake mode (no real matcher).
 
 
 OnFrame = Callable[
@@ -386,6 +395,10 @@ class CaptureLoop:
         # but sampled here so nothing downstream has to reach into the tracker.
         roster = frozenset(int(session_id) for session_id in self._tracker.roster)
         catalog = frozenset(int(catalog_id) for catalog_id in self._tracker.catalog)
+        # Experimental (feat/matching-tests): sampled the same tick, same reason
+        # as roster/catalog above. `getattr` tolerates a tracker built before
+        # this seam widened (never raises the capture thread).
+        match_debug = dict(getattr(self._tracker, "match_debug", {}) or {})
         overlay = self._render_fn(frame.copy(), dets, roster, catalog, t)
         _, buffer = cv2.imencode(".jpg", overlay)
         tracker_ids = _tracker_ids(dets)
@@ -416,6 +429,7 @@ class CaptureLoop:
             detections=_detection_boxes(dets),
             roster=roster,
             catalog=catalog,
+            match_debug=match_debug,
         )
         with self._lock:
             self._latest = latest
@@ -464,12 +478,14 @@ def _detection_boxes(dets) -> tuple[DetectionBox, ...]:
         return ()
     flags = _resolving_flags(dets)
     masks = dets.mask
+    confidences = dets.confidence
     return tuple(
         DetectionBox(
             tracker_id=int(tracker_id),
             xyxy=(float(box[0]), float(box[1]), float(box[2]), float(box[3])),
             resolving=bool(flag),
             mask=_local_mask(masks[index], box) if masks is not None else None,
+            confidence=float(confidences[index]) if confidences is not None else None,
         )
         for index, (tracker_id, box, flag) in enumerate(
             zip(dets.tracker_id, dets.xyxy, flags)

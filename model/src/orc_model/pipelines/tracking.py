@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from orc_model.components.detector.detector import Detector
     from orc_model.pipelines.config import OCSortConfig, TrackerConfig
     from orc_model.pipelines.deep_ocsort.tracker import DeepOCSortTracker
+    from orc_model.pipelines.session_linker import MatchDebug
     from orc_model.pipelines.session_linker import SessionLinker
 
 _log = logging.getLogger("orc_model.tracking")
@@ -118,6 +119,13 @@ class InstrumentTracker(Protocol):
         """
         ...
 
+    @property
+    def match_debug(self) -> dict[int, "MatchDebug"]:
+        """Experimental (feat/matching-tests): last matcher score per emitted
+        id. A testing aid, not part of the model seam's real contract -- a
+        tracker with no real matcher (the fake) may just return `{}`."""
+        ...
+
 
 class FakeInstrumentTracker:
     """A dependency-free stand-in that honours the `InstrumentTracker` contract,
@@ -153,6 +161,11 @@ class FakeInstrumentTracker:
         # The fake's full identity range is its catalog: constant, independent
         # of `_frame`, and identical to `roster` (it enrols everything).
         return frozenset(range(1, self.n_instruments + 1))
+
+    @property
+    def match_debug(self) -> dict[int, "MatchDebug"]:
+        # No real matcher runs here -- deliberately blank (feat/matching-tests).
+        return {}
 
     def reset(self) -> None:
         self._frame = 0
@@ -556,6 +569,10 @@ class _RealInstrumentTracker:
     @property
     def catalog(self) -> frozenset[int]:
         return self._session_linker.catalog
+
+    @property
+    def match_debug(self) -> dict[int, "MatchDebug"]:
+        return self._session_linker.match_debug
 
     def reset(self) -> None:
         self._deep_ocsort = self._new_deep_ocsort()

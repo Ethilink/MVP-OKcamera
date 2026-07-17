@@ -332,6 +332,13 @@ class TestAC2RecordingStart:
             "on_table",
             "thumbnail",
             "colour",
+            # Experimental (feat/matching-tests) matcher/detector debug fields —
+            # not part of the frozen api-contract.
+            "detector_confidence",
+            "matcher_score",
+            "matcher_tau",
+            "matcher_closest_id",
+            "matcher_accepted",
         }
 
     def test_recording_instrument_carries_live_crop_thumbnail(self) -> None:
@@ -1185,6 +1192,13 @@ class TestBA2UnknownsAreAbsentFromTheApi:
             "on_table",
             "thumbnail",
             "colour",
+            # Experimental (feat/matching-tests) matcher/detector debug fields —
+            # not part of the frozen api-contract.
+            "detector_confidence",
+            "matcher_score",
+            "matcher_tau",
+            "matcher_closest_id",
+            "matcher_accepted",
         }
 
 

@@ -328,6 +328,12 @@ class ScenarioTracker:
         fully enrolled. (T11 seam widening; constant across reset().)"""
         return frozenset(range(1, self._state.n_instruments + 1))
 
+    @property
+    def match_debug(self) -> dict[int, object]:
+        # No real matcher runs in fake mode -- deliberately blank
+        # (feat/matching-tests).
+        return {}
+
     def reset(self) -> None:
         self._state.reset()
 

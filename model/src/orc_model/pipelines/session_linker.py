@@ -79,6 +79,18 @@ class _Crop(NamedTuple):
     ok: bool  # quality-admitted: big enough mask, not touching the frame edge
 
 
+class MatchDebug(NamedTuple):
+    """Experimental (feat/matching-tests): the matcher's last score for one
+    emitted id, whichever event produced it (bind at Start, or a later re-id
+    decision). Not part of the model seam contract -- a testing aid only, for
+    watching the matcher's actual numbers against a real camera."""
+
+    score: float
+    tau: float
+    closest_id: int | None  # top-scoring candidate, whether accepted or not
+    accepted: bool
+
+
 class _CropFingerprint(NamedTuple):
     """A cheap, deterministic summary of one usable crop, used only to decide
     (without DINO/matcher) whether a settled Unknown's evidence changed enough
@@ -218,6 +230,9 @@ class SessionLinker:
         # terminal `set[int]`; a settled Unknown is observed, not forgotten,
         # until it re-arms or ages out (SPEC B-UR9 clears it here).
         self._settled_unknown: dict[int, _SettledUnknown] = {}
+        # Experimental (feat/matching-tests): last matcher score per emitted id.
+        # A fresh recording has no matcher history yet, so this resets too.
+        self._match_debug: dict[int, MatchDebug] = {}
 
     @property
     def roster(self) -> frozenset[int]:
@@ -228,6 +243,13 @@ class SessionLinker:
         """Loaded persistent specimen IDs — the fixed catalog. Constant for the
         linker's lifetime; unaffected by reset() or the enrolment freeze."""
         return frozenset(self._persistent_galleries)
+
+    @property
+    def match_debug(self) -> dict[int, MatchDebug]:
+        """Experimental (feat/matching-tests): last matcher score per emitted
+        id (session id once linked, else the offset id), whichever event
+        produced it. A shallow copy; safe to hand to a caller outside the lock."""
+        return dict(self._match_debug)
 
     # -- main entry point -----------------------------------------------
 
@@ -405,7 +427,7 @@ class SessionLinker:
             )
             start_views[raw_id] = gallery.views
 
-        bound, bind_scores = self._bind_specimens(roster_ids, start_crops)
+        bound, bind_scores, bind_closest = self._bind_specimens(roster_ids, start_crops)
         if self._catalog_only_enrolment:
             # Catalog-only: ONLY confidently bound raw tracks join the roster. An
             # unbound setup track (foreign object, below-threshold, or contested
@@ -434,6 +456,18 @@ class SessionLinker:
         self._raw_to_session = {raw_id: session_ids[raw_id] for raw_id in enrolled_raw_ids}
         self._roster = frozenset(session_ids.values())
         self._enrolled = True
+        # Experimental (feat/matching-tests): record the bind-time score for
+        # every raw track the matcher actually scored, keyed by whatever id it
+        # emits from here on (its session id if bound, else its offset id --
+        # `_process_row`'s convention for a not-(yet)-enrolled track).
+        for raw_id, (best, _second) in bind_scores.items():
+            emitted_id = session_ids.get(raw_id, raw_id + self._unknown_id_offset)
+            self._match_debug[emitted_id] = MatchDebug(
+                score=best,
+                tau=self._bind_tau,
+                closest_id=bind_closest.get(raw_id),
+                accepted=raw_id in bound,
+            )
         # B-O1: `bound` keyed by session id is tautological (session_id == specimen
         # for every bound identity), so it reveals nothing about which RAW tracker
         # id claimed which photo set. `raw_binds` is the diagnostic a live mis-bind
@@ -495,7 +529,7 @@ class SessionLinker:
 
     def _bind_specimens(
         self, roster_ids: list[int], start_crops: dict[int, list[_Crop]]
-    ) -> tuple[dict[int, int], dict[int, tuple[float, float]]]:
+    ) -> tuple[dict[int, int], dict[int, tuple[float, float]], dict[int, int]]:
         """Bind enrolled identities one-to-one to persistent specimens.
 
         Greedy, not Hungarian, and deliberately so (linker-design.md §3 says
@@ -508,13 +542,19 @@ class SessionLinker:
         comparison set is never shrunk to the unclaimed specimens, and no
         second round is run (the same relative-SCI trap as
         `_comparison_galleries`).
+
+        Third return value (experimental, feat/matching-tests): each scored raw
+        id's raw top-1 specimen, BEFORE the greedy claim resolves contests --
+        distinct from `bound`, which can lose a contested specimen to a rival.
+        A testing aid only; not used by the bind decision itself.
         """
         galleries = self._persistent_galleries
         if not galleries:
-            return {}, {}
+            return {}, {}, {}
 
         proposals: list[tuple[float, int, int]] = []  # (score, raw_id, specimen)
         bind_scores: dict[int, tuple[float, float]] = {}
+        bind_closest: dict[int, int] = {}
         for raw_id in roster_ids:  # ascending raw-id order
             crops = start_crops.get(raw_id)
             if not crops:
@@ -528,6 +568,7 @@ class SessionLinker:
             specimen, best = ranked[0]
             second = ranked[1][1] if len(ranked) > 1 else 0.0
             bind_scores[raw_id] = (float(best), float(second))
+            bind_closest[raw_id] = specimen
             if best < self._bind_tau:
                 continue
             if len(galleries) > 1 and best - second < self._bind_margin:
@@ -541,7 +582,7 @@ class SessionLinker:
                 continue  # outbid -> session-only, NOT its second choice
             claimed.add(specimen)
             bound[raw_id] = specimen
-        return bound, bind_scores
+        return bound, bind_scores, bind_closest
 
     def _assign_session_ids(self, roster_ids: list[int], bound: dict[int, int]) -> dict[int, int]:
         """Bound identity -> its specimen number; session-only identity -> the
@@ -896,11 +937,13 @@ class SessionLinker:
             and identity.absence_streak > 0
             and session_id in comparison_galleries
         }
-        winners, unresolved, deferred, score_ms, assignment_ms = self._score_and_assign(
-            rows,
-            comparison_galleries,
-            eligible_missing_ids,
-            deferable_active_ids,
+        winners, unresolved, deferred, score_ms, assignment_ms, debug_by_raw_id = (
+            self._score_and_assign(
+                rows,
+                comparison_galleries,
+                eligible_missing_ids,
+                deferable_active_ids,
+            )
         )
 
         for raw_id, session_id in winners.items():
@@ -918,6 +961,23 @@ class SessionLinker:
             )
             pending.not_before_frame = self._frame_count + frames_until_missing
             self._pending[raw_id] = pending
+
+        # Experimental (feat/matching-tests): record this tick's re-id score for
+        # every raw id the matcher actually scored, keyed by whatever id it
+        # emits from here on -- its session id if it just linked, else its
+        # offset id (the same convention as the bind-time entry above). `tau`
+        # here is the matcher's runtime acceptance threshold, distinct from the
+        # linker's own `_bind_tau` used only at the freeze.
+        matcher_tau = getattr(self._matcher, "tau", None)
+        for raw_id, (top_score, top_id) in debug_by_raw_id.items():
+            session_id = winners.get(raw_id) or deferred.get(raw_id)
+            emitted_id = session_id if session_id is not None else raw_id + self._unknown_id_offset
+            self._match_debug[emitted_id] = MatchDebug(
+                score=top_score,
+                tau=matcher_tau if matcher_tau is not None else 0.0,
+                closest_id=top_id,
+                accepted=raw_id in winners,
+            )
 
         total_ms = (time.monotonic() - t_start) * 1000
         outcomes = {
@@ -952,9 +1012,14 @@ class SessionLinker:
         dict[int, int],
         float,
         float,
+        dict[int, tuple[float, int | None]],
     ]:
+        # Experimental (feat/matching-tests): raw_id -> (top score, top candidate
+        # id) from the matcher's FULL scores dict, regardless of accept/reject --
+        # the number a rejected/Unknown row needs for tuning visibility.
+        debug_by_raw_id: dict[int, tuple[float, int | None]] = {}
         if not rows or not (eligible_missing_ids or deferable_active_ids):
-            return {}, rows, {}, 0.0, 0.0
+            return {}, rows, {}, 0.0, 0.0, debug_by_raw_id
 
         t_score = time.monotonic()
         proposals: list[tuple[int, int, float]] = []
@@ -968,6 +1033,9 @@ class SessionLinker:
                 accepted,
                 {candidate: round(float(score), 4) for candidate, score in scores.items()},
             )
+            if scores:
+                top_id, top_score = max(scores.items(), key=lambda kv: kv[1])
+                debug_by_raw_id[raw_id] = (float(top_score), top_id)
             if accepted == REJECT:
                 continue
             if accepted not in scores:
@@ -982,7 +1050,7 @@ class SessionLinker:
         if not proposals:
             unresolved = [row for idx, row in enumerate(rows) if idx not in deferred_indices]
             deferred = {rows[idx][0]: session_id for idx, session_id in deferred_indices.items()}
-            return {}, unresolved, deferred, score_ms, 0.0
+            return {}, unresolved, deferred, score_ms, 0.0, debug_by_raw_id
 
         t_assign = time.monotonic()
         best_by_session: dict[int, tuple[int, float]] = {}
@@ -1004,7 +1072,7 @@ class SessionLinker:
             if i not in resolved_idx and i not in deferred_indices
         ]
         deferred = {rows[idx][0]: session_id for idx, session_id in deferred_indices.items()}
-        return winners, unresolved, deferred, score_ms, assignment_ms
+        return winners, unresolved, deferred, score_ms, assignment_ms, debug_by_raw_id
 
     def _link(
         self,

@@ -52,6 +52,14 @@ class DetectionModel(BaseModel):
     # overlay draws this detection's mask with (R1/R3).
     colour: str
     thumbnail: str | None
+    # Experimental (feat/matching-tests) — a testing aid for tuning the matcher
+    # live, NOT part of the frozen api-contract. All `None` in fake mode (no
+    # real detector/matcher runs there). See thumbnails.Detection.
+    detector_confidence: float | None = None
+    matcher_score: float | None = None
+    matcher_tau: float | None = None
+    matcher_closest_id: int | None = None
+    matcher_accepted: bool | None = None
 
 
 class SetupStatus(BaseModel):
@@ -94,6 +102,17 @@ class InstrumentStatusModel(BaseModel):
     # The instrument's fixed mask colour (hex) — same value the overlay draws,
     # so the panel swatch and the video can never drift (T10/D8a).
     colour: str
+    # Experimental (feat/matching-tests) — testing aid, not part of the frozen
+    # api-contract. `detector_confidence` is null when off-table this frame
+    # (no live detection to report); the matcher fields persist across frames —
+    # the last score/tau/closest-candidate/accepted from whichever event
+    # produced it (bind at Start, or a later re-id decision), since most
+    # instruments never leave the table and would otherwise show nothing.
+    detector_confidence: float | None = None
+    matcher_score: float | None = None
+    matcher_tau: float | None = None
+    matcher_closest_id: int | None = None
+    matcher_accepted: bool | None = None
 
 
 class RecordingStatus(BaseModel):
@@ -260,7 +279,11 @@ def create_app(
         if snapshot is None:
             return []
         return build_detections(
-            snapshot.frame_bgr, snapshot.detections, snapshot.roster, snapshot.catalog
+            snapshot.frame_bgr,
+            snapshot.detections,
+            snapshot.roster,
+            snapshot.catalog,
+            match_debug=snapshot.match_debug,
         )
 
     def _setup_detections() -> list[DetectionModel]:
@@ -327,7 +350,7 @@ def create_app(
             # tracker_id. Off-table instruments simply aren't in the frame, so
             # they get `thumbnail=None` and the app falls back to their last-seen
             # crop. Cropped outside the lock (see `_snapshot_detections`).
-            crops = {det.tracker_id: det.thumbnail for det in _snapshot_detections()}
+            detections_by_id = {det.tracker_id: det for det in _snapshot_detections()}
             # The fixed catalog the overlay colours with right now, so a panel
             # swatch and its mask are the same hex by construction (R2/D5 — the
             # colour is a pure function of the CATALOG index, not the current
@@ -336,6 +359,13 @@ def create_app(
             # transient and harmless (B-A1).
             snapshot = capture.snapshot()
             catalog = snapshot.catalog if snapshot is not None else frozenset()
+            # Experimental (feat/matching-tests): the matcher's last score per
+            # id, sampled the same tick as the snapshot above. Looked up
+            # DIRECTLY here (not via `detections_by_id`) because it must survive
+            # for an off-table instrument that isn't in this frame's detections —
+            # most instruments never leave the table, so this is the only way
+            # their matcher score ever shows up at all.
+            match_debug = snapshot.match_debug if snapshot is not None else {}
             recording = RecordingStatus(
                 started_at=timestamps["started_at"],
                 elapsed_s=elapsed_s,
@@ -344,8 +374,29 @@ def create_app(
                         tracker_id=status.tracker_id,
                         label=status.label,
                         on_table=status.on_table,
-                        thumbnail=crops.get(status.tracker_id),
+                        thumbnail=(detections_by_id[status.tracker_id].thumbnail
+                                   if status.tracker_id in detections_by_id else None),
                         colour=catalog_colour(catalog, status.tracker_id),
+                        detector_confidence=(
+                            detections_by_id[status.tracker_id].detector_confidence
+                            if status.tracker_id in detections_by_id else None
+                        ),
+                        matcher_score=(
+                            match_debug[status.tracker_id].score
+                            if status.tracker_id in match_debug else None
+                        ),
+                        matcher_tau=(
+                            match_debug[status.tracker_id].tau
+                            if status.tracker_id in match_debug else None
+                        ),
+                        matcher_closest_id=(
+                            match_debug[status.tracker_id].closest_id
+                            if status.tracker_id in match_debug else None
+                        ),
+                        matcher_accepted=(
+                            match_debug[status.tracker_id].accepted
+                            if status.tracker_id in match_debug else None
+                        ),
                     )
                     for status in statuses
                 ],

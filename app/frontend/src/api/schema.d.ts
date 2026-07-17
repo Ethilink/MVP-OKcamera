@@ -130,6 +130,16 @@ export interface components {
             colour: string;
             /** Thumbnail */
             thumbnail: string | null;
+            /** Detector Confidence */
+            detector_confidence?: number | null;
+            /** Matcher Score */
+            matcher_score?: number | null;
+            /** Matcher Tau */
+            matcher_tau?: number | null;
+            /** Matcher Closest Id */
+            matcher_closest_id?: number | null;
+            /** Matcher Accepted */
+            matcher_accepted?: boolean | null;
         };
         /** DetectorControlModel */
         DetectorControlModel: {
@@ -175,6 +185,16 @@ export interface components {
             thumbnail: string | null;
             /** Colour */
             colour: string;
+            /** Detector Confidence */
+            detector_confidence?: number | null;
+            /** Matcher Score */
+            matcher_score?: number | null;
+            /** Matcher Tau */
+            matcher_tau?: number | null;
+            /** Matcher Closest Id */
+            matcher_closest_id?: number | null;
+            /** Matcher Accepted */
+            matcher_accepted?: boolean | null;
         };
         /** RecordingStatus */
         RecordingStatus: {

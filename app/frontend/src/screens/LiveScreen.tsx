@@ -8,6 +8,11 @@ import { DetectionConstellation } from "@/components/DetectionConstellation"
 import { HaloBrand } from "@/components/HaloMark"
 import { HealthBanner } from "@/components/HealthBanner"
 import { InstrumentPanel } from "@/components/InstrumentPanel"
+import {
+  MatchDebugTable,
+  detectionRows,
+  instrumentRows,
+} from "@/components/MatchDebugTable"
 import { StopButton, TrackButton } from "@/components/TrackButton"
 import { VideoFeed } from "@/components/VideoFeed"
 import { formatClock } from "@/lib/format"
@@ -126,6 +131,15 @@ export function LiveScreen({
       <LayoutGroup>
         {isRecording && status.recording ? renderRecording() : renderSetup()}
       </LayoutGroup>
+
+      {isRecording && status?.recording ? (
+        <MatchDebugTable
+          title="Recording"
+          rows={instrumentRows(status.recording.instruments)}
+        />
+      ) : (
+        <MatchDebugTable title="Setup" rows={detectionRows(status?.setup?.detections)} />
+      )}
     </main>
   )
 

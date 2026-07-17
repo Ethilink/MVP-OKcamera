@@ -44,6 +44,18 @@ class Detection:
     label: str
     colour: str
     thumbnail: str | None
+    # Experimental (feat/matching-tests) — testing aid, not part of the frozen
+    # api-contract. detector_confidence: this frame's raw detector score, or
+    # `None` when the tracker didn't report one (e.g. fake mode). The rest come
+    # from the tracker's `match_debug` (blank in fake mode): the matcher's last
+    # score for this id, whichever event produced it (bind at Start or a later
+    # re-id decision), the threshold it was gated against, the closest-scoring
+    # candidate whether or not it was accepted, and whether that last score won.
+    detector_confidence: float | None = None
+    matcher_score: float | None = None
+    matcher_tau: float | None = None
+    matcher_closest_id: int | None = None
+    matcher_accepted: bool | None = None
 
 
 def build_detections(
@@ -54,6 +66,7 @@ def build_detections(
     *,
     size: int = _THUMBNAIL_SIZE,
     pad: float = _BBOX_PAD,
+    match_debug: dict | None = None,
 ) -> list[Detection]:
     """Turn a capture snapshot's `DetectionBox` boxes into API detections,
     sorted by `tracker_id` for stable tile ordering across polls. Each tile's
@@ -62,10 +75,16 @@ def build_detections(
     recognised tile shows its catalog colour + `Instrument N`, a resolving tile is
     gray with no name, and a settled non-roster tile is a gray `Unknown` — exactly
     what the overlay draws for that detection. Each preview is isolated: a failure
-    yields `thumbnail=None`, never an exception."""
+    yields `thumbnail=None`, never an exception.
+
+    `match_debug` (experimental, feat/matching-tests) is the tracker's last
+    matcher score per emitted id, sampled the same tick; looked up here by
+    `tracker_id` and left `None` for any id the matcher hasn't scored yet."""
+    debug = match_debug or {}
     detections: list[Detection] = []
     for box in sorted(boxes, key=lambda item: item.tracker_id):
         state, label, colour = classify_detection(box.tracker_id, roster, catalog, box.resolving)
+        entry = debug.get(box.tracker_id)
         detections.append(
             Detection(
                 tracker_id=box.tracker_id,
@@ -79,6 +98,11 @@ def build_detections(
                     size=size,
                     pad=pad,
                 ),
+                detector_confidence=box.confidence,
+                matcher_score=entry.score if entry is not None else None,
+                matcher_tau=entry.tau if entry is not None else None,
+                matcher_closest_id=entry.closest_id if entry is not None else None,
+                matcher_accepted=entry.accepted if entry is not None else None,
             )
         )
     return detections
