@@ -53,7 +53,9 @@ mask_crop = true
 [tracker.matcher]
 # Sparse-reconstruction regularisation. Higher makes codes sparser.
 alpha = 0.0003
-# Influence of the instrument-size cue beside DINO appearance.
+# Influence of the instrument-size cue beside DINO appearance. Re-tuned for
+# the 3-feature active_features below (was 0.50 for 2 features) -- see
+# matching/PARAMS.md "Round 3b" for the sweep.
 size_alpha = 0.50
 # Minimum SRC/SCI score for accepting a returning identity.
 acceptance_threshold = 0.30
@@ -67,6 +69,20 @@ max_iterations = 2000
 embedding_model = "facebook/dinov2-base"
 # Absolute appearance gate used when only one gallery exists.
 single_gallery_cosine_threshold = 0.60
+# Which size/shape cues feed the size_alpha-weighted fusion above. Full
+# catalog, defaults, and calibration status of every option:
+# ../model/src/orc_model/pipelines/matching/FEATURES.md
+# Unknown names fail startup with the valid list. All options are calibrated
+# against the CV/development instrument pool; adding one still means
+# re-tuning alpha/tau/winner_margin against the new fused-vector composition.
+# solidity/extent/width_profile were tried and swept out on 2026-07-17 --
+# NOT PROMOTED, a real re-ID regression (0.808 best vs this composition's
+# 0.950): see matching/PARAMS.md "Round 3c" for the sweep + per-feature
+# ablation that isolated width_profile as the main cause.
+# eccentricity/hu_moments were also tried and swept out on 2026-07-17 --
+# NOT PROMOTED, both regress re-ID and eccentricity reintroduces a twin
+# error: see matching/PARAMS.md "Round 3d".
+active_features = ["log_area", "log_length"]
 
 [tracker.linker]
 # Gates used once at Start to bind tray tracks to specimen galleries.

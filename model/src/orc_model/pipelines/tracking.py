@@ -339,6 +339,7 @@ def load_tracker(
         max_iter=matcher_config.max_iterations,
         model_id=matcher_config.embedding_model,
         cos_tau=matcher_config.single_gallery_cosine_threshold,
+        active_features=matcher_config.active_features,
     )  # loads DINOv2-B eagerly -- fail fast, not on first frame
     galleries = None
     # In catalog-only mode a missing/empty gallery set is a fatal config error

@@ -71,6 +71,11 @@ class MatcherConfig:
     max_iterations: int = 2000
     embedding_model: str = "facebook/dinov2-base"
     single_gallery_cosine_threshold: float = 0.60
+    # Which size/shape cues feed the size_alpha-weighted fusion. Full catalog
+    # and calibration status of every name: matching/FEATURES.md. Names are
+    # cross-checked against the real registry when ChampionMethod is built
+    # (not here, to keep this module free of the DINOv2/torch import).
+    active_features: tuple[str, ...] = ("log_area", "log_length")
 
     def __post_init__(self) -> None:
         if self.alpha <= 0:
@@ -88,6 +93,11 @@ class MatcherConfig:
             raise ValueError("max_iterations must be at least 1")
         if not self.embedding_model:
             raise ValueError("embedding_model cannot be empty")
+        object.__setattr__(self, "active_features", tuple(self.active_features))
+        if not all(isinstance(name, str) and name for name in self.active_features):
+            raise ValueError("active_features must be non-empty feature name strings")
+        if len(set(self.active_features)) != len(self.active_features):
+            raise ValueError("active_features cannot contain duplicate names")
 
 
 @dataclass(frozen=True)
