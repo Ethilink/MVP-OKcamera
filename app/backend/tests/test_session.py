@@ -755,11 +755,11 @@ _STABLE_S = 2.0  # the readiness stability threshold these tests construct with
 
 class TestReadinessBlockingReasons:
     """T11/B2 backend test 2: `setup_readiness` is a pure verdict on the latest
-    same-tick observation. It is NOT ready — with the right priority-ordered
-    blocking reason — while a track is still resolving, a catalog member is
-    missing, an unknown object is settled on the tray, or the id-set has not held
-    steady for `setup_stable_s`. Priority: recognising > unknown_objects >
-    missing_instruments > hold_steady."""
+    same-tick observation. The gate is permissive: a subset of the catalog may
+    start and settled Unknown objects never block. It is NOT ready — with the
+    right priority-ordered blocking reason — while a track is still resolving, no
+    instrument is recognised yet, or the id-set has not held steady for
+    `setup_stable_s`. Priority: recognising > missing_instruments > hold_steady."""
 
     def test_nothing_observed_yet_is_not_ready_and_recognising(self) -> None:
         session = Session(setup_stable_s=_STABLE_S)
@@ -778,7 +778,9 @@ class TestReadinessBlockingReasons:
         assert readiness.blocking_reason == "recognising"
         assert readiness.resolving_count == 1
 
-    def test_a_missing_catalog_member_blocks_with_missing_instruments(self) -> None:
+    def test_a_partial_catalog_subset_is_ready(self) -> None:
+        # A subset of the catalog (2 of 3) is now a valid start: the operator can
+        # lay out and record just the instruments they care about.
         session = Session(setup_stable_s=_STABLE_S)
         catalog = frozenset({1, 2, 3})
         present = frozenset({1, 2})  # id 3 (a catalog member) is not on the tray
@@ -786,12 +788,28 @@ class TestReadinessBlockingReasons:
 
         readiness = session.setup_readiness(_STABLE_S + 3.0)
 
-        assert readiness.ready is False
-        assert readiness.blocking_reason == "missing_instruments"
+        assert readiness.ready is True
+        assert readiness.blocking_reason is None
         assert readiness.recognised_count == 2
         assert readiness.expected_count == 3
 
-    def test_a_settled_unknown_object_blocks_with_unknown_objects(self) -> None:
+    def test_nothing_recognised_blocks_with_missing_instruments(self) -> None:
+        # `missing_instruments` now means "no recognised instrument yet" -- a tray
+        # holding only a non-roster object still needs at least one known one.
+        session = Session(setup_stable_s=_STABLE_S)
+        catalog = frozenset({1, 2, 3})
+        present = frozenset({9})  # only a non-roster object, nothing recognised
+        session.observe(0.0, present, frozenset(), catalog, frozenset())
+
+        readiness = session.setup_readiness(_STABLE_S + 3.0)
+
+        assert readiness.ready is False
+        assert readiness.blocking_reason == "missing_instruments"
+        assert readiness.recognised_count == 0
+
+    def test_a_settled_unknown_object_no_longer_blocks(self) -> None:
+        # A settled Unknown on the tray is reported (unknown_count == 1) but does
+        # NOT block Start -- it is simply excluded from the roster at Start.
         session = Session(setup_stable_s=_STABLE_S)
         catalog = frozenset({1, 2, 3})
         roster = frozenset({1, 2, 3})
@@ -800,8 +818,8 @@ class TestReadinessBlockingReasons:
 
         readiness = session.setup_readiness(_STABLE_S + 3.0)
 
-        assert readiness.ready is False
-        assert readiness.blocking_reason == "unknown_objects"
+        assert readiness.ready is True
+        assert readiness.blocking_reason is None
         assert readiness.unknown_count == 1
 
     def test_full_catalog_but_not_yet_stable_blocks_with_hold_steady(self) -> None:
@@ -837,11 +855,12 @@ class TestReadinessBlockingReasons:
             session.setup_readiness(1.0)
 
 
-class TestReadinessTrueOnlyForExactCatalog:
-    """T11/B2 backend test 3: readiness is True only when the present set is
-    exactly the catalog, recognised, with no unknowns/resolving, held past
-    `setup_stable_s`. Adding one extra (unknown) id, or dropping one catalog id,
-    flips it back to not-ready."""
+class TestReadinessAllowsSubsetAndIgnoresUnknowns:
+    """T11/B2 backend test 3: readiness is True whenever at least one instrument
+    is recognised, with no resolving track, held past `setup_stable_s`. A subset
+    of the catalog is fine and an extra settled Unknown id does not flip it back
+    to not-ready. Only zero recognised, a resolving track, an empty catalog, or
+    insufficient stability keep it not-ready."""
 
     def test_exact_present_catalog_after_stability_is_ready(self) -> None:
         session = Session(setup_stable_s=_STABLE_S)
@@ -858,17 +877,18 @@ class TestReadinessTrueOnlyForExactCatalog:
         assert readiness.unknown_count == 0
         assert readiness.resolving_count == 0
 
-    def test_one_extra_unknown_id_flips_ready_false(self) -> None:
+    def test_one_extra_unknown_id_stays_ready(self) -> None:
         session = Session(setup_stable_s=0.0)
         catalog = frozenset({1, 2, 3})
         session.observe(0.0, catalog | {9}, catalog, catalog, frozenset())
 
         readiness = session.setup_readiness(5.0)
 
-        assert readiness.ready is False
-        assert readiness.blocking_reason == "unknown_objects"
+        assert readiness.ready is True
+        assert readiness.blocking_reason is None
+        assert readiness.unknown_count == 1
 
-    def test_one_missing_catalog_id_flips_ready_false(self) -> None:
+    def test_one_missing_catalog_id_stays_ready(self) -> None:
         session = Session(setup_stable_s=0.0)
         catalog = frozenset({1, 2, 3})
         present = frozenset({1, 2})
@@ -876,8 +896,9 @@ class TestReadinessTrueOnlyForExactCatalog:
 
         readiness = session.setup_readiness(5.0)
 
-        assert readiness.ready is False
-        assert readiness.blocking_reason == "missing_instruments"
+        assert readiness.ready is True
+        assert readiness.blocking_reason is None
+        assert readiness.recognised_count == 2
 
     def test_an_empty_catalog_is_never_ready(self) -> None:
         # A guard on the `expected_count > 0` clause: with no catalog configured

@@ -56,7 +56,7 @@ class SetupReadiness:
     stable_for_s: float
     ready: bool
     blocking_reason: str | None   # "recognising" | "missing_instruments" |
-                                  # "unknown_objects" | "hold_steady" | None
+                                  # "hold_steady" | None
 
 
 class InvalidPhase(RuntimeError):
@@ -161,9 +161,11 @@ class Session:
 
     def setup_readiness(self, t: float) -> SetupReadiness:
         """Pure verdict on setup readiness from the latest same-tick observation.
-        Legal only in SETUP/FINISHED. Priority order for the blocking reason
-        (D3/B2): recognising > unknown_objects > missing_instruments >
-        hold_steady. Capture health is combined by the API, not here."""
+        Legal only in SETUP/FINISHED. The gate is permissive: any recognised
+        instrument may start (a subset of the catalog is fine) and settled
+        Unknown objects on the tray do NOT block. Priority order for the blocking
+        reason (D3/B2): recognising > missing_instruments (nothing recognised
+        yet) > hold_steady. Capture health is combined by the API, not here."""
         if self._phase not in (Phase.SETUP, Phase.FINISHED):
             raise InvalidPhase(f"setup_readiness invalid in {self._phase}")
         if self._setup_present is None:
@@ -187,10 +189,14 @@ class Session:
         unknown_count = len(unknown)
         stable_for_s = max(0.0, self._effective_t(t) - self._idset_since_t)
 
-        all_recognised = expected_count > 0 and recognised == catalog
+        # Permissive gate: at least one recognised instrument may start (a subset
+        # of the catalog is allowed) and settled Unknown objects no longer block --
+        # unknowns are excluded from the roster at Start regardless, so a phantom
+        # foreign detection can never trap the operator. `expected_count` guards
+        # the empty-catalog case so the gate still fails closed with no catalog.
+        any_recognised = expected_count > 0 and recognised_count > 0
         ready = (
-            all_recognised
-            and unknown_count == 0
+            any_recognised
             and resolving_count == 0
             and stable_for_s >= self._setup_stable_s
         )
@@ -198,9 +204,7 @@ class Session:
             blocking_reason = None
         elif resolving_count > 0:
             blocking_reason = "recognising"
-        elif unknown_count > 0:
-            blocking_reason = "unknown_objects"
-        elif not all_recognised:
+        elif not any_recognised:
             blocking_reason = "missing_instruments"
         else:
             blocking_reason = "hold_steady"

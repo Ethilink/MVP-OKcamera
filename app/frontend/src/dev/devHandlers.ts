@@ -78,8 +78,9 @@ function detectorControl(): DetectorControl {
 
 // The scripted foreign object: appears 4 s into a setup pass and leaves at 9 s,
 // reading "recognising" (spinner) for its first 1.5 s, then settled "unknown".
-// So the gate cycles: hold_steady → ready → recognising → unknown_objects →
-// hold_steady → ready — a full demo of the F1 copy and the F2 tile states.
+// The gate is permissive: while it resolves it reads "recognising"; once settled
+// as Unknown it no longer blocks, so the gate cycles hold_steady → ready →
+// recognising → hold_steady → ready while the Unknown tile still shows.
 const FOREIGN_APPEAR = 4
 const FOREIGN_SETTLE = 5.5
 const FOREIGN_LEAVE = 9
@@ -125,16 +126,14 @@ function buildSetup(elapsed: number) {
   const resolving_count = detections.filter((d) => d.state === "recognising").length
   const unknown_count = detections.filter((d) => d.state === "unknown").length
   const ready =
-    recognised_count === CATALOG.length &&
+    recognised_count > 0 &&
     resolving_count === 0 &&
-    unknown_count === 0 &&
     stable_for_s >= 2
 
   let blocking_reason: string | null = null
   if (!ready) {
     if (resolving_count > 0) blocking_reason = "recognising"
-    else if (unknown_count > 0) blocking_reason = "unknown_objects"
-    else if (recognised_count < CATALOG.length) blocking_reason = "missing_instruments"
+    else if (recognised_count === 0) blocking_reason = "missing_instruments"
     else blocking_reason = "hold_steady"
   }
 

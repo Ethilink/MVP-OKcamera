@@ -1438,11 +1438,12 @@ def _wait_for(predicate, timeout: float = 2.0, interval: float = 0.005) -> bool:
 
 
 class TestStartGate:
-    """T11/B4, backend test 4: `POST /recording/start` is a server-enforced,
-    fail-closed gate. It returns 409 with the mapped detail for EVERY not-ready
-    state — recognising, unknown objects, missing instruments, hold-steady, and an
-    unhealthy capture — even when called directly (the frontend disabling the
-    button is not the enforcement). A successful Start preserves the exact
+    """T11/B4, backend test 4: `POST /recording/start` is a server-enforced
+    gate. It returns 409 with the mapped detail for every not-ready state —
+    recognising, nothing recognised, hold-steady, and an unhealthy capture — even
+    when called directly (the frontend disabling the button is not the
+    enforcement). The gate is permissive: a subset of the catalog starts and a
+    settled Unknown object does not block. A successful Start preserves the exact
     tracker roster/catalog state that passed the gate (backend test 5)."""
 
     def _app(self, session, capture=None):
@@ -1461,7 +1462,7 @@ class TestStartGate:
         assert resp.status_code == 409
         assert resp.json()["detail"] == "recognition still in progress"
 
-    def test_unknown_object_blocks_start_with_409(self) -> None:
+    def test_settled_unknown_object_does_not_block_start(self) -> None:
         session = Session(setup_stable_s=0.0)
         catalog = frozenset({1, 2, 3})
         session.observe(0.0, catalog | {9}, catalog, catalog, frozenset())  # id 9 settled unknown
@@ -1469,10 +1470,10 @@ class TestStartGate:
 
         resp = client.post("/recording/start")
 
-        assert resp.status_code == 409
-        assert resp.json()["detail"] == "remove unknown objects before starting"
+        assert resp.status_code == 200
 
-    def test_missing_instrument_blocks_start_with_409(self) -> None:
+    def test_a_catalog_subset_can_start(self) -> None:
+        # The operator lays out 2 of the 3 catalog instruments and records those.
         session = Session(setup_stable_s=0.0)
         catalog = frozenset({1, 2, 3})
         session.observe(0.0, frozenset({1, 2}), frozenset({1, 2}), catalog, frozenset())
@@ -1480,8 +1481,18 @@ class TestStartGate:
 
         resp = client.post("/recording/start")
 
+        assert resp.status_code == 200
+
+    def test_nothing_recognised_blocks_start_with_409(self) -> None:
+        session = Session(setup_stable_s=0.0)
+        catalog = frozenset({1, 2, 3})
+        session.observe(0.0, frozenset({9}), frozenset(), catalog, frozenset())  # only a non-roster object
+        _, client = self._app(session)
+
+        resp = client.post("/recording/start")
+
         assert resp.status_code == 409
-        assert resp.json()["detail"] == "all 3 instruments must be recognised before starting"
+        assert resp.json()["detail"] == "at least one instrument must be recognised before starting"
 
     def test_hold_steady_blocks_start_with_409(self) -> None:
         session = Session(setup_stable_s=5.0)  # never settles at clock 0.0

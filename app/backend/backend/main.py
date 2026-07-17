@@ -166,13 +166,8 @@ def _start_block_detail(readiness, capture_health) -> str | None:
         return None
     if reason == "recognising":
         return "recognition still in progress"
-    if reason == "unknown_objects":
-        return "remove unknown objects before starting"
     if reason == "missing_instruments":
-        return (
-            f"all {readiness.expected_count} instruments must be recognised "
-            "before starting"
-        )
+        return "at least one instrument must be recognised before starting"
     if reason == "hold_steady":
         return "hold the tray steady before starting"
     return "setup is not ready"
