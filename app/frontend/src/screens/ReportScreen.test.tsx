@@ -57,6 +57,16 @@ test("AC4 summary shows counts; New recording calls the prop, not the API", asyn
   startSpy.mockRestore()
 })
 
+// T11/F4/§8-8: the Advanced detection-confidence control is absent on the report
+// view (D6 — it is a non-recording setup control only).
+test("F4 the Advanced control is absent on the report view", async () => {
+  serveReport()
+  render(<ReportScreen onNewRecording={() => {}} />)
+  await screen.findByText("Instrument 1")
+  expect(screen.queryByRole("button", { name: /advanced/i })).toBeNull()
+  expect(screen.queryByRole("slider", { hidden: true })).toBeNull()
+})
+
 // AC5: report fetch failing → non-crashing error state, for both 409 and 500.
 test("AC5 409 → 'no finished recording' error state, still shows New recording", async () => {
   server.use(

@@ -1,17 +1,20 @@
-"""Draw boxes and masks coloured by ``tracker_id`` (DESIGN D5/D6).
+"""Draw boxes and masks under ONE identity policy in every phase (T11/R1).
 
 The on-table count is intentionally NOT burned into the frame: the operator
 reads it from the app chrome (the setup constellation / recording list), so the
 video stays a clean feed with just the coloured detection boxes.
 
-While RECORDING the overlay is roster-aware (T10/D8a): a roster instrument keeps
-a fixed palette colour derived from its id — so a returned instrument regains
-its colour with no renderer memory — and anything NOT in the roster draws gray.
-Whether such a track shows the resolving spinner or the settled "Unknown" label
-is read from the linker's per-detection ``data["resolving"]`` flag (the seam's
-wait-state, grilled 2026-07-16): the renderer keeps NO first-seen clock of its
-own, so the spinner follows the linker's actual decision instead of a timer that
-could clear before a deferred track is really settled. It is never "Instrument N".
+Since T11/R1 there is no separate setup appearance. In setup, recording, and the
+run-2 setup view the overlay is roster-aware: a roster instrument keeps a fixed
+palette colour derived from its id AND the fixed catalog (`catalog_colour`, D5) —
+so a returned instrument regains its colour with no renderer memory, and a
+partial roster can never shift another instrument's colour — while anything NOT in
+the roster draws gray. Whether such a track shows the resolving spinner or the
+settled "Unknown" label is read from the linker's per-detection
+``data["resolving"]`` flag (the seam's wait-state, grilled 2026-07-16): the
+renderer keeps NO first-seen clock of its own, so the spinner follows the linker's
+actual decision instead of a timer that could clear before a deferred track is
+really settled. A not-in-roster track is never "Instrument N".
 """
 
 from __future__ import annotations
@@ -20,16 +23,12 @@ import cv2
 import numpy as np
 import supervision as sv
 
-_TRACK = sv.ColorLookup.TRACK
-_MASK_ANNOTATOR = sv.MaskAnnotator(color_lookup=_TRACK)
-_BOX_ANNOTATOR = sv.BoxAnnotator(color_lookup=_TRACK)
-_LABEL_ANNOTATOR = sv.LabelAnnotator(color_lookup=_TRACK)
-
 _INDEX = sv.ColorLookup.INDEX
 
-# 8 distinct hues, one per roster slot. TUNABLE: the hexes themselves carry no
-# meaning beyond being mutually distinct, stable, and distinct from the gray.
-ROSTER_PALETTE: tuple[str, ...] = (
+# 8 distinct hues, one per CATALOG slot (indexed by position in sorted(catalog),
+# D5). TUNABLE: the hexes themselves carry no meaning beyond being mutually
+# distinct, stable, and distinct from the gray.
+CATALOG_PALETTE: tuple[str, ...] = (
     "#4285f4",  # blue
     "#34a853",  # green
     "#fbbc04",  # yellow
@@ -50,75 +49,75 @@ _SPINNER_DEGREES_PER_S = 300.0
 _SPINNER_ARC_DEGREES = 270
 
 
-def render(frame: np.ndarray, dets: sv.Detections) -> np.ndarray:
-    """Draw the overlay IN PLACE on `frame` and return it: boxes + masks
-    coloured by tracker_id, label 'Instrument {tracker_id}'. Copy ownership:
-    the CAPTURE LOOP passes a frame it owns (a copy of the camera buffer if that
-    buffer may be reused), so render is free to mutate. render does NOT copy —
-    single owner, no double-copy."""
-    if dets.tracker_id is not None and len(dets) > 0:
-        labels = [f"Instrument {int(tracker_id)}" for tracker_id in dets.tracker_id]
-        _MASK_ANNOTATOR.annotate(scene=frame, detections=dets)
-        _BOX_ANNOTATOR.annotate(scene=frame, detections=dets)
-        _LABEL_ANNOTATOR.annotate(scene=frame, detections=dets, labels=labels)
-
-    return frame
-
-
-def roster_colour(roster: frozenset[int], session_id: int) -> str:
-    """Fixed hex colour for a roster id: palette[index of id in sorted(roster),
-    mod 8]. Pure; stable for the whole recording because the roster is frozen —
-    which is what lets the panel swatch and the mask agree without either side
-    remembering anything. An id outside the roster is not an instrument and gets
-    the gray (the same answer as an empty/unknown roster)."""
-    if session_id not in roster:
+def catalog_colour(catalog: frozenset[int], specimen_id: int) -> str:
+    """Fixed hex colour for a catalog id: palette[index of id in sorted(catalog),
+    mod 8] (D5). Pure; stable for the tracker's whole life because the catalog is
+    constant — which is what lets the panel swatch and the mask agree without
+    either side remembering anything, AND keeps a partial roster from shifting an
+    already-known instrument's colour (the roster is NOT the palette basis). An id
+    outside the catalog is not an instrument and gets the gray."""
+    if specimen_id not in catalog:
         return UNKNOWN_COLOUR
-    return ROSTER_PALETTE[sorted(roster).index(session_id) % len(ROSTER_PALETTE)]
+    return CATALOG_PALETTE[sorted(catalog).index(specimen_id) % len(CATALOG_PALETTE)]
+
+
+def classify_detection(
+    tracker_id: int, roster: frozenset[int], catalog: frozenset[int], resolving: bool
+) -> tuple[str, str, str]:
+    """The single identity policy (D4/D5), returning ``(state, label, colour)``.
+
+    Shared by the overlay renderer AND the setup thumbnail builder so the video
+    mask and the setup tile for the same detection can never disagree (R1/R3).
+
+    - recognised (id in the same-tick roster): ``Instrument {id}`` + its catalog
+      colour;
+    - recognising (not in roster, still resolving): NO name (empty label) + gray —
+      the caller shows a spinner, never the raw id;
+    - unknown (not in roster, settled): ``Unknown`` + gray.
+
+    A raw tracker id is never exposed as a label (D4)."""
+    if tracker_id in roster:
+        return "recognised", f"Instrument {tracker_id}", catalog_colour(catalog, tracker_id)
+    if resolving:
+        return "recognising", "", UNKNOWN_COLOUR
+    return "unknown", _UNKNOWN_LABEL, UNKNOWN_COLOUR
 
 
 class OverlayRenderer:
-    """Stateful only in its recording flag (capture thread reads it; the HTTP
-    start/stop handlers flip it via `set_recording`). Replaces the plain
-    `render` function as CaptureLoop's default render_fn.
+    """Stateless overlay renderer — CaptureLoop's default render_fn (replaces the
+    old `render` free function). Since T11/R1 the identity policy is phase-
+    independent — roster-aware in setup, recording, and finished alike (D4) — so
+    the setup frame before Track and the first recording frame after Track are
+    visually identical for unchanged detections; there is no recording flag.
 
-    Whether a not-in-roster track spins (resolving) or draws the settled
-    "Unknown" label is read from the linker's per-detection `data["resolving"]`
-    flag, NOT from a renderer-side timer. The renderer therefore holds no
-    first-seen map: it cannot latch, cannot grow, and cannot disagree with the
-    linker about when a track is settled (the wait-state flicker a local timer
-    had — grilled 2026-07-16). A producer that omits the flag (a bare test
-    double) has every not-in-roster track read as settled Unknown."""
-
-    def __init__(self) -> None:
-        self._recording = False
-
-    def set_recording(self, recording: bool) -> None:
-        """Thread-safe flag flip; called by the start/stop HTTP handlers. No
-        per-id state to reset -- resolving is the linker's per-frame flag, and a
-        new recording gets a freshly-reset linker (its own `_pending`)."""
-        self._recording = recording
+    Whether a not-in-roster track spins (resolving) or draws the settled "Unknown"
+    label is read from the linker's per-detection `data["resolving"]` flag, NOT
+    from a renderer-side timer. The renderer therefore holds no first-seen map: it
+    cannot latch, cannot grow, and cannot disagree with the linker about when a
+    track is settled (the wait-state flicker a local timer had — grilled
+    2026-07-16). A producer that omits the flag (a bare test double) has every
+    not-in-roster track read as settled Unknown."""
 
     def __call__(
-        self, frame: np.ndarray, dets: sv.Detections, roster: frozenset[int], t: float
+        self,
+        frame: np.ndarray,
+        dets: sv.Detections,
+        roster: frozenset[int],
+        catalog: frozenset[int],
+        t: float,
     ) -> np.ndarray:
         if dets.tracker_id is None or len(dets) == 0:
             return frame
-        if not self._recording:
-            # Setup / finished: the roster is stale by design, so draw exactly
-            # what the operator saw before T10.
-            return render(frame, dets)
 
         resolving = dets.data.get("resolving") if dets.data is not None else None
         colours: list[str] = []
         labels: list[str | None] = []
         for row, tracker_id in enumerate(int(i) for i in dets.tracker_id):
-            if tracker_id in roster:
-                colours.append(roster_colour(roster, tracker_id))
-                labels.append(f"Instrument {tracker_id}")
-                continue
-            colours.append(UNKNOWN_COLOUR)
             is_resolving = bool(resolving[row]) if resolving is not None else False
-            labels.append(None if is_resolving else _UNKNOWN_LABEL)
+            state, label, colour = classify_detection(tracker_id, roster, catalog, is_resolving)
+            colours.append(colour)
+            # recognising -> spinner, no label; recognised/unknown -> draw label.
+            labels.append(None if state == "recognising" else label)
 
         palette = _palette(colours)
         sv.MaskAnnotator(color=palette, color_lookup=_INDEX).annotate(scene=frame, detections=dets)

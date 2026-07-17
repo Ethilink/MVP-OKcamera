@@ -75,13 +75,13 @@ def test_load_tracker_rejects_invalid_workspace_boundary_before_loading_models(t
 def test_b_r3_fake_instrument_tracker_roster_matches_the_ids_it_emits():
     tracker = FakeInstrumentTracker(n_instruments=3)
 
-    assert tracker.roster == frozenset({0, 1, 2}), (
-        "the fake enrols instantly and emits tracker_ids 0..n-1, so that IS its roster"
+    assert tracker.roster == frozenset({1, 2, 3}), (
+        "the fake enrols instantly and emits 1-based tracker_ids 1..n, so that IS its roster"
     )
 
 
 def test_b_r3_fake_instrument_tracker_roster_follows_its_instrument_count():
-    assert FakeInstrumentTracker(n_instruments=5).roster == frozenset({0, 1, 2, 3, 4})
+    assert FakeInstrumentTracker(n_instruments=5).roster == frozenset({1, 2, 3, 4, 5})
 
 
 def test_b_r3_both_trackers_still_satisfy_the_runtime_checkable_protocol():
@@ -151,6 +151,65 @@ def test_b_r3_real_tracker_reports_the_session_linkers_roster():
 
     tracker.reset()
     assert tracker.roster == frozenset(), "empty again immediately after reset()"
+
+
+# ==========================================================================
+# T11 SPEC-M — `catalog` crosses the tracker seam
+#
+# Contract: the SPEC-M-phase1-model spec for ticket T11 (M1). `catalog` is the
+# fixed set of persistent specimen ids available for binding, known from
+# construction and constant across reset() -- unlike `roster`, which is empty
+# until the enrolment freeze. The fake's catalog == roster == range(1, n+1).
+# ==========================================================================
+
+
+def test_catalog_fake_instrument_tracker_matches_its_identity_range():
+    tracker = FakeInstrumentTracker(n_instruments=3)
+
+    assert tracker.catalog == frozenset({1, 2, 3}), "the fake's catalog is its full 1-based identity range"
+    assert tracker.catalog == tracker.roster, "the fake enrols instantly, so catalog == roster"
+
+    before = tracker.catalog
+    tracker.reset()
+    assert tracker.catalog == before, "catalog is constant across reset()"
+
+
+def test_catalog_fake_instrument_tracker_follows_its_instrument_count():
+    assert FakeInstrumentTracker(n_instruments=5).catalog == frozenset({1, 2, 3, 4, 5})
+
+
+def test_catalog_real_tracker_reports_the_session_linkers_catalog():
+    # The catalog is the loaded persistent specimen ids; the seam must report
+    # the linker's catalog, and it must be constant across reset() and never
+    # touched by the enrolment freeze. The gallery VALUES are irrelevant to
+    # `catalog` (which is just the loaded keys), so opaque placeholders suffice.
+    linker = SessionLinker(
+        _StubMatcher(),
+        fps=4.0,
+        unknown_id_offset=5000,
+        persistent_galleries={1: object(), 2: object()},
+        enrolment_window_s=0.25,
+        evidence_window_s=10.0,
+        evidence_frames=1,
+        absent_death_s=10.0,
+        min_mask_area_px=100,
+    )
+    tracker = _RealInstrumentTracker(
+        detector=object(),
+        confidence=0.5,
+        fps=4.0,
+        max_age_seconds=1.0,
+        session_linker=linker,
+        model_version="stub-0",
+        workspace_max_center_y_ratio=None,
+    )
+
+    assert tracker.catalog == frozenset({1, 2}), "the seam reports the linker's loaded catalog"
+    assert tracker.catalog == linker.catalog
+    assert tracker.roster == frozenset(), "roster is empty before the freeze; catalog is not"
+
+    tracker.reset()
+    assert tracker.catalog == frozenset({1, 2}), "reset() must leave the catalog unchanged"
 
 
 # ==========================================================================

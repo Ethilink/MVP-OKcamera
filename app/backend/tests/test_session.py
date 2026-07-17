@@ -29,6 +29,7 @@ from backend.session import (
     Phase,
     Report,
     Session,
+    SetupReadiness,
     UsageWindow,
 )
 
@@ -90,18 +91,18 @@ class TestAC1PhaseStateMachine:
         with pytest.raises(InvalidPhase):
             session.recording_status(0.0)
 
-    def test_ac1_setup_status_while_recording_raises_invalid_phase(self) -> None:
+    def test_ac1_setup_readiness_while_recording_raises_invalid_phase(self) -> None:
         session = Session()
         session.start(0.0)
 
         with pytest.raises(InvalidPhase):
-            session.setup_status(1.0)
+            session.setup_readiness(1.0)
 
 
 class TestAC2StartGate:
     """AC2: observes with id-set {1,2,3} from t=10 to t=13 ->
-    setup_status(13) == (3, 3.0); one observe with {1,2} resets stability
-    to 0."""
+    readiness reports three detections stable for 3 s; one observe with {1,2}
+    resets stability to 0."""
 
     def test_ac2_stable_id_set_reports_count_and_duration_since_it_formed(
         self,
@@ -112,7 +113,8 @@ class TestAC2StartGate:
         session.observe(12.0, frozenset({1, 2, 3}))
         session.observe(13.0, frozenset({1, 2, 3}))
 
-        assert session.setup_status(13.0) == (3, 3.0)
+        status = session.setup_readiness(13.0)
+        assert (status.detected_count, status.stable_for_s) == (3, 3.0)
 
     def test_ac2_id_set_change_resets_stability_to_zero(self) -> None:
         session = Session()
@@ -121,7 +123,8 @@ class TestAC2StartGate:
 
         session.observe(14.0, frozenset({1, 2}))
 
-        assert session.setup_status(14.0) == (2, 0.0)
+        status = session.setup_readiness(14.0)
+        assert (status.detected_count, status.stable_for_s) == (2, 0.0)
 
 
 class TestAC3SteadyPresenceNoAbsences:
@@ -441,18 +444,18 @@ class TestAC9MonotonicGuardAndSetupIsolation:
 
 
 class TestAC10NonMutatingProjection:
-    """AC10: setup_status/recording_status project the debounced state at a
+    """AC10: setup_readiness/recording_status project the debounced state at a
     queried t without committing anything -- polling never perturbs durable
     state, and a later stop() yields the same report either way."""
 
-    def test_ac10_setup_status_projects_growing_stability_with_no_new_observes(
+    def test_ac10_setup_readiness_projects_growing_stability_with_no_new_observes(
         self,
     ) -> None:
         session = Session()
         session.observe(5.0, frozenset({1, 2, 3}))
 
-        assert session.setup_status(6.0) == (3, 1.0)
-        assert session.setup_status(10.0) == (3, 5.0)
+        assert session.setup_readiness(6.0).stable_for_s == 1.0
+        assert session.setup_readiness(10.0).stable_for_s == 5.0
 
     def test_ac10_recording_status_projects_off_flip_with_no_intervening_observe(
         self,
@@ -497,28 +500,32 @@ class TestAC10NonMutatingProjection:
 
 class TestAC11FinishedGateAndReportImmutability:
     """AC11: D15 finished-phase gate + report immutability -- fresh session
-    setup_status is (0, 0.0) before any observe; post-stop observes keep
-    driving setup_status (a held id-set keeps growing, a changed one
+    readiness is empty before any observe; post-stop observes keep driving its
+    count/stability projection (a held id-set keeps growing, a changed one
     resets) while report() stays byte-identical."""
 
     def test_ac11_fresh_gate_is_zero_and_post_stop_observes_still_drive_it(
         self,
     ) -> None:
         session = Session()
-        assert session.setup_status(0.0) == (0, 0.0)
+        initial = session.setup_readiness(0.0)
+        assert (initial.detected_count, initial.stable_for_s) == (0, 0.0)
 
         session.start(0.0)
         _confirm_presence(session, frozenset({1}), 1.0, 2.5)
         session.stop(10.0)
 
         session.observe(11.0, frozenset({5}))  # new id-set, post-stop (FINISHED)
-        assert session.setup_status(11.0) == (1, 0.0)
+        status = session.setup_readiness(11.0)
+        assert (status.detected_count, status.stable_for_s) == (1, 0.0)
 
         session.observe(12.0, frozenset({5}))  # held -> stability grows
-        assert session.setup_status(12.0) == (1, 1.0)
+        status = session.setup_readiness(12.0)
+        assert (status.detected_count, status.stable_for_s) == (1, 1.0)
 
         session.observe(13.0, frozenset({5, 6}))  # changed -> resets
-        assert session.setup_status(13.0) == (2, 0.0)
+        status = session.setup_readiness(13.0)
+        assert (status.detected_count, status.stable_for_s) == (2, 0.0)
 
     def test_ac11_report_is_byte_identical_before_and_after_post_stop_observes(
         self,
@@ -544,7 +551,7 @@ class TestBS1RecordingIsFilteredByTheRoster:
     """B-S1: only the RECORDING half of `observe` changes. It uses
     `present_ids & roster`, so a not-in-roster id never becomes a track, never
     confirms, and never reaches `recording_status()` or the report. The Start
-    gate (`setup_status`) keeps using the FULL
+    gate (`setup_readiness`) keeps using the FULL
     `present_ids` — it is the operator's judgment on everything detected."""
 
     def test_b_s1_a_not_in_roster_id_never_enters_the_live_recording_status(
@@ -606,7 +613,8 @@ class TestBS1RecordingIsFilteredByTheRoster:
         session.observe(10.0, frozenset({1, 2, 9}), frozenset({1, 2}))
         session.observe(11.0, frozenset({1, 2, 9}), frozenset({1, 2}))
 
-        assert session.setup_status(11.0) == (3, 1.0)
+        status = session.setup_readiness(11.0)
+        assert (status.detected_count, status.stable_for_s) == (3, 1.0)
 
     def test_b_s1_the_id_set_stability_clock_still_watches_every_detected_id(
         self,
@@ -618,7 +626,8 @@ class TestBS1RecordingIsFilteredByTheRoster:
 
         session.observe(12.0, frozenset({1, 2, 9}), roster)  # a foreign id lands
 
-        assert session.setup_status(12.0) == (3, 0.0)  # stability reset, not ignored
+        status = session.setup_readiness(12.0)
+        assert (status.detected_count, status.stable_for_s) == (3, 0.0)
 
 
 class TestBS2RosterDefaultsToUnfiltered:
@@ -687,10 +696,9 @@ class TestBS3SessionStaysPure:
 
 
 class TestBS5EmptyRosterWhileRecording:
-    """B-S5: the linker's roster is empty for ~0.7s after Start (its enrolment
-    freeze hasn't fired yet). Those frames pass nothing through the filter —
-    which is harmless precisely because that window is SHORTER than the 1.0s
-    entry debounce, so the report comes out the same either way."""
+    """B-S5: defensive recording behavior if a producer temporarily supplies an
+    empty roster. Start normally preserves an already-approved full roster, but
+    the session filter must still admit nothing from an explicit empty set."""
 
     def test_b_s5_an_empty_roster_confirms_nothing_while_it_lasts(self) -> None:
         session = Session()
@@ -702,25 +710,25 @@ class TestBS5EmptyRosterWhileRecording:
 
         assert instruments == ()
 
-    def test_b_s5_the_pre_freeze_window_leaves_the_report_unchanged(self) -> None:
-        def run(pre_freeze_roster: frozenset[int]) -> object:
+    def test_b_s5_a_short_empty_roster_window_leaves_the_report_unchanged(self) -> None:
+        def run(initial_roster: frozenset[int]) -> object:
             session = Session()
             session.start(0.0)
             roster = frozenset({1, 2})
-            # ~0.7s of pre-freeze frames, then the roster arrives
-            session.observe(0.1, frozenset({1, 2}), pre_freeze_roster)
-            session.observe(0.4, frozenset({1, 2}), pre_freeze_roster)
-            session.observe(0.7, frozenset({1, 2}), pre_freeze_roster)
+            # A defensive short producer glitch, then the approved roster returns.
+            session.observe(0.1, frozenset({1, 2}), initial_roster)
+            session.observe(0.4, frozenset({1, 2}), initial_roster)
+            session.observe(0.7, frozenset({1, 2}), initial_roster)
             session.observe(1.0, frozenset({1, 2}), roster)
             session.observe(3.0, frozenset({1, 2}), roster)
             session.observe(20.0, frozenset({1}), roster)  # id 2 walks off
             session.observe(22.0, frozenset({1}), roster)
             return session.stop(30.0)
 
-        with_freeze_window = run(frozenset())  # the real pre-freeze roster
-        without = run(frozenset({1, 2}))  # a hypothetical instant freeze
+        with_empty_window = run(frozenset())
+        without = run(frozenset({1, 2}))
 
-        assert with_freeze_window == without
+        assert with_empty_window == without
         assert {ir.tracker_id for ir in without.instruments} == {1, 2}  # sanity
 
 
@@ -730,11 +738,154 @@ class TestStaleAccessorsDoNotRewindDurableState:
     known t (it doesn't rewind, and it doesn't raise). Supports AC9/AC10's
     non-mutating-accessor guarantees; not itself a numbered AC."""
 
-    def test_setup_status_with_a_stale_t_returns_the_last_known_state(self) -> None:
+    def test_setup_readiness_with_a_stale_t_returns_the_last_known_state(self) -> None:
         session = Session()
         session.observe(10.0, frozenset({1, 2, 3}))
         session.observe(13.0, frozenset({1, 2, 3}))
 
-        result = session.setup_status(5.0)  # smaller than the last observe (13.0)
+        result = session.setup_readiness(5.0)  # smaller than last observe (13.0)
 
-        assert result == (3, 3.0)
+        assert (result.detected_count, result.stable_for_s) == (3, 3.0)
+
+
+# --- T11 B2: pure setup readiness (catalog / roster / resolving verdict) -------
+
+_STABLE_S = 2.0  # the readiness stability threshold these tests construct with
+
+
+class TestReadinessBlockingReasons:
+    """T11/B2 backend test 2: `setup_readiness` is a pure verdict on the latest
+    same-tick observation. It is NOT ready — with the right priority-ordered
+    blocking reason — while a track is still resolving, a catalog member is
+    missing, an unknown object is settled on the tray, or the id-set has not held
+    steady for `setup_stable_s`. Priority: recognising > unknown_objects >
+    missing_instruments > hold_steady."""
+
+    def test_nothing_observed_yet_is_not_ready_and_recognising(self) -> None:
+        session = Session(setup_stable_s=_STABLE_S)
+        readiness = session.setup_readiness(1.0)
+        assert readiness == SetupReadiness(0, 0, 0, 0, 0, 0.0, False, "recognising")
+
+    def test_a_resolving_track_blocks_with_recognising(self) -> None:
+        session = Session(setup_stable_s=_STABLE_S)
+        catalog = frozenset({1, 2, 3})
+        # Whole catalog present and long-settled, but id 2 is still resolving.
+        session.observe(0.0, catalog, catalog, catalog, frozenset({2}))
+
+        readiness = session.setup_readiness(_STABLE_S + 3.0)
+
+        assert readiness.ready is False
+        assert readiness.blocking_reason == "recognising"
+        assert readiness.resolving_count == 1
+
+    def test_a_missing_catalog_member_blocks_with_missing_instruments(self) -> None:
+        session = Session(setup_stable_s=_STABLE_S)
+        catalog = frozenset({1, 2, 3})
+        present = frozenset({1, 2})  # id 3 (a catalog member) is not on the tray
+        session.observe(0.0, present, present, catalog, frozenset())
+
+        readiness = session.setup_readiness(_STABLE_S + 3.0)
+
+        assert readiness.ready is False
+        assert readiness.blocking_reason == "missing_instruments"
+        assert readiness.recognised_count == 2
+        assert readiness.expected_count == 3
+
+    def test_a_settled_unknown_object_blocks_with_unknown_objects(self) -> None:
+        session = Session(setup_stable_s=_STABLE_S)
+        catalog = frozenset({1, 2, 3})
+        roster = frozenset({1, 2, 3})
+        present = frozenset({1, 2, 3, 9})  # id 9 is non-roster and NOT resolving
+        session.observe(0.0, present, roster, catalog, frozenset())
+
+        readiness = session.setup_readiness(_STABLE_S + 3.0)
+
+        assert readiness.ready is False
+        assert readiness.blocking_reason == "unknown_objects"
+        assert readiness.unknown_count == 1
+
+    def test_full_catalog_but_not_yet_stable_blocks_with_hold_steady(self) -> None:
+        session = Session(setup_stable_s=_STABLE_S)
+        catalog = frozenset({1, 2, 3})
+        session.observe(0.0, catalog, catalog, catalog, frozenset())
+
+        # Queried BEFORE setup_stable_s has elapsed — everything is recognised and
+        # settled, but the id-set has not held long enough yet.
+        readiness = session.setup_readiness(_STABLE_S - 0.5)
+
+        assert readiness.ready is False
+        assert readiness.blocking_reason == "hold_steady"
+        assert readiness.stable_for_s == pytest.approx(_STABLE_S - 0.5)
+
+    def test_the_stability_threshold_is_the_constructor_param(self) -> None:
+        # The same observation is hold_steady under a strict threshold and ready
+        # under a lax one — the threshold is the injected param, not a constant.
+        catalog = frozenset({1, 2})
+
+        strict = Session(setup_stable_s=5.0)
+        strict.observe(0.0, catalog, catalog, catalog, frozenset())
+        assert strict.setup_readiness(1.0).blocking_reason == "hold_steady"
+
+        lax = Session(setup_stable_s=0.5)
+        lax.observe(0.0, catalog, catalog, catalog, frozenset())
+        assert lax.setup_readiness(1.0).ready is True
+
+    def test_readiness_is_illegal_while_recording(self) -> None:
+        session = Session(setup_stable_s=_STABLE_S)
+        session.start(0.0)
+        with pytest.raises(InvalidPhase):
+            session.setup_readiness(1.0)
+
+
+class TestReadinessTrueOnlyForExactCatalog:
+    """T11/B2 backend test 3: readiness is True only when the present set is
+    exactly the catalog, recognised, with no unknowns/resolving, held past
+    `setup_stable_s`. Adding one extra (unknown) id, or dropping one catalog id,
+    flips it back to not-ready."""
+
+    def test_exact_present_catalog_after_stability_is_ready(self) -> None:
+        session = Session(setup_stable_s=_STABLE_S)
+        catalog = frozenset({1, 2, 3})
+        session.observe(0.0, catalog, catalog, catalog, frozenset())
+
+        readiness = session.setup_readiness(_STABLE_S + 0.5)
+
+        assert readiness.ready is True
+        assert readiness.blocking_reason is None
+        assert readiness.detected_count == 3
+        assert readiness.expected_count == 3
+        assert readiness.recognised_count == 3
+        assert readiness.unknown_count == 0
+        assert readiness.resolving_count == 0
+
+    def test_one_extra_unknown_id_flips_ready_false(self) -> None:
+        session = Session(setup_stable_s=0.0)
+        catalog = frozenset({1, 2, 3})
+        session.observe(0.0, catalog | {9}, catalog, catalog, frozenset())
+
+        readiness = session.setup_readiness(5.0)
+
+        assert readiness.ready is False
+        assert readiness.blocking_reason == "unknown_objects"
+
+    def test_one_missing_catalog_id_flips_ready_false(self) -> None:
+        session = Session(setup_stable_s=0.0)
+        catalog = frozenset({1, 2, 3})
+        present = frozenset({1, 2})
+        session.observe(0.0, present, present, catalog, frozenset())
+
+        readiness = session.setup_readiness(5.0)
+
+        assert readiness.ready is False
+        assert readiness.blocking_reason == "missing_instruments"
+
+    def test_an_empty_catalog_is_never_ready(self) -> None:
+        # A guard on the `expected_count > 0` clause: with no catalog configured
+        # the gate never opens (fail-closed), even with a settled tray.
+        session = Session(setup_stable_s=0.0)
+        session.observe(0.0, frozenset({1, 2}), frozenset({1, 2}), frozenset(), frozenset())
+
+        readiness = session.setup_readiness(5.0)
+
+        assert readiness.ready is False
+        assert readiness.blocking_reason == "missing_instruments"

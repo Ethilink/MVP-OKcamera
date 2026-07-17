@@ -144,7 +144,7 @@ function ReportCrop({
         <img
           src={crop}
           alt={label}
-          className="size-full object-cover"
+          className="size-full object-contain"
           draggable={false}
         />
       ) : (

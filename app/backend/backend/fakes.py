@@ -10,16 +10,16 @@ Two phases, one shared clock. `ScenarioState` is the single source of truth for
   the detected count *churns* — a stable core of instruments plus a few "extra"
   ones that come and go, making the count breathe (e.g. 8 → 5 → 8). This is what
   lets the setup screen be exercised against a changing count and changing tiles.
-- **Recording (after `reset()`):** the clean scripted story from `events` — all
+- **Recording (after `begin_recording()`):** the clean scripted story from `events` — all
   instruments present except the scripted pickups (`DEFAULT_SCENARIO`: id 1
   leaves at t=20 s and returns at t=35 s; id 3 leaves at t=50 s and never
   returns). No churn, so the report stays crisp.
 
 `FakeCaptureSource` draws the present instruments as coloured shapes at the SAME
 boxes the tracker reports, reading the SAME `ScenarioState`. Because both share
-one state (one frame clock, reset together), the drawn pixels always line up
+one state (one frame clock and one scheduled recording epoch), the pixels line up
 with the detections — so the `/status` thumbnail crops show real shapes, and a
-recording `Start` (which resets the shared clock) can't drift the two apart.
+when recording starts without requiring a tracker reset.
 """
 
 from __future__ import annotations
@@ -105,9 +105,9 @@ class ScenarioState:
 
     Deterministic: everything is a function of the integer frame count (no wall
     clock), so `ScenarioTracker.update()` and `FakeCaptureSource.read()` agree
-    frame-for-frame as long as they hold the same instance. `reset()` marks the
-    transition into recording AND rewinds the clock, so the two fakes re-align
-    on `Start` (the bug a naive two-counter design would have introduced).
+    frame-for-frame as long as they hold the same instance. Recording begins at
+    one shared future frame boundary, so the two fakes re-align without
+    conflating the lifecycle signal with tracker.reset().
     """
 
     def __init__(
@@ -128,20 +128,49 @@ class ScenarioState:
         self.foreign = tuple(foreign)
         self.resolving_window_s = resolving_window_s
         self._frame_count = 0
-        self._recording = False
+        self._recording_start_frame: int | None = None
+        self._recording_end_frame: int | None = None
 
     @property
     def recording(self) -> bool:
-        return self._recording
+        return (
+            self._recording_start_frame is not None
+            and self._frame_count >= self._recording_start_frame
+            and (
+                self._recording_end_frame is None
+                or self._frame_count < self._recording_end_frame
+            )
+        )
 
     @property
     def time_s(self) -> float:
+        if self.recording:
+            assert self._recording_start_frame is not None
+            return (self._frame_count - self._recording_start_frame) / self.fps
         return self._frame_count / self.fps
 
     def reset(self) -> None:
-        """Enter recording and rewind the clock to t=0. Called on `Start`."""
+        """Begin a fresh setup/enrolment pass at t=0.
+
+        Runtime confidence changes call tracker.reset(); recording Start does
+        not. The fixed fake catalog/roster remains available throughout."""
         self._frame_count = 0
-        self._recording = True
+        self._recording_start_frame = None
+        self._recording_end_frame = None
+
+    def begin_recording(self) -> None:
+        """Schedule the scripted recording story on the next shared frame.
+
+        Both FakeCaptureSource and ScenarioTracker judge `recording` from the
+        same counter. Scheduling `current + 1` means an HTTP call landing between
+        a source read and tracker update cannot split that in-flight frame across
+        setup and recording modes."""
+        self._recording_start_frame = self._frame_count + 1
+        self._recording_end_frame = None
+
+    def end_recording(self) -> None:
+        """Return the fake tray to setup on the next shared frame boundary."""
+        self._recording_end_frame = self._frame_count + 1
 
     def advance(self) -> None:
         """Consume the current frame. Only the tracker advances the clock; the
@@ -151,7 +180,7 @@ class ScenarioState:
 
     def present_ids(self) -> list[int]:
         t = self.time_s
-        absent = self._scenario_absent if self._recording else self._churn_absent
+        absent = self._scenario_absent if self.recording else self._churn_absent
         ids = [
             tracker_id
             for tracker_id in range(1, self.n_instruments + 1)
@@ -159,7 +188,7 @@ class ScenarioState:
         ]
         # Foreign objects only land on the table during recording — nobody drops
         # a phone on the tray while it is still being arranged (T10/B-F1).
-        if self._recording:
+        if self.recording:
             ids += [window.tracker_id for window in self.foreign_present(t)]
         return ids
 
@@ -175,7 +204,7 @@ class ScenarioState:
         emits the spinner-then-settle beat the real linker produces for an
         undecided track. Roster instruments never resolve: the fake enrols
         instantly and re-emits their ids unchanged, so they are always settled."""
-        if not self._recording:
+        if not self.recording:
             return False
         t = self.time_s
         return any(
@@ -225,8 +254,8 @@ class ScenarioTracker:
 
     Constructed standalone it owns a fresh state (the unit-test path); in
     `--fake` mode it shares its state with `FakeCaptureSource` so drawn frames
-    and detections line up. `reset()` restarts the script at t=0 and switches
-    the state from setup churn to the recording scenario.
+    and detections line up. `reset()` starts a fresh setup pass;
+    `begin_recording()` independently anchors the scripted recording story.
 
     Emits the seam's `data["resolving"]` flag per detection (see
     `tracker-interface.md`): a foreign object reads resolving for its first
@@ -293,8 +322,22 @@ class ScenarioTracker:
         ForeignWindow ids live outside it (the default uses 9)."""
         return frozenset(range(1, self._state.n_instruments + 1))
 
+    @property
+    def catalog(self) -> frozenset[int]:
+        """The fake's fixed catalog == its roster: the tray is fully known and
+        fully enrolled. (T11 seam widening; constant across reset().)"""
+        return frozenset(range(1, self._state.n_instruments + 1))
+
     def reset(self) -> None:
         self._state.reset()
+
+    def begin_recording(self) -> None:
+        """Start the fake pickup story without mutating tracker identity state."""
+        self._state.begin_recording()
+
+    def end_recording(self) -> None:
+        """Return the fake scene to its setup choreography after Stop."""
+        self._state.end_recording()
 
     def update(self, frame: np.ndarray) -> sv.Detections:
         height, width = frame.shape[:2]

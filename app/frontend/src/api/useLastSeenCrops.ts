@@ -13,9 +13,10 @@ export type CropMap = Record<number, string>
  * keep its last-seen crop instead. It also survives the hand-off to the Report
  * screen, which has no live frame of its own.
  *
- * A fresh Start resets the tracker ids, so a new run's crops simply overwrite
- * the old ones under the same ids; stale ids never render (only listed rows are
- * looked up), so we don't bother pruning.
+ * Start preserves the approved tracker ids, so a new run's current crops simply
+ * overwrite the old ones under the same physical identities. A confidence reset
+ * may create a fresh setup namespace, but stale ids never render (only listed
+ * rows are looked up), so this map does not need lifecycle pruning.
  */
 export function useLastSeenCrops(status: Status | null): CropMap {
   const [crops, setCrops] = useState<CropMap>({})

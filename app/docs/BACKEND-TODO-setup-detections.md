@@ -1,17 +1,18 @@
 # Backend TODO — expose per-detection data during `setup`
 
 **Status:** ✅ implemented (2026-07-13) on `dev/frontend-change` — `/status`
-setup/finished now returns `detections[]` with base64 JPEG thumbnails cropped
-lazily outside the session lock; the `--fake` backend churns the count during
+setup/finished now returns `detections[]` with lazily encoded thumbnails outside
+the session lock; as of 2026-07-17 masks produce transparent PNG cutouts with a
+defensive JPEG fallback. The `--fake` backend churns the count during
 setup and draws shapes aligned with the detections; `DetectionConstellation`
 renders the crops with an icon fallback. Backend 123 tests + frontend 47 tests
 green; `orc-demo --fake` verified end-to-end. Kept below as the design record.
 **Raised:** 2026-07-13, during the Halo setup-screen redesign (`dev/frontend-change`).
 
-> **Fake behaviour (decided 2026-07-13):** the count wobbles **only during setup**
-> (ids 6-8 are "extra" tray items that come and go; core ids 1-5 always present,
-> so the count breathes ~5↔8). `reset()` (a recording Start) switches the shared
-> `ScenarioState` to the clean scripted scenario, so the report stays crisp.
+> **Fake behaviour (updated 2026-07-17):** the count wobbles only during setup
+> (ids 6–8 come and go; core ids 1–5 stay present). Recording Start does not reset
+> the tracker; a separate fake-only `begin_recording()` signal anchors the clean
+> pickup script to the accepted Start while preserving production semantics.
 
 ## Why
 
@@ -132,7 +133,7 @@ props change (today it only takes `detectedCount`).
 |---|---|
 | Lazy crops in `/status` vs. encoding in capture thread | **Agree** — lazy is right at 2 Hz; just keep it outside the session lock |
 | Raw frame in `Latest` | **Conditional** — safe only as an owned `frame.copy()`; don't trust `read()` buffer semantics |
-| Masked silhouette cutouts (PNG + alpha) | **Defer** — fake masks are just rectangles, real masks unvalidated; rect JPEG first |
+| Masked silhouette cutouts (PNG + alpha) | **Originally deferred; implemented 2026-07-17** — the validated mask contract now drives alpha, with JPEG fallback when a mask is missing/empty |
 | Fake-mode shared geometry | **Agree, with fix** — needs the shared reset epoch (see §4) |
 | `tracker_id` naming / nullable `thumbnail` | **Agree** — `detections` always present, `thumbnail` nullable |
 | Failure modes | **Agree if defensive** — per-tile null on failure, `finished` included, tolerate count-vs-tiles skew |
@@ -160,10 +161,14 @@ can hold 10+. `/status` returns every detection sorted by `tracker_id`; the
 frontend displays the first seven and the badge shows the true count. The layout
 can later be changed to fit more without changing the backend contract.
 
+## Completed follow-up (2026-07-17)
+
+- True silhouette cutouts from masks now use PNG with transparent background.
+  A missing, empty, or misaligned mask falls back to the rectangular JPEG crop,
+  so preview failure remains isolated per instrument.
+
 ## Deferred (polish, after real-camera visual check)
 
-- True silhouette cutouts from masks (PNG with transparent background) — needs a
-  fallback because real-model mask quality/availability is unvalidated.
 - Caching / single-flight of crops (irrelevant for one localhost client).
 - A dedicated crop endpoint (`crop_url`) — rejected: extra route + cache for no gain.
 

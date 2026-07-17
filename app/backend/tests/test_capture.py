@@ -24,8 +24,9 @@ control failure/exception/blocking behavior the T01 fakes don't provide.
 MIGRATED for T10 (B-C): the seam widened by one value — the roster. Every
 local tracker double now carries the `roster` attribute the tracker interface
 guarantees, every `on_frame` callback takes `(t, present_ids, roster)`, and
-`render_fn` takes `(frame, dets, roster, t)`. Nothing else about T03's ACs
-changed, so their tests are otherwise untouched.
+`render_fn` takes `(frame, dets, roster, catalog, t)` since T11/R1 (catalog is
+sampled the same tick and threaded to the overlay too). Nothing else about T03's
+ACs changed, so their tests are otherwise untouched.
 """
 
 from __future__ import annotations
@@ -50,6 +51,13 @@ _WAIT = 1.0             # generous per-test synchronization timeout
 # `CaptureLoop` reads it without a fallback. The VALUE is irrelevant to T03's
 # ACs; only the T10 B-C tests below use a double that controls it.
 _DOUBLE_ROSTER = frozenset({1, 2, 3})
+
+# T11 (B1): `_capture_tick` now also samples `tracker.catalog` every tick, so
+# every tracker double that publishes a frame must answer `catalog` (a double
+# lacking it, like `_RosterlessTracker`, makes the tick raise-and-skip). The
+# VALUE is irrelevant to T03/T10's ACs — only T11's new catalog/resolving tests
+# assert on it — so the fixed doubles just hand back this constant.
+_DOUBLE_CATALOG = frozenset({1, 2, 3})
 
 
 class _Counter:
@@ -218,6 +226,10 @@ class _OrderedSingleIdTracker:
     def roster(self) -> frozenset[int]:
         return _DOUBLE_ROSTER
 
+    @property
+    def catalog(self) -> frozenset[int]:
+        return _DOUBLE_CATALOG
+
     def reset(self) -> None:
         self._n = 0
 
@@ -249,6 +261,10 @@ class _RetainingTracker:
     def roster(self) -> frozenset[int]:
         return _DOUBLE_ROSTER
 
+    @property
+    def catalog(self) -> frozenset[int]:
+        return _DOUBLE_CATALOG
+
     def reset(self) -> None:
         pass
 
@@ -261,7 +277,11 @@ _MUTATION_SENTINEL = 111
 
 
 def _mutating_render(
-    frame: np.ndarray, dets: sv.Detections, roster: frozenset[int], t: float
+    frame: np.ndarray,
+    dets: sv.Detections,
+    roster: frozenset[int],
+    catalog: frozenset[int],
+    t: float,
 ) -> np.ndarray:
     frame[:] = _MUTATION_SENTINEL
     return frame
@@ -290,6 +310,10 @@ class _FlakyTracker:
     @property
     def roster(self) -> frozenset[int]:
         return self._base.roster
+
+    @property
+    def catalog(self) -> frozenset[int]:
+        return self._base.catalog
 
     def reset(self) -> None:
         self._n = 0
@@ -355,6 +379,10 @@ class _ResetTrackingTracker:
     def roster(self) -> frozenset[int]:
         return _DOUBLE_ROSTER
 
+    @property
+    def catalog(self) -> frozenset[int]:
+        return _DOUBLE_CATALOG
+
     def reset(self) -> None:
         self.reset_call_threads.append(threading.get_ident())
         self._n = 0
@@ -400,7 +428,7 @@ class TestAC1CapturePropsOnStart:
     def test_ac1_start_sets_frame_size_and_buffersize_on_the_capture(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
-        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster: counter.hit())
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit())
 
         loop.start()
         try:
@@ -434,7 +462,13 @@ class TestAC2OneThreadInCaptureOrder:
         seen: list[frozenset[int]] = []
         counter = _Counter()
 
-        def on_frame(t: float, present_ids: frozenset[int], roster: frozenset[int]) -> None:
+        def on_frame(
+            t: float,
+            present_ids: frozenset[int],
+            roster: frozenset[int],
+            catalog: frozenset[int],
+            resolving: frozenset[int],
+        ) -> None:
             seen.append(present_ids)
             counter.hit()
 
@@ -463,7 +497,7 @@ class TestAC3RenderFnReceivesAnIndependentCopy:
         loop = _make_loop(
             tracker,
             cap,
-            on_frame=lambda t, ids, roster: counter.hit(),
+            on_frame=lambda t, ids, roster, catalog, resolving: counter.hit(),
             render_fn=_mutating_render,
         )
 
@@ -485,7 +519,7 @@ class TestAC4GenerationAndSnapshot:
     def test_ac4_snapshot_none_before_start_then_populated_after_publish(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
-        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster: counter.hit())
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit())
 
         assert loop.snapshot() is None
 
@@ -504,7 +538,13 @@ class TestAC4GenerationAndSnapshot:
         generations_seen: list[int] = []
         counter = _Counter()
 
-        def on_frame(t: float, ids: frozenset[int], roster: frozenset[int]) -> None:
+        def on_frame(
+            t: float,
+            ids: frozenset[int],
+            roster: frozenset[int],
+            catalog: frozenset[int],
+            resolving: frozenset[int],
+        ) -> None:
             generations_seen.append(loop.generation)
             counter.hit()
 
@@ -527,7 +567,7 @@ class TestAC5OverlayJpegDecodesToFrameSize:
     def test_ac5_overlay_jpeg_decodes_to_frame_size_dimensions(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
-        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster: counter.hit())
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit())
 
         loop.start()
         try:
@@ -553,7 +593,7 @@ class TestLatestCarriesCropMaterial:
     def test_frame_bgr_is_an_owned_read_only_frame_of_capture_size(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
-        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster: counter.hit())
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit())
 
         loop.start()
         try:
@@ -570,7 +610,7 @@ class TestLatestCarriesCropMaterial:
     def test_detections_are_json_native_and_aligned_with_present_ids(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
-        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster: counter.hit())
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit())
 
         loop.start()
         try:
@@ -581,13 +621,17 @@ class TestLatestCarriesCropMaterial:
 
         assert latest is not None
         assert len(latest.detections) == len(latest.present_ids)
-        assert {tracker_id for tracker_id, _ in latest.detections} == set(latest.present_ids)
-        for tracker_id, box in latest.detections:
-            assert type(tracker_id) is int
-            assert len(box) == 4
-            assert all(type(coord) is float for coord in box)
+        assert {det.tracker_id for det in latest.detections} == set(latest.present_ids)
+        for det in latest.detections:
+            assert type(det.tracker_id) is int
+            assert len(det.xyxy) == 4
+            assert all(type(coord) is float for coord in det.xyxy)
+            assert det.mask is not None
+            assert det.mask.ndim == 2
+            assert det.mask.dtype == np.bool_
+            assert det.mask.flags.writeable is False
         # the whole detections payload round-trips through JSON unchanged
-        payload = [[tid, list(box)] for tid, box in latest.detections]
+        payload = [[det.tracker_id, list(det.xyxy)] for det in latest.detections]
         assert json.loads(json.dumps(payload)) == payload
 
 
@@ -606,7 +650,7 @@ class TestAC6StaleDetectionAndRecovery:
         loop = _make_loop(
             ScenarioTracker(),
             cap,
-            on_frame=lambda t, ids, roster: counter.hit(),
+            on_frame=lambda t, ids, roster, catalog, resolving: counter.hit(),
             stale_after_s=1.0,
         )
 
@@ -660,7 +704,7 @@ class TestAC7TrackerExceptionHandling:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         tracker = _FlakyTracker(ScenarioTracker(), fail_on={2})
         counter = _Counter()
-        loop = _make_loop(tracker, cap, on_frame=lambda t, ids, roster: counter.hit())
+        loop = _make_loop(tracker, cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit())
 
         loop.start()
         try:
@@ -679,7 +723,7 @@ class TestAC7TrackerExceptionHandling:
         tracker = _FlakyTracker(ScenarioTracker(), fail_on={3})
         counter = _Counter()
         loop = _make_loop(
-            tracker, cap, on_frame=lambda t, ids, roster: counter.hit(), stale_after_s=1.0
+            tracker, cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit(), stale_after_s=1.0
         )
 
         loop.start()
@@ -700,7 +744,7 @@ class TestAC7TrackerExceptionHandling:
         tracker = _FlakyTracker(ScenarioTracker())
         counter = _Counter()
         loop = _make_loop(
-            tracker, cap, on_frame=lambda t, ids, roster: counter.hit(), stale_after_s=1.0
+            tracker, cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit(), stale_after_s=1.0
         )
 
         loop.start()
@@ -732,7 +776,13 @@ class TestAC8OnFrameContract:
         seen_t: list[float] = []
         counter = _Counter()
 
-        def on_frame(t: float, ids: frozenset[int], roster: frozenset[int]) -> None:
+        def on_frame(
+            t: float,
+            ids: frozenset[int],
+            roster: frozenset[int],
+            catalog: frozenset[int],
+            resolving: frozenset[int],
+        ) -> None:
             seen_t.append(t)
             counter.hit()
 
@@ -752,7 +802,13 @@ class TestAC8OnFrameContract:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
 
-        def flaky_on_frame(t: float, ids: frozenset[int], roster: frozenset[int]) -> None:
+        def flaky_on_frame(
+            t: float,
+            ids: frozenset[int],
+            roster: frozenset[int],
+            catalog: frozenset[int],
+            resolving: frozenset[int],
+        ) -> None:
             counter.hit()
             if counter.value == 2:
                 raise RuntimeError("boom in on_frame")
@@ -775,7 +831,7 @@ class TestAC9StopJoinsReleasesAndReportsDead:
     def test_ac9_stop_joins_releases_capture_and_reports_dead(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
-        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster: counter.hit())
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit())
 
         loop.start()
         assert counter.wait_for(1)
@@ -796,7 +852,7 @@ class TestStartRejectsASecondStart:
     def test_second_start_while_running_raises_runtime_error(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
-        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster: counter.hit())
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit())
 
         loop.start()
         try:
@@ -854,7 +910,13 @@ class TestAC11ResetTracker:
         counts: list[int] = []
         counter = _Counter()
 
-        def on_frame(t: float, ids: frozenset[int], roster: frozenset[int]) -> None:
+        def on_frame(
+            t: float,
+            ids: frozenset[int],
+            roster: frozenset[int],
+            catalog: frozenset[int],
+            resolving: frozenset[int],
+        ) -> None:
             counts.append(len(ids))
             counter.hit()
 
@@ -879,7 +941,7 @@ class TestAC11ResetTracker:
     def test_ac11_reset_before_start_is_a_safe_noop(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
-        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster: counter.hit())
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit())
 
         loop.reset_tracker(timeout_s=0.2)  # must not raise
 
@@ -912,7 +974,7 @@ class TestAC11ResetTracker:
         loop = _make_loop(
             _FailingResetTracker(),
             cap,
-            on_frame=lambda t, ids, roster: counter.hit(),
+            on_frame=lambda t, ids, roster, catalog, resolving: counter.hit(),
         )
 
         loop.start()
@@ -951,6 +1013,10 @@ class _RosterTracker:
     def roster(self) -> frozenset:
         return self._roster
 
+    @property
+    def catalog(self) -> frozenset:
+        return self._roster
+
     def reset(self) -> None:
         pass
 
@@ -979,6 +1045,10 @@ class _EnrollingTracker:
 
     @property
     def roster(self) -> frozenset[int]:
+        return frozenset(range(1, self._n + 1))
+
+    @property
+    def catalog(self) -> frozenset[int]:
         return frozenset(range(1, self._n + 1))
 
     def reset(self) -> None:
@@ -1019,7 +1089,7 @@ class TestBC1CaptureSamplesTheRoster:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
         tracker = _RosterTracker(roster={3, 5, 7, 9}, present={3, 5})
-        loop = _make_loop(tracker, cap, on_frame=lambda t, ids, roster: counter.hit())
+        loop = _make_loop(tracker, cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit())
 
         loop.start()
         try:
@@ -1039,7 +1109,13 @@ class TestBC1CaptureSamplesTheRoster:
         counter = _Counter()
         seen: list[frozenset[int]] = []
 
-        def on_frame(t: float, ids: frozenset[int], roster: frozenset[int]) -> None:
+        def on_frame(
+            t: float,
+            ids: frozenset[int],
+            roster: frozenset[int],
+            catalog: frozenset[int],
+            resolving: frozenset[int],
+        ) -> None:
             seen.append(roster)
             counter.hit()
 
@@ -1052,19 +1128,19 @@ class TestBC1CaptureSamplesTheRoster:
 
         assert seen[:3] == [frozenset({2, 4})] * 3
 
-    def test_b_c1_render_fn_receives_the_roster_with_the_frames_own_t(self) -> None:
+    def test_b_c1_render_fn_receives_the_roster_and_catalog_with_the_frames_own_t(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
-        calls: list[tuple[frozenset[int], float]] = []
+        calls: list[tuple[frozenset[int], frozenset[int], float]] = []
 
-        def spy_render(frame, dets, roster, t):
-            calls.append((roster, t))
+        def spy_render(frame, dets, roster, catalog, t):
+            calls.append((roster, catalog, t))
             return frame
 
         loop = _make_loop(
             _RosterTracker(roster={2, 4}, present={2}),
             cap,
-            on_frame=lambda t, ids, roster: counter.hit(),
+            on_frame=lambda t, ids, roster, catalog, resolving: counter.hit(),
             render_fn=spy_render,
         )
         loop.start()
@@ -1076,17 +1152,27 @@ class TestBC1CaptureSamplesTheRoster:
 
         assert latest is not None
         assert calls
-        rosters = [roster for roster, _ in calls]
+        rosters = [roster for roster, _, _ in calls]
+        catalogs = [catalog for _, catalog, _ in calls]
         assert rosters[:2] == [frozenset({2, 4})] * 2
+        # catalog is sampled and threaded to the renderer too (T11/R1), builtin ints
+        assert catalogs[:2] == [frozenset({2, 4})] * 2
+        assert all(type(next(iter(catalog))) is int for catalog in catalogs[:2])
         # the render call and the snapshot describe the same instant
-        assert latest.t in [t for _, t in calls]
+        assert latest.t in [t for _, _, t in calls]
 
     def test_b_c1_roster_is_sampled_in_the_same_tick_as_present_ids(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
         pairs: list[tuple[frozenset[int], frozenset[int]]] = []
 
-        def on_frame(t: float, ids: frozenset[int], roster: frozenset[int]) -> None:
+        def on_frame(
+            t: float,
+            ids: frozenset[int],
+            roster: frozenset[int],
+            catalog: frozenset[int],
+            resolving: frozenset[int],
+        ) -> None:
             pairs.append((ids, roster))
             counter.hit()
 
@@ -1133,7 +1219,7 @@ class TestAC12PresentIdsAreBuiltinInts:
     def test_ac12_present_ids_are_builtin_ints_and_json_round_trips(self) -> None:
         cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
         counter = _Counter()
-        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster: counter.hit())
+        loop = _make_loop(ScenarioTracker(), cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit())
 
         loop.start()
         try:
@@ -1149,3 +1235,523 @@ class TestAC12PresentIdsAreBuiltinInts:
 
         payload = {"present_ids": sorted(latest.present_ids), "count": latest.count}
         assert json.loads(json.dumps(payload)) == payload
+
+
+# --- T11 B1: the snapshot carries same-tick catalog + row-aligned resolving ----
+
+
+def _ids_detection(ids, frame_shape: tuple[int, int], resolving=None) -> sv.Detections:
+    """A detections payload with arbitrary `ids` and (optionally) a row-aligned
+    `data["resolving"]` bool array. `resolving=None` omits the key entirely — the
+    safe-default path where every row must read False (tracker-interface.md)."""
+    ids = list(ids)
+    n = len(ids)
+    height, width = frame_shape
+    mask = np.zeros((n, height, width), dtype=bool)
+    mask[:, 0:5, 0:5] = True
+    data: dict = {}
+    if resolving is not None:
+        data["resolving"] = np.array(list(resolving), dtype=bool)
+    return sv.Detections(
+        xyxy=np.array([[0.0, 0.0, 5.0, 5.0]] * n, dtype=np.float32),
+        mask=mask,
+        confidence=np.full(n, 0.9, dtype=np.float32),
+        class_id=np.zeros(n, dtype=int),
+        tracker_id=np.array(ids, dtype=int),
+        data=data,
+    )
+
+
+class _CatalogResolvingTracker:
+    """A tracker double whose `catalog`, present ids, and per-row `resolving`
+    flag are all dictated by the test. `catalog` (like `roster`) hands back numpy
+    ints — what the real seam carries — so B1's builtin-int cast is observable.
+    `emit_resolving=False` returns detections with NO `resolving` key at all, so
+    the safe default (every row False) can be exercised."""
+
+    def __init__(
+        self,
+        *,
+        catalog,
+        present,
+        resolving=(),
+        roster=None,
+        emit_resolving: bool = True,
+    ) -> None:
+        self.confidence = 0.5
+        self._catalog = frozenset(np.int64(i) for i in catalog)
+        self._roster = frozenset(
+            np.int64(i) for i in (catalog if roster is None else roster)
+        )
+        self._present = sorted(present)
+        self._resolving = set(resolving)
+        self._emit_resolving = emit_resolving
+
+    @property
+    def class_names(self) -> dict[int, str]:
+        return {0: "surgical_instrument"}
+
+    @property
+    def model_version(self) -> str:
+        return "test-0.1"
+
+    @property
+    def roster(self) -> frozenset:
+        return self._roster
+
+    @property
+    def catalog(self) -> frozenset:
+        return self._catalog
+
+    def reset(self) -> None:
+        pass
+
+    def update(self, frame: np.ndarray) -> sv.Detections:
+        flags = (
+            [tracker_id in self._resolving for tracker_id in self._present]
+            if self._emit_resolving
+            else None
+        )
+        return _ids_detection(self._present, frame.shape[:2], resolving=flags)
+
+
+class TestB1CaptureSnapshotCarriesCatalogAndResolving:
+    """T11 B1 / backend test 1: `_capture_tick` samples `tracker.catalog` the SAME
+    tick as present_ids/roster (as builtin, JSON-native ints), derives a
+    row-aligned `resolving` flag per `DetectionBox` from `dets.data["resolving"]`
+    (safe default False on a missing key), and hands `on_frame` the 5-tuple
+    `(t, present_ids, roster, catalog, resolving_ids)` all sampled together."""
+
+    def test_b1_snapshot_catalog_is_the_sampled_catalog_as_json_native_ints(self) -> None:
+        cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
+        counter = _Counter()
+        tracker = _CatalogResolvingTracker(catalog={3, 5, 7}, present={3, 5, 7}, resolving={5})
+        loop = _make_loop(
+            tracker, cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit()
+        )
+
+        loop.start()
+        try:
+            assert counter.wait_for(1)
+            latest = loop.snapshot()
+        finally:
+            loop.stop()
+
+        assert latest is not None
+        assert latest.catalog == frozenset({3, 5, 7})
+        assert all(type(member) is int for member in latest.catalog)
+        assert json.loads(json.dumps(sorted(latest.catalog))) == [3, 5, 7]
+
+    def test_b1_detection_boxes_carry_a_row_aligned_resolving_flag(self) -> None:
+        cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
+        counter = _Counter()
+        tracker = _CatalogResolvingTracker(catalog={3, 5, 7}, present={3, 5, 7}, resolving={5})
+        loop = _make_loop(
+            tracker, cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit()
+        )
+
+        loop.start()
+        try:
+            assert counter.wait_for(1)
+            latest = loop.snapshot()
+        finally:
+            loop.stop()
+
+        assert latest is not None
+        resolving_by_id = {det.tracker_id: det.resolving for det in latest.detections}
+        assert resolving_by_id == {3: False, 5: True, 7: False}
+        for det in latest.detections:
+            assert type(det.tracker_id) is int
+            assert type(det.resolving) is bool
+
+    def test_b1_a_missing_resolving_key_defaults_every_row_to_false(self) -> None:
+        cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
+        counter = _Counter()
+        tracker = _CatalogResolvingTracker(catalog={1, 2}, present={1, 2}, emit_resolving=False)
+        loop = _make_loop(
+            tracker, cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit()
+        )
+
+        loop.start()
+        try:
+            assert counter.wait_for(1)
+            latest = loop.snapshot()
+        finally:
+            loop.stop()
+
+        assert latest is not None
+        assert latest.detections  # sanity: there are rows to default
+        assert all(det.resolving is False for det in latest.detections)
+
+    def test_b1_on_frame_receives_the_five_tuple_sampled_the_same_tick(self) -> None:
+        cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
+        counter = _Counter()
+        seen: list[tuple] = []
+
+        def on_frame(t, ids, roster, catalog, resolving_ids) -> None:
+            seen.append((ids, roster, catalog, resolving_ids))
+            counter.hit()
+
+        tracker = _CatalogResolvingTracker(
+            catalog={3, 5, 7}, present={3, 5}, resolving={5}, roster={3, 5, 7}
+        )
+        loop = _make_loop(tracker, cap, on_frame=on_frame)
+
+        loop.start()
+        try:
+            assert counter.wait_for(1)
+        finally:
+            loop.stop()
+
+        assert seen
+        ids, roster, catalog, resolving_ids = seen[0]
+        assert ids == frozenset({3, 5})
+        assert roster == frozenset({3, 5, 7})
+        assert catalog == frozenset({3, 5, 7})
+        # resolving_ids: the PRESENT ids whose row flag is True (7 is absent).
+        assert resolving_ids == frozenset({5})
+        assert all(type(member) is int for member in catalog)
+        assert all(type(member) is int for member in resolving_ids)
+
+
+# --- T11 B5: a timed-out capture command is cancelled, never leaks on recovery -
+
+
+class _HoldableReadCapture:
+    """A `VideoCaptureLike` whose `read()` succeeds until `hold()` is engaged,
+    after which each read PARKS on an Event until `resume()` — so a test can wedge
+    the capture thread mid-loop deterministically (it is stuck in `read()`, before
+    the next `_apply_pending_reset`). `wait_blocked()` synchronises on the thread
+    actually being parked."""
+
+    def __init__(self, size: tuple[int, int] = _FRAME_SIZE) -> None:
+        self._width, self._height = size
+        self._opened = True
+        self._held = threading.Event()
+        self._resume = threading.Event()
+        self._blocked = threading.Event()
+        self.read_count = 0
+
+    def isOpened(self) -> bool:
+        return self._opened
+
+    def read(self) -> tuple[bool, np.ndarray]:
+        if self._held.is_set():
+            self._blocked.set()
+            self._resume.wait()
+        self.read_count += 1
+        return True, np.zeros((self._height, self._width, 3), dtype=np.uint8)
+
+    def hold(self) -> None:
+        self._resume.clear()
+        self._blocked.clear()
+        self._held.set()
+
+    def wait_blocked(self, timeout: float = _WAIT) -> bool:
+        return self._blocked.wait(timeout)
+
+    def resume(self) -> None:
+        self._held.clear()
+        self._resume.set()
+
+    def set(self, prop_id: int, value: float) -> bool:
+        return True
+
+    def get(self, prop_id: int) -> float:
+        return 0.0
+
+    def release(self) -> None:
+        self._opened = False
+        self._resume.set()  # never leave a parked read wedged
+
+
+class _ConfidenceRecordingTracker:
+    """Records every confidence value assigned to it and each `reset()` — so a
+    test can prove a TIMED-OUT confidence change never reaches the tracker, even
+    after the capture thread recovers and applies a later plain reset."""
+
+    def __init__(self) -> None:
+        self._confidence = 0.5
+        self.confidence_history: list[float] = []
+        self.reset_count = 0
+        self._n = 0
+
+    @property
+    def confidence(self) -> float:
+        return self._confidence
+
+    @confidence.setter
+    def confidence(self, value: float) -> None:
+        self._confidence = value
+        self.confidence_history.append(value)
+
+    @property
+    def class_names(self) -> dict[int, str]:
+        return {0: "surgical_instrument"}
+
+    @property
+    def model_version(self) -> str:
+        return "test-0.1"
+
+    @property
+    def roster(self) -> frozenset[int]:
+        return _DOUBLE_ROSTER
+
+    @property
+    def catalog(self) -> frozenset[int]:
+        return _DOUBLE_CATALOG
+
+    def reset(self) -> None:
+        self.reset_count += 1
+        self._n = 0
+
+    def update(self, frame: np.ndarray) -> sv.Detections:
+        self._n += 1
+        return _single_id_detection(self._n, frame.shape[:2])
+
+
+class _FailingConfidenceResetTracker(_ConfidenceRecordingTracker):
+    """Applies the requested confidence, then fails reset so rollback is tested
+    against the real CaptureLoop transaction rather than the API's view state."""
+
+    def reset(self) -> None:
+        self.reset_count += 1
+        raise RuntimeError("simulated reset failure")
+
+
+class TestB5FailedConfidenceChangeRollsBack:
+    def test_failed_reset_restores_the_previous_tracker_confidence(self) -> None:
+        cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
+        tracker = _FailingConfidenceResetTracker()
+        counter = _Counter()
+        loop = _make_loop(
+            tracker, cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit()
+        )
+
+        loop.start()
+        try:
+            assert counter.wait_for(1)
+            with pytest.raises(TrackerResetError):
+                loop.set_confidence_and_reset(0.7, timeout_s=1.0)
+        finally:
+            loop.stop()
+
+        assert tracker.confidence == 0.5
+        assert tracker.confidence_history[-2:] == [0.7, 0.5]
+
+
+class TestB5TimedOutCommandIsCancelledNotLeaked:
+    """T11/B5 (Codex blocker): the capture-command handshake is per-command. When
+    a `set_confidence_and_reset` times out against a stalled capture thread, that
+    command is CANCELLED — so when the thread later recovers it is dropped, never
+    applied. Its confidence can neither leak into a subsequent plain reset nor
+    fire a tracker mutation after the fact."""
+
+    def test_b5_timed_out_confidence_does_not_leak_into_a_later_reset(self) -> None:
+        cap = _HoldableReadCapture()
+        tracker = _ConfidenceRecordingTracker()
+        counter = _Counter()
+        loop = _make_loop(
+            tracker, cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit()
+        )
+
+        loop.start()
+        try:
+            assert counter.wait_for(2)  # the loop is alive and publishing
+
+            # Wedge the capture thread inside read(), before _apply_pending_reset.
+            cap.hold()
+            assert cap.wait_blocked()
+
+            # A confidence change now cannot be applied (thread stalled) -> times
+            # out. The command must be cancelled, not left pending.
+            with pytest.raises(TimeoutError):
+                loop.set_confidence_and_reset(0.7, timeout_s=0.1)
+
+            # Recover the thread and issue a PLAIN reset. It must apply as a pure
+            # reset — the abandoned confidence must not ride along with it.
+            cap.resume()
+            loop.reset_tracker(timeout_s=1.0)
+        finally:
+            loop.stop()
+
+        assert tracker.reset_count >= 1          # the plain reset really ran
+        assert 0.7 not in tracker.confidence_history  # the timed-out value never applied
+        assert tracker.confidence == 0.5         # confidence is still the original
+
+    def test_b5_a_timed_out_command_does_not_fire_when_the_thread_recovers(
+        self,
+    ) -> None:
+        # Bug #2: a timed-out command must not mutate the tracker at all once the
+        # capture thread recovers (it would otherwise reset mid-recording).
+        cap = _HoldableReadCapture()
+        tracker = _ConfidenceRecordingTracker()
+        counter = _Counter()
+        loop = _make_loop(
+            tracker, cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit()
+        )
+
+        loop.start()
+        try:
+            assert counter.wait_for(2)
+            cap.hold()
+            assert cap.wait_blocked()
+
+            with pytest.raises(TimeoutError):
+                loop.reset_tracker(timeout_s=0.1)
+
+            resets_at_timeout = tracker.reset_count
+            cap.resume()
+            # Let the loop run several more frames after recovery.
+            assert counter.wait_for(counter.value + 3)
+        finally:
+            loop.stop()
+
+        # The abandoned reset must NOT have fired on recovery.
+        assert tracker.reset_count == resets_at_timeout
+
+
+class _GatedResetTracker:
+    """`reset()` blocks on a gate until the test releases it — lets a test hold
+    the capture thread mid-apply (while it owns `_reset_lock`) to prove a command
+    whose apply is IN FLIGHT when the submitter times out is waited out, never
+    abandoned to fire after the submitter returned (the residual T11/B5 bug)."""
+
+    def __init__(self) -> None:
+        self._confidence = 0.5
+        self.confidence_history: list[float] = []
+        self.reset_started = threading.Event()
+        self.reset_gate = threading.Event()
+        self.reset_count = 0
+        self._n = 0
+
+    @property
+    def confidence(self) -> float:
+        return self._confidence
+
+    @confidence.setter
+    def confidence(self, value: float) -> None:
+        self._confidence = value
+        self.confidence_history.append(value)
+
+    @property
+    def class_names(self) -> dict[int, str]:
+        return {0: "surgical_instrument"}
+
+    @property
+    def model_version(self) -> str:
+        return "test-0.1"
+
+    @property
+    def roster(self) -> frozenset[int]:
+        return _DOUBLE_ROSTER
+
+    @property
+    def catalog(self) -> frozenset[int]:
+        return _DOUBLE_CATALOG
+
+    def reset(self) -> None:
+        self.reset_started.set()
+        self.reset_gate.wait(5.0)
+        self.reset_count += 1
+        self._n = 0
+
+    def update(self, frame: np.ndarray) -> sv.Detections:
+        self._n += 1
+        return _single_id_detection(self._n, frame.shape[:2])
+
+
+class TestB5InFlightCommandIsWaitedOutNotAbandoned:
+    """T11/B5 (Codex follow-up): if a command's apply is ALREADY in flight when
+    the submitter's timeout elapses, the submitter must not abandon it (return an
+    error while the tracker mutates behind its back). Because the capture thread
+    applies the whole mutation under `_reset_lock`, the submitter's timeout path
+    blocks on that lock until the mutation completes, then returns its real
+    result — the mutation is fully applied BEFORE the call returns."""
+
+    def test_b5_a_command_applying_when_the_timeout_elapses_completes_before_return(
+        self,
+    ) -> None:
+        cap = FakeCaptureSource(size=_FRAME_SIZE, fps=None)
+        tracker = _GatedResetTracker()
+        counter = _Counter()
+        loop = _make_loop(
+            tracker, cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit()
+        )
+
+        result: dict[str, object] = {}
+
+        def submit() -> None:
+            try:
+                loop.set_confidence_and_reset(0.7, timeout_s=0.1)
+                result["ok"] = True
+            except BaseException as exc:  # noqa: BLE001 - record whatever it raises
+                result["error"] = exc
+
+        loop.start()
+        try:
+            assert counter.wait_for(2)
+
+            submitter = threading.Thread(target=submit)
+            submitter.start()
+            # The capture thread has entered reset() and is holding _reset_lock.
+            assert tracker.reset_started.wait(_WAIT)
+            # The submitter's 0.1 s timeout has long elapsed, yet it must be BLOCKED
+            # on _reset_lock (the mutation is in flight) — not returned.
+            threading.Event().wait(0.2)
+            assert result == {}, "submitter abandoned an in-flight command"
+
+            tracker.reset_gate.set()  # let the mutation complete
+            submitter.join(_WAIT)
+        finally:
+            tracker.reset_gate.set()
+            loop.stop()
+
+        # The submitter returned SUCCESS (not a timeout), and the mutation it
+        # requested was fully applied before it returned.
+        assert result.get("ok") is True
+        assert "error" not in result
+        assert 0.7 in tracker.confidence_history
+        assert tracker.reset_count >= 1
+
+
+class TestB5ConcurrentCommandsAreSerialisedByCaptureLoop:
+    def test_second_command_waits_instead_of_overwriting_the_first(self) -> None:
+        cap = _HoldableReadCapture()
+        tracker = _ConfidenceRecordingTracker()
+        counter = _Counter()
+        loop = _make_loop(
+            tracker, cap, on_frame=lambda t, ids, roster, catalog, resolving: counter.hit()
+        )
+        results: list[str] = []
+
+        def submit(value: float) -> None:
+            loop.set_confidence_and_reset(value, timeout_s=1.0)
+            results.append(f"{value:.1f}")
+
+        loop.start()
+        try:
+            assert counter.wait_for(2)
+            cap.hold()
+            assert cap.wait_blocked()
+
+            first = threading.Thread(target=submit, args=(0.6,))
+            second = threading.Thread(target=submit, args=(0.7,))
+            first.start()
+            threading.Event().wait(0.05)  # first owns the pending command slot
+            second.start()
+
+            threading.Event().wait(0.1)
+            assert 0.7 not in tracker.confidence_history
+            assert second.is_alive()
+
+            cap.resume()
+            first.join(_WAIT)
+            second.join(_WAIT)
+        finally:
+            cap.resume()
+            loop.stop()
+
+        assert results == ["0.6", "0.7"]
+        assert tracker.confidence_history[-2:] == [0.6, 0.7]
+        assert tracker.reset_count == 2

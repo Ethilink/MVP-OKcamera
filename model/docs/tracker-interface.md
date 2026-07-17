@@ -14,24 +14,32 @@ class InstrumentTracker(Protocol):
     @property
     def roster(self) -> frozenset[int]: ...
     @property
+    def catalog(self) -> frozenset[int]: ...
+    @property
     def class_names(self) -> dict[int, str]: ...
     @property
     def model_version(self) -> str: ...
 ```
 
-This contract has taken two deliberate widenings since it was pinned:
+This contract has taken three deliberate widenings since it was pinned:
 `roster` (2026-07-15; see § "Identity semantics" → "The roster crosses the
-seam"), and the per-detection `data["resolving"]` flag (2026-07-16; see
-§ "Identity semantics" → "The resolving flag splits the Unknown range").
+seam"), the per-detection `data["resolving"]` flag (2026-07-16; see
+§ "Identity semantics" → "The resolving flag splits the Unknown range"), and
+`catalog` (2026-07-16, T11; see § "Identity semantics" → "The catalog is the
+fixed set of known specimens").
 
 `load_tracker(weights_path, confidence=0.5, ...)` builds the real RF-DETR →
 workspace filter → Deep OC-SORT → SessionLinker composition. It also loads and
 embeds the persistent specimen galleries eagerly, from `instruments_dir`
 (default: the shipped `model/data/instruments`; pass `None` to disable binding).
-A missing or empty directory logs and proceeds with no galleries — it never
-raises. A lightweight `FakeInstrumentTracker` implements the same protocol
-without loading ML dependencies; its `roster` is `frozenset(range(n_instruments))`,
-since the fake enrols instantly.
+In the default (non-catalog) mode a missing or empty directory logs and proceeds
+with no galleries — it never raises. Under `catalog_only_enrolment` (the demo
+config) a missing, empty, wrong-sized, or id-colliding catalog is instead a fatal
+startup error: `load_tracker` fails closed rather than silently degrade to
+session-only enrolment. A lightweight `FakeInstrumentTracker` implements the same protocol
+without loading ML dependencies; its `catalog == roster ==
+frozenset(range(1, n_instruments + 1))` (1-based, matching the real linker's
+specimen-number session ids), since the fake enrols its whole catalog instantly.
 
 ## Input
 
@@ -66,7 +74,9 @@ Detector boxes may extend outside the frame; consumers clamp before indexing.
 
 ## Identity semantics
 
-The frozen Start roster defines the known physical objects for one recording.
+The roster frozen by enrolment during setup defines the known physical objects
+for one recording. The app's recording Start preserves that approved roster; it
+does not reset the tracker.
 An enrolled instrument that leaves and returns is re-emitted under its original
 session ID after the link decision. A new, foreign, rejected, or still-undecided
 track is Unknown, because its emitted ID is absent from the frozen roster.
@@ -78,15 +88,15 @@ alias map or retroactively rewrite IDs.
 ### The roster crosses the seam
 
 `roster` is a read-only `frozenset[int]` of the session IDs enrolled at the
-linker's Start freeze. It is **empty before that freeze and immediately after
+linker's enrolment freeze. It is **empty before that freeze and immediately after
 `reset()`**, then constant for the rest of the recording. Consumers test
 membership against it and derive Unknown from that test — nothing else.
 
 Three rules consumers must not break:
 
 - **Do not derive your own roster.** That was route (a), and it was rejected by
-  grilling (Bram, 2026-07-15, wayfinder T10): a consumer's own Start snapshot and
-  the linker's enrolment freeze are different instants roughly 0.7 s apart, and
+  grilling (Bram, 2026-07-15, wayfinder T10): a consumer's own phase-transition
+  snapshot and the linker's enrolment freeze are different instants, and
   any disagreement between the two sets corrupts every Unknown decision for the
   whole recording. Reading the property removes the coordination entirely.
 - **Do not assume contiguity, or that it starts at 1.** Session IDs come from
@@ -103,6 +113,32 @@ The seam still carries no status field and no alias map. It does expose exactly
 one per-detection flag, `data["resolving"]` (a later widening — see below), but
 that flag reports only whether a decision is still *pending*; it never pre-empts
 the "is this ours?" roster-membership test, which stays the sole identity gate.
+
+### The catalog is the fixed set of known specimens
+
+`catalog` is a read-only `frozenset[int]` of the loaded persistent specimen IDs.
+Unlike `roster`, it is **known from construction and constant for the tracker's
+lifetime** — it is *not* emptied by `reset()` and does not wait for the enrolment
+freeze, because the persistent galleries are loaded once at `load_tracker()` time
+and held resident across every recording. It is the set of physical instruments
+the installation could ever recognise; `roster` is the subset actually enrolled
+this recording.
+
+The seam offers an optional **catalog-only enrolment** mode (default off,
+enabled for the KU Leuven demo via `app/mvp.toml`). When it is on, **only a track
+that confidently binds to a loaded specimen may join the roster** — a foreign
+object on the table during setup stays in the Unknown range instead of silently
+enrolling. The invariant a consumer may rely on: in catalog-only mode
+`roster ⊆ catalog`, and **no id outside `catalog` ever enters the roster** (there
+are no session-only ids). In legacy mode `roster` may contain session-only ids
+above `max(catalog)`, so it is not a subset. The `FakeInstrumentTracker` reports
+`catalog == roster == frozenset(range(1, n_instruments + 1))`, enrolling its
+whole catalog instantly.
+
+This is the third deliberate widening of this contract (2026-07-16, T11), after
+`roster` and `data["resolving"]`. Like `roster`, it carries no status field: it
+is a plain membership set, sampled per `update()` if a consumer judges Unknown
+against the catalog rather than the roster.
 
 ### Two disjoint emitted ID ranges
 
@@ -194,9 +230,10 @@ reading the property is safe.
 
 ## Mutable confidence
 
-`confidence` is a plain read/write startup setting and may be changed between
+`confidence` is a plain read/write runtime setting and may be changed between
 frames. It is forwarded to detector filtering. Changing it mid-recording can
-spawn or retire raw tracks, so the demo should normally leave it fixed.
+spawn or retire raw tracks, so the app permits changes only during setup/finished
+and couples each changed value to `reset()` on the capture thread.
 
 ## Session boundary
 

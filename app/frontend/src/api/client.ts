@@ -1,4 +1,4 @@
-import type { Report, StartedResponse, Status } from "./types"
+import type { DetectorControl, Report, StartedResponse, Status } from "./types"
 
 // Backend serves on :8000, Vite dev on :5173 — cross-origin (matches T04 CORS).
 // All requests + streamUrl are absolute against BASE so MSW (node + browser)
@@ -37,11 +37,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   status: (signal?: AbortSignal) => request<Status>("/status", { signal }),
+  // Start preserves the approved roster and begins recording.
   startRecording: () =>
     request<StartedResponse>("/recording/start", { method: "POST" }),
   // POST /stop returns the same body shape as GET /report (contract §/stop).
   stopRecording: () =>
     request<Report>("/recording/stop", { method: "POST" }),
   report: () => request<Report>("/report"),
+  // T11/B5: runtime detection-confidence — an advanced setup control. Returns the
+  // updated detector_control; a changed value restarts enrolment backend-side.
+  setDetectionConfidence: (confidence: number) =>
+    request<DetectorControl>("/settings/detection-confidence", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confidence }),
+    }),
   streamUrl: `${BASE}/stream`, // for <img src={api.streamUrl}>
 }

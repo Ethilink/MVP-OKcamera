@@ -238,8 +238,8 @@ produces a mixed bind** — neither take has yet.
 
 Confirmed. All 8 specimens × 15 views embed in `load_persistent_galleries()` at
 `load_tracker()` time: **2,926 ms, once, at startup**. Never per freeze, never
-per event. `reset()` keeps them. The enrolment freeze pays only for its own Start
-crops plus the binding solves.
+per event. `reset()` keeps them. The enrolment freeze pays only for its setup
+crops plus the binding solves; recording Start happens later without a reset.
 
 #### Negative finding — §8 is NOT subsumed by §3's real poses
 

@@ -48,10 +48,10 @@ CAP_PROP_BUFFERSIZE = 38
 def _update_until(tracker: ScenarioTracker, t: float) -> sv.Detections:
     """Drive a `tracker` frame-by-frame so its LAST `update()` call lands at
     exactly scenario-time `t` (given `tracker.fps`), and return that result.
-    `reset()` first: the scripted `events` (id-1/id-3 pickups) belong to the
-    RECORDING phase, which `reset()` (a `Start`) enters — before any reset the
-    tracker is in setup-churn mode, a different scenario. No wall clock."""
-    tracker.reset()
+    `begin_recording()` first: scripted pickups belong to the recording phase;
+    reset itself now remains a setup/enrolment action. No wall clock."""
+    tracker.begin_recording()
+    tracker.update(FRAME)  # cross the scheduled frame boundary into recording
     n_calls = round(t * tracker.fps) + 1
     detections = sv.Detections.empty()
     for _ in range(n_calls):
@@ -185,7 +185,8 @@ class TestTrackerContractFields:
             ScenarioEvent(tracker_id=2, leave_s=0.0, return_s=None),
         )
         tracker = ScenarioTracker(n_instruments=2, events=all_gone)
-        tracker.reset()  # enter the recording scenario the events describe
+        tracker.begin_recording()
+        tracker.update(FRAME)  # cross the scheduled mode boundary
         tracker.update(FRAME)  # t=0.0: still present (boundary-frame convention)
 
         detections = tracker.update(FRAME)  # t=0.1: both gone
@@ -315,18 +316,19 @@ class TestSetupChurn:
 
         assert a == b
 
-    def test_reset_switches_from_churn_to_the_scripted_scenario(self) -> None:
+    def test_begin_recording_switches_from_churn_to_the_scripted_scenario(self) -> None:
         tracker = ScenarioTracker()
         # In setup churn, id 1 is core → present even deep in a cycle.
         assert 1 in _tracker_ids(_drive_setup_to(tracker, t=27.0))
 
-        # After reset (= Start), the recording scenario governs: id 1 is away in
+        # After the explicit lifecycle signal, the recording scenario governs:
+        # id 1 is away in
         # (20, 35), so it is absent at t=27.
         assert 1 not in _tracker_ids(_update_until(ScenarioTracker(), t=27.0))
 
 
 class TestSharedEpochAlignment:
-    """The Codex-flagged bug: a `Start` (`reset()`) must not let the drawn frame
+    """The Codex-flagged bug: `begin_recording()` must not let the drawn frame
     drift from the detections. With ONE shared `ScenarioState`, the pixels the
     capture source draws always sit on the boxes the tracker reports — before
     AND after a reset."""
@@ -356,7 +358,7 @@ class TestSharedEpochAlignment:
             assert frame.max() > 0  # something was drawn
             assert self._detected_boxes_are_drawn(frame, detections)
 
-    def test_alignment_survives_a_reset(self) -> None:
+    def test_alignment_survives_the_recording_lifecycle_transition(self) -> None:
         state = ScenarioState(fps=10.0)
         tracker = ScenarioTracker(state=state)
         source = FakeCaptureSource(size=(320, 240), fps=None, scenario=state)
@@ -364,7 +366,7 @@ class TestSharedEpochAlignment:
         for _ in range(30):  # run a while in setup churn
             self._one_tick(source, tracker)
 
-        tracker.reset()  # Start: rewinds the SHARED clock for both fakes
+        tracker.begin_recording()  # schedules one shared recording epoch
 
         for _ in range(15):  # recording — draw + detect must still line up
             _, frame, detections = self._one_tick(source, tracker)
@@ -381,6 +383,19 @@ class TestSharedEpochAlignment:
 
         tracker.update(FRAME)
         assert state.time_s == 1.0 / state.fps  # exactly one frame consumed
+
+    def test_end_recording_returns_the_shared_state_to_setup_on_a_frame_boundary(
+        self,
+    ) -> None:
+        state = _recording_state_at(6.0)
+        assert state.recording is True
+
+        state.end_recording()
+        assert state.recording is True  # current frame remains coherent
+        state.advance()
+
+        assert state.recording is False
+        assert _FOREIGN_ID not in state.present_ids()
 
 
 # --- T10 B-F: the fakes demo the whole Unknown story --------------------------
@@ -401,10 +416,11 @@ def _drive_state_to(state: ScenarioState, t: float) -> ScenarioState:
 
 
 def _recording_state_at(t: float, **kwargs) -> ScenarioState:
-    """A state in the RECORDING phase (i.e. past a `Start`) at scenario-time
-    `t`. Foreign windows belong to recording; `reset()` is what enters it."""
+    """A state in the recording story at scenario-time `t`. Foreign windows
+    belong to recording; the fake lifecycle signal is separate from reset."""
     state = ScenarioState(fps=10.0, **kwargs)
-    state.reset()
+    state.begin_recording()
+    state.advance()  # cross the scheduled boundary; recording time is now 0
     return _drive_state_to(state, t)
 
 
@@ -494,7 +510,7 @@ class TestBF2ScenarioTrackerHasARoster:
         assert tracker.roster == expected
         for _ in range(5):
             tracker.update(FRAME)
-        tracker.reset()  # a Start rewinds the script; the tray is still the tray
+        tracker.reset()  # confidence-style reset; the fixed roster survives
         for _ in range(5):
             tracker.update(FRAME)
 
@@ -507,6 +523,48 @@ class TestBF2ScenarioTrackerHasARoster:
         assert DEFAULT_FOREIGN  # sanity: there is a foreign object to place
         for window in DEFAULT_FOREIGN:
             assert window.tracker_id not in roster
+
+
+class TestT11ScenarioTrackerHasACatalog:
+    """T11, backend test 12: `ScenarioTracker.catalog` is
+    `frozenset(range(1, n_instruments+1))` — the fake's tray is fully known and
+    fully enrolled, so catalog == roster and stays constant across `reset()`. A
+    foreign object is non-roster AND non-catalog, so the readiness gate treats it
+    as an unknown, never as a recognised instrument."""
+
+    def test_catalog_is_the_full_instrument_range(self) -> None:
+        assert ScenarioTracker(n_instruments=5).catalog == frozenset({1, 2, 3, 4, 5})
+
+    def test_catalog_members_are_builtin_ints(self) -> None:
+        catalog = ScenarioTracker(n_instruments=3).catalog
+
+        assert catalog == frozenset({1, 2, 3})
+        assert all(type(member) is int for member in catalog)
+
+    def test_catalog_equals_the_roster_and_survives_a_reset(self) -> None:
+        tracker = ScenarioTracker()
+        expected = frozenset(range(1, tracker.n_instruments + 1))
+
+        assert tracker.catalog == expected == tracker.roster
+        for _ in range(5):
+            tracker.update(FRAME)
+        tracker.reset()  # confidence-style reset; catalog and roster survive
+        for _ in range(5):
+            tracker.update(FRAME)
+
+        assert tracker.catalog == expected
+
+    def test_a_present_foreign_object_is_neither_roster_nor_catalog(self) -> None:
+        window = DEFAULT_FOREIGN[0]
+        tracker = ScenarioTracker()
+        # Drive into recording to a time inside the foreign window, so its id is
+        # actually present in the detections this tick.
+        detections = _update_until(tracker, (window.appear_s + window.disappear_s) / 2)
+
+        present = _tracker_ids(detections)
+        assert window.tracker_id in present  # sanity: the foreign object is on the tray
+        assert window.tracker_id not in tracker.catalog
+        assert window.tracker_id not in tracker.roster
 
 
 class TestBF3ForeignObjectsAreDrawn:
@@ -592,7 +650,7 @@ class TestBF5TheForeignWindowDoesNotPerturbTheReport:
         tracker = ScenarioTracker(fps=10.0)
         session = Session()
         session.start(0.0)
-        tracker.reset()  # Start: the scripted recording begins at t=0
+        tracker.begin_recording()  # fake-only recording story begins at t=0
         frame = np.zeros((12, 16, 3), dtype=np.uint8)
         foreign_id = DEFAULT_FOREIGN[0].tracker_id
         foreign_seen = False
@@ -640,7 +698,8 @@ class TestBFResolvingFlag:
 
     def test_tracker_update_emits_a_row_aligned_resolving_flag(self) -> None:
         state = ScenarioState(fps=10.0, events=(), foreign=(self.WINDOW,), resolving_window_s=1.0)
-        state.reset()
+        state.begin_recording()
+        state.advance()
         tracker = ScenarioTracker(state=state)
         _drive_state_to(state, 5.2)  # inside the foreign object's resolving window
 

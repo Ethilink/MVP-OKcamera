@@ -89,18 +89,65 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/settings/detection-confidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Patch Detection Confidence */
+        patch: operations["patch_detection_confidence_settings_detection_confidence_patch"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ConfidencePatch */
+        ConfidencePatch: {
+            /** Confidence */
+            confidence: number;
+        };
         /** DetectionModel */
         DetectionModel: {
             /** Tracker Id */
             tracker_id: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "recognising" | "recognised" | "unknown";
             /** Label */
             label: string;
+            /** Colour */
+            colour: string;
             /** Thumbnail */
             thumbnail: string | null;
+        };
+        /** DetectorControlModel */
+        DetectorControlModel: {
+            /** Confidence */
+            confidence: number;
+            /** Default Confidence */
+            default_confidence: number;
+            /** Minimum */
+            minimum: number;
+            /** Maximum */
+            maximum: number;
+            /** Step */
+            step: number;
+        };
+        /** HTTPValidationError */
+        HTTPValidationError: {
+            /** Detail */
+            detail?: components["schemas"]["ValidationError"][];
         };
         /** InstrumentReportModel */
         InstrumentReportModel: {
@@ -155,8 +202,20 @@ export interface components {
         SetupStatus: {
             /** Detected Count */
             detected_count: number;
+            /** Expected Count */
+            expected_count: number;
+            /** Recognised Count */
+            recognised_count: number;
+            /** Resolving Count */
+            resolving_count: number;
+            /** Unknown Count */
+            unknown_count: number;
             /** Stable For S */
             stable_for_s: number;
+            /** Ready */
+            ready: boolean;
+            /** Blocking Reason */
+            blocking_reason: string | null;
             /** Detections */
             detections: components["schemas"]["DetectionModel"][];
         };
@@ -181,6 +240,7 @@ export interface components {
             model_version: string;
             setup: components["schemas"]["SetupStatus"] | null;
             recording: components["schemas"]["RecordingStatus"] | null;
+            detector_control: components["schemas"]["DetectorControlModel"];
         };
         /** UsageWindowModel */
         UsageWindowModel: {
@@ -188,6 +248,19 @@ export interface components {
             off_s: number;
             /** On S */
             on_s: number | null;
+        };
+        /** ValidationError */
+        ValidationError: {
+            /** Location */
+            loc: (string | number)[];
+            /** Message */
+            msg: string;
+            /** Error Type */
+            type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
         };
     };
     responses: never;
@@ -294,6 +367,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReportResponse"];
+                };
+            };
+        };
+    };
+    patch_detection_confidence_settings_detection_confidence_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfidencePatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DetectorControlModel"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

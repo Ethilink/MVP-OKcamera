@@ -100,14 +100,15 @@ make the linker redundant.
 
 ## 1 · Enrolment window & roster freeze
 
-`reset()` fires at **Start**, when Setup has already guaranteed 2 s of scene
-stability + the operator's confirmation that every instrument is present
-(`app/docs/DESIGN.md` D8/setup). So the linker needs no stability detector of its
-own — but the first frame or two after `reset()` are risky (OC-SORT `min_hits=3`
-maturation; single-frame detector flicker).
+`reset()` begins a fresh setup/enrolment pass (at application startup or after a
+changed detection confidence). The setup gate remains closed until enrolment has
+frozen, all catalog instruments are present, and the complete scene has held
+stable for 2 s. Recording Start then preserves that approved roster. The first
+frame or two after `reset()` are still risky (OC-SORT `min_hits=3` maturation;
+single-frame detector flicker), so the linker owns an enrolment window.
 
 - **Enrolment window ≈ 0.5 s** (≈5–7 frames at demo fps) opens at the first
-  post-`reset()` frame. It collects crops of every **mature** (`tracker_id` real)
+  post-`reset()` setup frame. It collects crops of every **mature** (`tracker_id` real)
   track.
 - The window closes when the detected set has been **stable** (same ids/count)
   across it. The **roster = every identity present in the majority of the window

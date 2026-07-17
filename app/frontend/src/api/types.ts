@@ -19,8 +19,24 @@ export type UsageWindow = Schemas["UsageWindowModel"]
 export type InstrumentReport = Schemas["InstrumentReportModel"]
 export type Report = Schemas["ReportResponse"]
 export type StartedResponse = Schemas["StartResponse"]
+// T11: the runtime detection-confidence control metadata (always on /status).
+export type DetectorControl = Schemas["DetectorControlModel"]
 
 // `phase` and `capture_health` are inline string-literal enums on the generated
 // StatusResponse; expose them as the standalone unions the frontend references.
 export type Phase = Status["phase"]
 export type CaptureHealth = Status["capture_health"]
+
+// `detection.state` is the generated per-item identity union (T11/B6).
+export type DetectionState = Detection["state"]
+
+// The backend serialises `blocking_reason` as a plain `string | null`, but it is
+// one of a closed set (api-contract §setup). Narrowed here for the operator-copy
+// map. NOTE: consumers cast the raw `string | null` to this, so an unknown future
+// reason does NOT fail to compile — the copy/badge `switch`es fall through to a
+// fail-safe default (Track stays disabled), which is the intended behaviour.
+export type BlockingReason =
+  | "recognising"
+  | "missing_instruments"
+  | "unknown_objects"
+  | "hold_steady"

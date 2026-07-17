@@ -129,7 +129,7 @@ function InstrumentCrop({
         <img
           src={crop}
           alt={label}
-          className={cn("size-full object-cover", !onTable && "grayscale")}
+          className={cn("size-full object-contain", !onTable && "grayscale")}
           draggable={false}
         />
       ) : (

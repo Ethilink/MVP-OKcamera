@@ -107,6 +107,17 @@ class InstrumentTracker(Protocol):
         Bram 2026-07-15 — wayfinder T10 route (b).)"""
         ...
 
+    @property
+    def catalog(self) -> frozenset[int]:
+        """Persistent specimen IDs available for catalog binding.
+
+        Constant for the tracker lifetime and preserved across reset(). Unlike
+        `roster` (empty until the enrolment freeze), `catalog` is known from
+        construction. In catalog-only mode `roster` is always a subset of
+        `catalog`.
+        """
+        ...
+
 
 class FakeInstrumentTracker:
     """A dependency-free stand-in that honours the `InstrumentTracker` contract,
@@ -133,7 +144,15 @@ class FakeInstrumentTracker:
 
     @property
     def roster(self) -> frozenset[int]:
-        return frozenset(range(self.n_instruments))  # the fake enrols instantly
+        # 1-based, matching the app fake and the real linker's specimen-number
+        # session ids; the fake enrols instantly.
+        return frozenset(range(1, self.n_instruments + 1))
+
+    @property
+    def catalog(self) -> frozenset[int]:
+        # The fake's full identity range is its catalog: constant, independent
+        # of `_frame`, and identical to `roster` (it enrols everything).
+        return frozenset(range(1, self.n_instruments + 1))
 
     def reset(self) -> None:
         self._frame = 0
@@ -171,7 +190,7 @@ class FakeInstrumentTracker:
             boxes.append([x1, y1, x2, y2])
             masks.append(mask)
             confidences.append(confidence)
-            tracker_ids.append(i)
+            tracker_ids.append(i + 1)  # 1-based emitted id, matching roster/catalog
 
         if not boxes:
             return sv.Detections.empty()
@@ -243,8 +262,11 @@ def load_tracker(
     loaded and embedded ONCE here, at startup, and cached for the process's
     life -- embedding ~15 views per specimen per enrolment would push the
     freeze from ~260 ms toward seconds. Pass `None` to disable binding
-    (everything links session-only); a missing or empty directory logs and
-    degrades the same way, never raises.
+    (everything links session-only); in the default (non-catalog) mode a missing
+    or empty directory logs and degrades the same way, never raises. Under
+    `catalog_only_enrolment` that same missing/empty/wrong-sized/id-colliding
+    catalog is instead a fatal config error and `load_tracker` raises
+    (fail-closed).
 
     Constructs the SRC matcher (`ChampionMethod`) eagerly, which loads
     DINOv2-B from the local HF cache -- so this call fails fast at startup on
@@ -306,21 +328,65 @@ def load_tracker(
         cos_tau=matcher_config.single_gallery_cosine_threshold,
     )  # loads DINOv2-B eagerly -- fail fast, not on first frame
     galleries = None
+    # In catalog-only mode a missing/empty gallery set is a fatal config error
+    # (gate below), so don't emit the misleading "linking session-only" INFO --
+    # we are about to refuse exactly that fallback.
+    catalog_only = linker_config.catalog_only_enrolment
     if config.instruments_dir is None:
-        _log.info("instruments_dir=None -- specimen binding disabled, linking session-only")
+        if not catalog_only:
+            _log.info("instruments_dir=None -- specimen binding disabled, linking session-only")
     else:
         # Embed the specimen photos ONCE, here, and hand the vectors to the
         # linker; reset() must never re-load or re-embed them.
         galleries = load_persistent_galleries(matcher, config.instruments_dir) or None
-        if galleries is None:
+        if galleries is None and not catalog_only:
             _log.info(
                 "no persistent galleries under %s -- linking session-only",
                 config.instruments_dir,
+            )
+    if catalog_only:
+        # Fail-closed gate: catalog-only mode is a SAFETY promise (only loaded
+        # specimens may join the roster), so it must refuse both to fall back to
+        # the session-only behaviour it exists to replace and to accept any
+        # catalog that could corrupt the "Unknown = not in roster" test. All
+        # checks need the actually-loaded galleries, hence here and not in
+        # `__post_init__`.
+        loaded = 0 if galleries is None else len(galleries)
+        if galleries is None:
+            where = (
+                "instruments_dir is not configured"
+                if config.instruments_dir is None
+                else f"none loaded from {config.instruments_dir!r}"
+            )
+            raise ValueError(
+                f"catalog_only_enrolment is set but no persistent galleries loaded "
+                f"({where}); refusing session-only fallback"
+            )
+        expected = linker_config.expected_catalog_size
+        if expected is not None and loaded != expected:
+            raise ValueError(
+                f"catalog_only_enrolment expected {expected} galleries under "
+                f"{config.instruments_dir!r} but loaded {loaded}"
+            )
+        # The offset keeps roster ids and Unknown/offset ids disjoint, which is
+        # what makes "Unknown = not in roster" exact (tracker-interface.md, "Two
+        # disjoint emitted ID ranges"). A specimen id at/above the offset would
+        # collide: an unbound raw id `k` emits `k + offset`, so a roster id
+        # >= offset could not be told apart from a foreign track's Unknown id.
+        # In the safety mode the catalog is known at startup, so reject it now.
+        offset = linker_config.unknown_id_offset
+        colliding = sorted(sid for sid in galleries if sid >= offset)
+        if colliding:
+            raise ValueError(
+                f"catalog_only_enrolment specimen ids {colliding} under "
+                f"{config.instruments_dir!r} reach unknown_id_offset={offset}; "
+                f"roster and Unknown id ranges would overlap"
             )
     session_linker = SessionLinker(
         matcher,
         fps=config.expected_processing_fps,
         persistent_galleries=galleries,
+        catalog_only_enrolment=linker_config.catalog_only_enrolment,
         bind_tau=linker_config.bind_threshold,
         bind_margin=linker_config.bind_margin,
         unknown_id_offset=linker_config.unknown_id_offset,
@@ -486,6 +552,10 @@ class _RealInstrumentTracker:
     @property
     def roster(self) -> frozenset[int]:
         return self._session_linker.roster
+
+    @property
+    def catalog(self) -> frozenset[int]:
+        return self._session_linker.catalog
 
     def reset(self) -> None:
         self._deep_ocsort = self._new_deep_ocsort()

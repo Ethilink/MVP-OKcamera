@@ -4,6 +4,7 @@ import { expect, test, vi } from "vitest"
 import { BASE } from "@/api/client"
 import type { Status } from "@/api/types"
 import {
+  catalogColour,
   demoReport,
   finishedStatus,
   recordingAllOn,
@@ -90,9 +91,9 @@ test("AC4 Stop routes to ReportScreen after the finished poll", async () => {
 })
 
 // AC4b + AC4c: from finished/ReportScreen, "New recording" opens the run-2 setup
-// layout (driven by the finished payload's setup block); it shows "Back to
-// report"; the gate behaves like setup; Start restarts and clears the flag.
-test("AC4b run-2 restart from finished, and AC4c Back to report", async () => {
+// layout (flag only — it does NOT call the API); it shows "Back to report"; the
+// gate behaves like setup; Start restarts and clears the flag.
+test("AC4b run-2 restart; AC4c Back to report", async () => {
   let started = false
   server.use(
     http.get(`${BASE}/status`, () =>
@@ -111,14 +112,15 @@ test("AC4b run-2 restart from finished, and AC4c Back to report", async () => {
   const newRec = await screen.findByRole("button", { name: /new recording/i })
   fireEvent.click(newRec)
 
-  // → run-2 setup layout, gate enabled (finished payload is stable), Back to report present
+  // The run-2 setup layout appears (gate enabled — the finished payload is
+  // ready), with Back to report present.
   const start = await screen.findByRole("button", { name: /^track$/i })
   await waitFor(() => expect(start).toBeEnabled())
   expect(
     screen.getByRole("button", { name: /back to report/i }),
   ).toBeInTheDocument()
 
-  // AC4c: Back to report clears the flag → ReportScreen again
+  // AC4c: Back to report clears the flag → ReportScreen again (report preserved)
   fireEvent.click(screen.getByRole("button", { name: /back to report/i }))
   await waitFor(() =>
     expect(
@@ -126,12 +128,48 @@ test("AC4b run-2 restart from finished, and AC4c Back to report", async () => {
     ).toBeInTheDocument(),
   )
 
-  // AC4b: back into setup, Start restarts; recording poll clears the flag → recording layout
+  // AC4b: back into setup, Start restarts; recording poll clears the flag → recording
   fireEvent.click(screen.getByRole("button", { name: /new recording/i }))
   fireEvent.click(await screen.findByRole("button", { name: /^track$/i }))
   await waitFor(() =>
     expect(screen.getByRole("button", { name: /^stop$/i })).toBeInTheDocument(),
   )
+})
+
+// T11/F2/5: a recognised instrument shows its fixed catalog colour on the
+// recording row. The backend keys colour off the id and the frozen roster, so
+// pressing Track never recolours it — the swatch is the same hex the mask uses.
+test("F2/5 a recognised instrument shows its catalog colour on the recording row", async () => {
+  let started = false
+  server.use(
+    http.get(`${BASE}/status`, () =>
+      HttpResponse.json(started ? recordingAllOn : setupStable),
+    ),
+    http.post(`${BASE}/recording/start`, () => {
+      started = true
+      return HttpResponse.json(STARTED)
+    }),
+  )
+
+  render(<App pollMs={POLL} />)
+
+  const start = await screen.findByRole("button", { name: /^track$/i })
+  await waitFor(() => expect(start).toBeEnabled())
+  fireEvent.click(start)
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: /^stop$/i })).toBeInTheDocument(),
+  )
+
+  const row = screen
+    .getAllByRole("listitem")
+    .find((li) => within(li).queryByText("Instrument 1"))!
+  const recordingColour = within(row).getByTestId("instrument-swatch").style
+    .backgroundColor
+  // It is the catalog colour for id 1 (never a literal — the palette is the
+  // backend's to retune; read it through a probe element).
+  const probe = document.createElement("span")
+  probe.style.backgroundColor = catalogColour(1)
+  expect(recordingColour).toBe(probe.style.backgroundColor)
 })
 
 // AC4c negative: a genuine phase:"setup" (run 1, no report) shows no Back-to-report.

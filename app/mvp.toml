@@ -72,6 +72,11 @@ single_gallery_cosine_threshold = 0.60
 # Gates used once at Start to bind tray tracks to specimen galleries.
 bind_threshold = 0.30
 bind_margin = 0.02
+# Safe setup: only tracks that bind to a loaded specimen join the roster; a
+# foreign object on the table stays Unknown instead of enrolling. Fails closed
+# at startup if the galleries are missing or the count below does not match.
+catalog_only_enrolment = true
+expected_catalog_size = 8
 # Offset keeps resolving/Unknown ids disjoint from roster ids.
 unknown_id_offset = 1000
 # Observe the initial still tray this long before freezing the roster.

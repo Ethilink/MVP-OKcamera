@@ -1,179 +1,138 @@
 # DESIGN — ORC demo app (`app/`)
 
-**This is the MVP demo for UZ Leuven (2026-07-20), NOT the data-collection
-dashboard.** Different product: the dashboard captures training frames; this app
-runs a live demo recording and reports per-instrument **Usage** and
-**Completeness**. Nothing in `data-collection/` is a spec for this app.
+**This is the MVP demo for UZ Leuven (2026-07-20), not the data-collection
+dashboard.** It runs a live surgical-set recording and reports per-instrument
+**Usage** and **Completeness**. Nothing in `data-collection/` is a specification
+for this app.
 
-Coder agents cannot reach the PRD (it lives in an Obsidian vault), so the facts
-they need are restated here. Decision authority: **Bram**. Model half
-(detector + tracker behind `InstrumentTracker`): **Constantijn**.
+Decision authority: **Bram**. The detector/tracker lives behind the
+`InstrumentTracker` seam. The current HTTP contract is
+[`api-contract.md`](api-contract.md); the model seam is
+[`model/docs/tracker-interface.md`](../../model/docs/tracker-interface.md).
 
-## What the demo does (from the PRD)
+## Product flow
 
-A camera on a tripod frames a sterile table with 5–6 surgical instruments.
-One operator screen:
+The camera frames the demo catalog of eight surgical instruments.
 
-1. **Setup** — live feed with detection overlay. The operator eyeballs that
-   every instrument is detected, then presses **Start**. Two distinct things
-   gate Start: (a) the *target count* is **human judgment** — there is no
-   configured "expected N"; the operator decides the overlay looks right; and
-   (b) the *stability window* is a **fixed constant (2 s)** — Start only enables
-   once the detected **id-set** has held unchanged (count ≥ 1) for ≥ 2 s; an
-   instrument swap that keeps the count the same still resets the window. (a) is
-   unconfigured; (b) is not negotiable.
-2. **Recording** — live feed + elapsed timer + a lean per-instrument panel
-   (identity and on-table / off-table state only). Usage timing, pickup history,
-   and Completeness are deliberately withheld until the final Report. Any instrument may be picked up,
-   carried out of frame, and returned — any order, repeatedly, **one off the
-   table at a time** (a *demo choreography* constraint, not an engine limit:
-   `Session` tracks each `tracker_id` independently and handles ≥ 2 simultaneous
-   absences correctly — see T02 semantics — the live panel just reads cleaner
-   with one at a time).
-3. **Report** (after **Stop**) — per instrument: a **Usage** timeline (its
-   off-table windows) and a **Completeness** badge (*present* on the table at
-   Stop, or *missing* — glossary-canonical: the camera observes absence; it
-   cannot claim *lost* vs *misplaced*).
+1. **Setup** — the live overlay classifies every detected object as recognised,
+   recognising, or unknown. Track is enabled only when the server confirms that
+   all eight catalog identities are present, no unknown/resolving object exists,
+   the complete detected id-set has held still for at least 2 seconds, and the
+   camera is healthy. The frontend displays this verdict; it does not reproduce
+   the gate logic.
+2. **Recording** — the approved roster is preserved across Start. The screen
+   shows the live feed, elapsed time, and the recognised instruments' current
+   on-table/off-table states. Usage history and Completeness remain hidden until
+   Stop. Instruments may leave and return in any order; the demo choreography
+   normally removes one at a time, but `Session` tracks absences independently.
+3. **Report** — after Stop, each recognised instrument has a Usage timeline and a
+   Completeness badge. The report says `missing`, not `lost`: the camera can
+   observe absence but cannot infer why an item is absent.
 
-Acceptance = the report matches what physically happened in the run.
+Acceptance is that the report matches what physically happened during the run.
 
 ## Architecture
 
+```text
+camera ──▶ CaptureLoop (one capture/inference thread)             app/backend
+              │
+              ├─ atomic Latest(frame, detections, roster, catalog)
+              ├─ on_frame(t, present, roster, catalog, resolving)
+              ▼
+           Session (phase, readiness, debounce, usage, report)
+              │
+              ▼
+           FastAPI ── HTTP/MJPEG ──▶ React + TypeScript          app/frontend
+                                      polls /status at ~2 Hz
 ```
-camera ──▶ CaptureLoop (1 thread, owns tracker.update)          app/backend
-              │ on_frame(t, present_ids)      │ snapshot() → overlay JPEG
-              ▼                               ▼
-           Session (state machine,         FastAPI  ──HTTP──▶  app/frontend
-           debounce, usage windows,        (contract:           (Vite+React+TS
-           completeness, report)           api-contract.md)     +shadcn, polls
-                                                                /status @2Hz)
-```
 
-The HTTP seam is **frozen** in [`api-contract.md`](api-contract.md). The model
-seam is **frozen** in [`model/docs/tracker-interface.md`](../../model/docs/tracker-interface.md)
-(`InstrumentTracker`: `update(bgr_frame) -> sv.Detections` with stable
-`tracker_id`, `confidence` attr, `reset()`, `class_names`, `model_version`).
+`CaptureLoop` is the only owner of camera reads, `tracker.update()`, tracker
+resets, and runtime confidence mutations. It samples detections, roster, catalog,
+and resolving state in the same tick so the session, overlay, thumbnails, and API
+all judge one coherent frame.
 
-## Decisions (settled — do not relitigate)
+## Settled decisions
 
-| # | decision | rationale |
-|---|----------|-----------|
-| D1 | Backend: **FastAPI**, Python, `uv` project under `app/backend/` | matches team stack |
-| D2 | Frontend: **Vite + React + TS + Tailwind + shadcn/ui** under `app/frontend/` | SPA on a laptop; no SSR need |
-| D3 | Live video: **MJPEG** `multipart/x-mixed-replace`, rendered via `<img>` | trivial, proven, no WebRTC |
-| D4 | Live data: frontend **polls `GET /status` at ~2 Hz** | at demo scale, push adds only failure modes |
-| D5 | **Single resolution 1920×1080** end-to-end | nothing is saved to disk here; no 4K machinery |
-| D6 | One background **capture-infer thread**, frames in order, atomic `Latest` snapshot, `CAP_PROP_BUFFERSIZE=1`, stale-detection | the one lesson imported from data-collection |
-| D7 | Report **in-memory only**; next Start discards it. **Recording history across sessions is an explicit non-goal for the MVP** (2026-07-08) — it would need persistence + new `/reports` contract endpoints + a history screen, re-coupling the frontend to backend storage decisions for a single controlled demo run. Post-MVP feature if wanted. Losing the *current* report on an accidental "New recording" is handled in-UI instead (T06 "Back to report"). | demo shows the report right after Stop |
-| D8 | Identity = the **session id** the tracker emits, verbatim. Labels are `"Instrument {id}"` | single class; re-id is model-side. **Resolved 2026-07-08:** ids survive absence via **track linking** behind the seam (tracker-interface § "Identity semantics") — linked tracks re-emit the original id within ≤ 1 s of return; `Session` adds a 1 s **entry debounce** so provisional pre-link ids leave no trace. **Updated 2026-07-15:** the linker is **built and owned in `model/`** (`SessionLinker`, composed by `load_tracker()`) — not Constantijn's. Two deltas the app must respect: (a) the roster is **frozen ~0.7 s after Start**, and the app **reads it across the seam** (`tracker.roster`) rather than inferring it — a track that matches no enrolled identity is **Unknown**, is never labelled `"Instrument N"`, and stays out of Usage and Completeness (see D8a); (b) session ids are **renumbered at the freeze** (wayfinder T08 shipped 2026-07-15), so the roster reads `{1…N}` and a tray of 8 labels "Instrument 1"…"Instrument 8" — the earlier "a tray of 8 can show Instrument 10" is no longer true. Measured on both 2026-07-15 takes, *including* a replay with only 4 of 8 galleries bound. **But the app still treats the roster as an opaque set** — membership tests, never `id > N`. Contiguity is a model-side property; depending on it would re-couple the app to the linker's internals. |
-| D8a | **Unknown objects** render gray **on the video only**, outside Usage and Completeness; a not-yet-settled object shows a ~1 s **resolving** spinner. Roster instruments get 8 distinct, stable colours, reported per-instrument in `/status` | 2026-07-15, closing wayfinder T06. Freezing the roster at Start is what keeps an audience member's phone from becoming "Instrument 7" and counting as present. **Grilled 2026-07-15 (Bram); SHIPPED same day** (wayfinder T10, spec in `docs/wayfinder/session-linker/assets/T08-T10/T10-BACKEND-SPEC.md`). **Route (b) — the roster crosses the seam:** `InstrumentTracker` exposes a read-only `roster` property; `CaptureLoop` samples it in the *same tick* as `present_ids` and carries it into `Latest`, `on_frame`, the renderer, `Session.observe(t, present_ids, roster)` and `/status`. **Route (a) — the app deriving the roster from the ids present at Start — was rejected:** the app's Start snapshot and the linker's enrolment freeze are *different instants* (~0.7 s apart), and if the two sets ever disagree then **every** Unknown decision disagrees. **Unknowns are video-only:** gray mask + ~1 s resolving spinner, then a settled gray `"Unknown"` label — never `"Instrument N"`, at any age, in any state; **no panel row**, never in `/status.recording.instruments`, Usage, or Completeness. **Colour:** each roster instrument gets one of 8 distinct hexes from `roster_colour(roster, id)` — derived from the id and the frozen roster, so it is pure and a returned instrument **regains its colour with no renderer memory**; the same hex is drawn on the mask and reported in `/status`, so swatch and video cannot drift. **Only the RECORDING half filters by roster** — see "D8a in practice" below. See `model/docs/linker-design.md` §7 |
-| D9 | **Off/on debounce** in `Session` (defaults 1.5 s off, 1.0 s on) so detector flicker ≠ pickups | correctness of the report |
-| D10 | Fake = **`ScenarioTracker`** (scripted pickups/returns/losses) + `FakeCaptureSource`, living in `app/backend/` — `model/` is not touched | fake at the deepest seam; frontend always talks to the one real API. `FakeInstrumentTracker` in `model/` only drifts — it can't demo Usage |
-| D11 | `Session` is **pure** (fed `(t, present_ids)`; no clock, no threads inside) | the whole report correctness becomes unit-testable |
-| D12 | Frontend testing: **full component tests** (Vitest + React Testing Library + MSW) plus pure-logic units | Bram's call, 2026-07-07 |
-| D13 | Process: **blind-TDD** (`/blind-tdd`) for backend tasks; frontend tasks single-agent TDD + **Claude-in-Chrome** visual verification against the fake backend | Bram's call, 2026-07-07 |
-| D14 | TS API types hand-written from `api-contract.md` at scaffold; swapped for `openapi-typescript` generation at integration | breaks the chicken-and-egg with the not-yet-built backend |
-| D15 | **`finished` keeps live-observing** the table (tracker running, overlay drawn, detected-count updating) and carries the same `setup` block as `setup`, so the Start gate applies identically for a second run | the camera never stopped; lets the operator re-confirm the table before re-recording without a separate "back to setup" transition (Bram, 2026-07-07) |
-| D16 | **`VideoFeed` degrades gracefully when `/stream` is unreachable and recovers automatically.** It stays a bare `<img>`, but an `onError` handler swaps in a plain styled **"no stream (dev mode)"** panel (no bundled image asset), then retries after 1 s with a cache-busting query parameter. MSW cannot intercept an `<img>` MJPEG load, so in pre-backend dev/`npm run dev` (T05 AC6) and MSW-only component tests the fallback appears; the real MJPEG is exercised against the `--fake` or real backend (T06 AC7, T08). Same fallback/retry covers a backend or camera restart in production. | Bram, 2026-07-08; recovery hardened 2026-07-16. Avoids requiring a page refresh after a transient stream failure. |
-| D17 | **Setup detection thumbnails are derived in `app/backend` from the owned camera frame plus public `InstrumentTracker` output, then returned inline in `/status`. The model never emits UI crops or transport-specific bytes.** | preserves the frozen model seam; Constantijn supplies same-frame, row-aligned `xyxy`/`mask`/`tracker_id`, while crop geometry, encoding and presentation remain consumer concerns (2026-07-13) |
+| # | Decision | Why |
+|---|---|---|
+| D1 | FastAPI backend under `app/backend/` | Matches the project stack and exposes OpenAPI. |
+| D2 | Vite + React + TypeScript + Tailwind + shadcn/ui under `app/frontend/` | Single-laptop SPA; no SSR requirement. |
+| D3 | MJPEG live video via `GET /stream` | Simple, proven, and no WebRTC state machine. |
+| D4 | Poll `GET /status` at about 2 Hz | Demo-scale live state does not need push transport. |
+| D5 | 1920×1080 capture path | No media is persisted by this app. |
+| D6 | One capture/inference thread with an atomic `Latest` snapshot, camera buffer size 1, and stale-health detection | Prevents tracker races and stale-frame buildup. |
+| D7 | One in-memory report; the next successful Start discards it | Recording history is outside the MVP. “New recording” only changes frontend layout, so Back to report remains possible before Start. |
+| D8 | Identity is the session id emitted by the tracker; consumers treat roster/catalog as opaque sets | Re-identification and specimen binding stay model-side. Never infer identity from numeric ranges. |
+| D8a | The fixed catalog supplies stable identity colours. Recognised masks, setup tiles, and recording rows use the same backend-provided colour; unknown/resolving objects are gray | One identity policy prevents overlay/UI disagreement. |
+| D9 | `Session` owns 1.5 s off and 1.0 s on debounce defaults | Detector flicker must not become a pickup. |
+| D10 | `ScenarioTracker` + `FakeCaptureSource` provide the app demo fake | The frontend still exercises the real HTTP implementation. |
+| D11 | `Session` is pure and clock-free; callers feed monotonic timestamps and same-tick sets | Readiness and report behavior remain deterministic and unit-testable. |
+| D12 | Frontend behavior uses component tests with Vitest, Testing Library, and MSW | Covers the real UI/API seam without browser-only tests for every state. |
+| D13 | OpenAPI generates the frontend schema; small presentation types wrap it locally | Contract drift becomes a type-check failure. |
+| D14 | `finished` continues observing the table and exposes the same setup-readiness block | A second run can be approved without restarting the camera or backend. |
+| D15 | Setup/live thumbnails are backend-derived from the owned frame plus public detection boxes and masks | The model seam does not emit UI assets or transport bytes; the backend turns masks into transparent PNG cutouts and retains a JPEG fallback for unusable masks. |
+| D16 | Start is a pure, fail-closed phase transition and **does not reset the tracker** | Resetting after approval empties the approved roster and causes unsafe re-enrolment during recording. |
+| D17 | A changed runtime detection confidence is applied with a tracker reset as one serialized capture-thread command; failure rolls the confidence back | Confidence and tracker state must remain atomic. A no-op confidence change does not reset. |
+| D18 | The setup constellation renders at most the eight **recognised** catalog items. Unknown/resolving detections remain on video and affect count/readiness, but are not constellation tiles | The constellation is the catalog view, while the video and gate cover everything on the table. |
 
-### D8a in practice — what the roster gates, and what it must NOT
+## Identity and lifecycle invariants
 
-**The single most load-bearing detail of the T10 build: only the RECORDING half
-filters by roster.** `Session.observe(t, present_ids, roster)` passes
-`present_ids & roster` to `_observe_recording`, so a not-in-roster id never
-becomes a track, never confirms, never reaches `recording_status()`, the report,
-Usage, or Completeness. But the **Start/setup gate deliberately
-still sees the full `present_ids`** — `detected_count` and `stable_for_s` are
-computed from everything detected. That is not an oversight to tidy up later:
-the Start gate is *the operator's judgment on everything on the table*, made
-**before any roster exists** (there is nothing to filter against yet, and
-filtering the gate by a stale roster from the previous run would let a real
-instrument fail to appear in the count the operator is eyeballing). Inverting
-this — filtering setup, or not filtering recording — silently breaks the demo's
-Start flow. Same reasoning keeps the overlay unfiltered outside `recording`
-(B-V1): in `setup` and `finished`, everything is drawn with its per-track colour
-and an `"Instrument {id}"` label, because the roster there is stale by design.
+- `catalog` is the fixed set loaded at tracker construction and survives resets.
+- `roster` is the currently enrolled subset. Setup readiness requires the
+  recognised present set to equal the catalog, with zero unknown/resolving ids.
+- Start holds the mutation lock across the readiness re-check and phase change.
+  A confidence reset therefore cannot land between approval and recording.
+- Start preserves tracker state. It clears the previous report only after the
+  gate passes and `Session.start()` succeeds.
+- A changed confidence may be submitted only outside recording. The capture
+  thread applies `confidence = new_value` and `reset()` between frames. If reset
+  fails, the old confidence is restored and the API remains on the old confirmed
+  value.
+- Tracker commands are serialized inside `CaptureLoop`, not only by the HTTP
+  layer, so direct concurrent callers cannot overwrite its one pending slot.
+- Only ids in the same-tick roster enter recording instruments, Usage, or
+  Completeness. Unknown objects never become recording rows.
+- Setup `/status` still reports every detection and every gate count. The
+  frontend constellation filters that payload for recognised identities only;
+  this display filter must never be reused as gate logic.
+- The setup count and latest detection list may be one frame apart. Readiness is
+  always the server verdict, never a frontend count comparison.
 
-The **~0.7 s window between Start and the linker's enrolment freeze**, where
-`roster` is still empty and therefore *nothing* passes the recording filter, is
-harmless: it is shorter than `Session`'s 1 s entry debounce, so no track can
-confirm inside it and the report is unchanged. The same window is why every
-`/status` `colour` is briefly gray (see `api-contract.md`). Both are transient
-and self-correcting; neither needed code.
+## Frontend state recovery
 
-`roster=None` (the default) means unfiltered, so every pre-T10 caller and test
-keeps today's semantics.
-
-### ⚠️ Not grilled — engineering calls flagged for Bram (T10, 2026-07-15)
-
-These were decided *by the build*, not by Bram. The last build silently reversed
-grilled decisions and it took days to notice, so they are listed here to be
-vetoed rather than discovered. Nothing below is load-bearing enough to block the
-demo; all of it is cheap to reverse.
-
-1. **Renderer wiring (B-V6).** The T10 spec never said how `create_app` reaches
-   the `OverlayRenderer` to call `set_recording`. Ruled: **`create_app` owns the
-   renderer** and wires it through a new `CaptureLoop.set_render_fn`, mirroring
-   the existing `set_on_frame` precedent. Consequence worth knowing: `create_app`
-   now **replaces any `render_fn` passed to `CaptureLoop`'s constructor**.
-2. **`roster_colour` returns gray for a non-roster id** rather than raising. The
-   spec defines it only for roster ids; the recording filter (B-S1) stops
-   unknowns from ever reaching it, and returning gray collapses the
-   no-snapshot placeholder (B-A1) into the same path. A raise would have been
-   the stricter contract.
-3. **A residual race in `OverlayRenderer._age`, named and accepted.** Two races
-   were fixed (`set_recording` now clears the first-seen map *before* publishing
-   the flag; `_evict` mutates in place and never rebinds). A third survives:
-   `_age` is a read-modify-write, so if `set_recording(True)`'s clear lands
-   between the get and the store, an in-flight frame from the *previous*
-   recording writes its `first_seen` into the fresh map — that object then shows
-   a settled `"Unknown"` immediately instead of the resolving spinner, until
-   eviction ~5 s later. It needs a GIL switch inside a 2-op window **and** a
-   frame in flight across a stop→start within one ~100–300 ms render tick.
-   Judged cosmetic and improbable. Closing it costs ~4 lines (an epoch counter)
-   or a lock on the capture hot path — **Bram can call for the epoch counter.**
-4. **A pre-existing race, flagged but NOT fixed** (found independently by two
-   agents; it is not T10's). `session.start(clock())` samples the clock under the
-   lock while the capture thread's in-flight frame still carries an earlier `t`,
-   so that frame's `observe` arrives backwards → `ValueError: t is not
-   monotonic`, caught and logged by `_notify`'s AC8 handler, frame skipped. This
-   happens in `orc-demo` today, T10 or no T10.
-5. **BRANDING.md now disagrees with the product.** `BRANDING.md` says the camera
-   detection overlay "should use the functional status colours, not the logo
-   spectrum", and that colour "must carry meaning". **An 8-hue roster palette is
-   exactly what that line pushes back on.** It was built as grilled, and the hue
-   *does* carry meaning — it maps mask ↔ panel row identity, it is not
-   decoration — but the panel now shows up to 8 hues on a surface branded "teal +
-   semantic only". Either BRANDING carves out an identity-mapping exception, or
-   the doc and the product stay in conflict. **Not changed here — Bram's call.**
-6. **Frontend swatch a11y convention (new).** The panel swatch is
-   `aria-hidden` + `data-testid`, not `role="img"`: a hue is meaningless to a
-   screen reader (the row already carries "Instrument 3"), and `role="img"` would
-   have broken `LiveScreen.test.tsx`'s `queryByRole("img")` assertion. The repo
-   had no convention for this before; this is the first one.
-
-Also known, not a call: **nothing tests that the spinner *stops* at settle**
-(B-V4 only implies it via "solid gray"). The shipped code does stop it, but no
-gate holds it there.
+- Start/Stop transitions are poll-confirmed rather than optimistic.
+- A mutation refresh that fails waits for the next successful ordinary poll
+  before releasing the pending UI state. A temporary `/status` outage therefore
+  cannot leave Track disabled forever, and a stale response cannot falsely
+  confirm the mutation.
+- The MJPEG `<img>` has a visible fallback and retries automatically after a
+  stream error.
+- The report remains reachable from the run-2 setup layout until a successful
+  Start discards it backend-side.
 
 ## Threading rules
 
-- Exactly one thread touches the camera and the tracker: the `CaptureLoop`.
-- `Session.observe()` is called from that thread (via `on_frame`); HTTP handlers
-  read `Session`/`Latest` under a lock. Keep `Session` methods O(instruments).
-- Endpoints that do blocking work stay plain `def` (FastAPI threadpool) — never
-  block the async loop that serves `/stream`.
+- Exactly one thread touches the camera and calls tracker update/reset/confidence
+  mutation: `CaptureLoop`.
+- `Session.observe()` runs from the capture callback. HTTP handlers read/write
+  session state under a short lock.
+- The coarse mutation lock serializes Start and confidence changes. Never hold
+  the short session lock while waiting for a capture-thread command.
+- Each tracker command has its own completion/error state. The submission lock is
+  held for the full queue-and-wait lifecycle.
+- Plain `def` FastAPI endpoints perform blocking work in the thread pool; the
+  async stream loop is not blocked by tracker commands.
 
-## Repository layout the tasks build
+## Repository layout
 
+```text
+app/backend/    FastAPI, capture/session/render/fakes, backend tests
+app/frontend/   Vite React app, API hooks, screens/components, colocated tests
+app/docs/       current design, API contract, runbook, historical task briefs
+model/          tracker implementation and model contract
 ```
-app/backend/    pyproject.toml (uv), backend/{capture,session,fakes,render,main}.py, tests/
-app/frontend/   Vite app: src/{api,screens,components}, tests colocated, MSW in src/test/
-app/docs/       DESIGN.md (this), api-contract.md (frozen), tasks/ (the board), RUNBOOK.md (T08)
-```
 
-Run modes: `uv run orc-demo --fake` (ScenarioTracker + synthetic frames — what
-frontend dev and Chrome verification use) · `uv run orc-demo --camera 1
---weights <path>` (real tracker from Constantijn's `load_tracker` factory when
-it lands).
+Run modes:
+
+- `uv run orc-demo --fake` — scenario tracker + synthetic frames.
+- `uv run orc-demo --camera 1 --weights <path>` — real camera and tracker.

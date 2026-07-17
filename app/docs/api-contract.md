@@ -10,9 +10,19 @@ frontend consumes this API. Neither side ever reaches through its seam.
 
 > **Decisions baked in (2026-07-07):** Bram owns backend + frontend; Constantijn
 > owns the model behind `InstrumentTracker`. Recording screen shows a live
-> per-instrument list. Start gate is **human judgment** (operator eyeballs the
-> overlay; Start enables once the detected count is stable, at any value ≥ 1).
-> Report is **in-memory only** — one finished session, cleared on the next Start.
+> per-instrument list. Report is **in-memory only** — one finished session,
+> cleared only on a successful next Start.
+>
+> **Superseded (2026-07-16 / T11):** the old "human judgment, any stable count
+> ≥ 1" Start gate is replaced by a **server-enforced exact-catalog gate** (D3);
+> setup and recording now share **one identity/colour system** (D4/D5). The
+> **Start preserves the exact approved tracker roster** and performs no reset;
+> resetting after the readiness check would empty that roster and re-enrol during
+> recording. There is no separate public prepare step or Rescan button. A changed
+> detection confidence is the one setup action that resets enrolment. This
+> document reflects the final T11 contract;
+> where a sentence below still described the old behaviour it has been updated in
+> place.
 
 ---
 
@@ -25,10 +35,10 @@ frontend consumes this API. Neither side ever reaches through its seam.
   the data-collection dashboard.
 - **Backend computes, frontend renders.** Usage windows, completeness,
   debouncing — all backend. The frontend never derives analytics from raw data.
-- **Setup thumbnails are backend-derived.** The model returns frame-aligned
-  detections, not encoded crops. The backend derives small previews from its
-  camera frame and returns them inline with `/status`; the frontend does not
-  crop the MJPEG stream or call the model directly.
+- **Preview cutouts are backend-derived.** The model returns frame-aligned
+  boxes/masks, not encoded UI assets. The backend derives small transparent PNG
+  cutouts from its camera frame and returns them inline with `/status`; the
+  frontend does not crop the MJPEG stream or call the model directly.
 - **Times:** absolute moments are ISO-8601 strings; everything inside a session
   is **seconds relative to recording start** (floats) — what a timeline needs.
 - **Errors:** wrong-phase actions → `409` with `{"detail": "..."}`. Everything
@@ -39,18 +49,30 @@ frontend consumes this API. Neither side ever reaches through its seam.
 One global state machine, owned by the backend:
 
 ```
-setup ──POST /recording/start──▶ recording ──POST /recording/stop──▶ finished
-                                    ▲                                    │
-                                    └──────POST /recording/start─────────┘
-                                         (discards the previous report)
+      setup ──POST /recording/start──▶ recording ──POST /recording/stop──▶ finished
+        ▲    (server gate: exact catalog;  ▲                                │
+        │     preserves approved roster)  └────POST /recording/start───────┘
+        │                                      (preserves roster; discards the
+        │                                       previous report)
+ (first launch =
+  fresh tracker)
 ```
 
-- `setup` — camera live, tracker running for the overlay, nothing recorded.
-- `recording` — tracker was `reset()` at Start; per-instrument state accumulates.
+Only `start` (→ `recording`) and `stop` (→ `finished`) change the phase.
+**New recording** is a frontend-only step: it routes back to the setup layout
+while the backend still holds the finished report (so **Back to report** works),
+and the gated **Start** preserves that approved setup state.
+
+- `setup` — camera live, tracker running for the overlay, nothing recorded. The
+  first launch boots with a fresh tracker.
+- `recording` — Start atomically re-checks readiness, preserves the approved
+  tracker roster/catalog state, and begins accumulating per-instrument state.
 - `finished` — report available AND the camera/tracker keep live-observing the
-  table (overlay still drawn, detected-count still updating) so the Start gate
-  works here just like in `setup`. Next Start discards the report and re-enters
-  `recording`. See §/status: `finished` carries the same `setup` block as `setup`.
+  table (overlay still drawn, readiness still updating) so the Start gate works
+  here just like in `setup`. **New recording** routes to the setup layout while
+  preserving the previous report (so **Back to report** still works); that report
+  is discarded only after the next successful Start. See §/status: `finished`
+  carries the same `setup` block as `setup`.
 
 ---
 
@@ -64,18 +86,32 @@ setup ──POST /recording/start──▶ recording ──POST /recording/stop�
   "capture_health": "ok",            // "ok" | "stalled"  (frozen camera is visible)
   "model_version": "scenario-0.1",
 
-  // present when phase == "setup" OR "finished": what the Start gate needs
-  // (in "finished" the table is still being observed for the next run)
+  // present when phase == "setup" OR "finished": the exact-catalog Start gate
+  // state (in "finished" the table is still being observed for the next run)
   "setup": {
-    "detected_count": 5,             // size of the current detected id-set
-    "stable_for_s": 3.2,             // how long the detected ID-SET has been
-                                     // unchanged (an id swap at constant count
-                                     // resets it — T02 owns this definition)
-    "detections": [                  // always present; may be []
+    "detected_count": 9,             // ids detected this snapshot (everything on the table)
+    "expected_count": 8,             // size of the loaded catalog (the demo's 8 specimens)
+    "recognised_count": 8,           // detected ids bound to a catalog specimen (in the roster)
+    "resolving_count": 0,            // detected ids still being recognised
+    "unknown_count": 1,              // detected ids settled as not-a-specimen
+    "stable_for_s": 2.4,             // how long the complete emitted id-set has been unchanged
+    "ready": false,                  // the server's Start verdict (D3); folds in capture health
+    "blocking_reason": "unknown_objects",  // pure-readiness blocker; null when the readiness
+                                     // gate passes (may be null while ready is false — see below)
+    "detections": [                  // always present; may be []; sorted by tracker_id
       {
         "tracker_id": 1,
-        "label": "Instrument 1",
-        "thumbnail": "data:image/jpeg;base64,…" // string | null
+        "state": "recognised",       // "recognising" | "recognised" | "unknown"
+        "label": "Instrument 1",     // "Instrument N" recognised | "Unknown" | "" recognising
+        "colour": "#4285f4",         // catalog colour recognised, gray otherwise
+        "thumbnail": "data:image/png;base64,…"  // string | null
+      },
+      {
+        "tracker_id": 1042,
+        "state": "unknown",
+        "label": "Unknown",          // never the raw tracker id
+        "colour": "#9ca3af",         // gray
+        "thumbnail": "data:image/png;base64,…"
       }
     ]
   },
@@ -91,82 +127,133 @@ setup ──POST /recording/start──▶ recording ──POST /recording/stop�
         "label": "Instrument 3",     // single class today; label comes from backend
         "colour": "#4285f4",         // required; the hex this instrument's mask
                                      // is drawn with on /stream (see below)
-        "on_table": false
+        "on_table": false,
+        "thumbnail": "data:image/png;base64,…"  // string | null — a live cutout this
+                                     // frame, null when off-table/not detected (the
+                                     // app keeps showing the last-seen cutout)
       }
     ]
+  },
+
+  // ALWAYS present (T11/B5): runtime detection-confidence control metadata,
+  // drives the Advanced setup control. See PATCH /settings/detection-confidence.
+  "detector_control": {
+    "confidence": 0.50,              // current runtime value
+    "default_confidence": 0.50,      // the startup value from mvp.toml
+    "minimum": 0.30,
+    "maximum": 0.90,
+    "step": 0.05
   }
 }
 ```
 
 `setup` block is non-null when `phase == "setup" | "finished"`; `recording`
-block is non-null only when `phase == "recording"`. (So `setup` and `recording`
-are never both non-null, but in `finished` the `setup` block IS present — the
-report is fetched separately via `GET /report`.)
+block is non-null only when `phase == "recording"` (so the two are never both
+non-null, but in `finished` the `setup` block IS present — the report is fetched
+separately via `GET /report`). `detector_control` is **always** present.
 
 The recording payload intentionally exposes only elapsed time, instrument
 identity/presentation, and current on-table state. Off-table windows and final
 Completeness are report-only so the demo's analytics payoff appears after Stop.
 
-`setup.detections` is sorted by `tracker_id` and contains detections from one
-backend capture snapshot. `thumbnail` is a small aspect-preserving JPEG preview
-returned as a data URI; it is `null` when that individual crop cannot be
-validated or encoded. One bad crop must not fail the entire `/status` response.
-The API returns all current detections; presentation limits such as the setup
-constellation's seven-tile cap belong to the frontend.
+#### `setup` — the exact-catalog Start gate (T11/D3)
 
-`detected_count`/`stable_for_s` come from the session state while `detections`
-comes from the latest capture snapshot. They may differ by one frame, and
-`detections` may temporarily be empty when no usable snapshot exists. The
-frontend must tolerate `detected_count != detections.length` and fall back to a
-representative icon for any missing or null thumbnail.
+The five counts partition the detected id-set: `recognised` (bound to a catalog
+specimen, i.e. in the frozen roster) + `resolving` (still being recognised) +
+`unknown` (settled as not-a-specimen) = everything detected; `detected_count` is
+the whole set and `expected_count` is the loaded catalog size (8 for the demo).
 
-Frontend enables **Start** when `phase == "setup" | "finished"`,
-`capture_health == "ok"`, `detected_count ≥ 1`, and `stable_for_s ≥ 2` — the
-operator confirms visually on the overlay that everything is detected.
+**`ready` is the server's verdict — the frontend renders it, never recomputes
+it.** `POST /recording/start` re-checks the same backend state, so the button
+being disabled is never the enforcement. `ready` is true only when: capture health
+is `ok`; the frozen roster equals the expected catalog (all 8 recognised); every
+catalog identity is currently present; no unknown or resolving object is on the
+table; and the complete id-set has been unchanged for ≥ 2.0 s.
 
-**`recording.instruments[].colour`** (required, since 2026-07-15 / T10) is a hex
-string like `"#4285f4"`: the instrument's fixed mask colour, and **the exact same
-value the overlay draws that instrument's mask with** on `/stream`. That identity
-is the whole point of shipping it over the wire — the panel swatch and the video
-are the same number from the same source, so they cannot drift. Render the swatch
-straight from this field; never re-derive a colour from `tracker_id` on the
-frontend.
+`blocking_reason` is one of `"recognising" | "missing_instruments" |
+"unknown_objects" | "hold_steady" | null`, at this priority when several apply:
+**recognising → unknown_objects → missing_instruments → hold_steady**. It is
+`null` when the **pure readiness** conditions pass — but that is not the same as
+`ready`: capture health is folded into `ready` only, NOT into `blocking_reason`.
+So a stalled camera with an otherwise-perfect tray gives `ready: false` **and**
+`blocking_reason: null`; the frontend shows the separate `capture_health` banner
+in that case (it takes precedence over the readiness copy).
 
-Properties the frontend may rely on:
+#### `setup.detections` — per-item identity (T11/B6)
 
-- **Distinct and stable.** The backend holds a palette of 8 colours and assigns
-  one per roster instrument, derived from its id and the roster frozen at Start.
-  Distinct within a recording, and stable for the whole of it — an instrument
-  picked up and returned comes back with the same colour, because the linker
-  re-emits its original id and the colour is a pure function of that id.
-- **The hexes themselves are a TUNABLE.** Assert *distinctness* and *stability*;
-  never assert specific hex values. The palette will be re-tuned against the
-  branding and the real camera.
-- **Unknown and foreign ids are absent from `/status` entirely.** A phone or a
-  hand on the table renders gray "Unknown" on the video and gets **no
-  `instruments` entry**, no Usage, no Completeness — so no colour question
-  arises. This falls out of the roster filter in `Session` (D8a); there is no
-  filtering code in `main.py` and the frontend needs no filter of its own.
-- **One transient:** before the first frame, and during the ~0.7 s between Start
-  and the linker's enrolment freeze, there is no roster yet and **every colour
-  resolves to the gray `"#9ca3af"`**. Harmless and self-correcting — the entry
-  debounce means no instrument row exists to look wrong for long. Don't special-
-  case it; just don't be surprised by a gray flash in a fresh recording.
+Each detection carries its identity `state`/`label`/`colour` from **one policy
+shared with the video overlay**, so a tile and the mask for the same object can
+never disagree:
+
+- `recognised` (id in this snapshot's roster) → `label` `"Instrument N"`, `colour`
+  the catalog colour;
+- `recognising` (not in the roster, still resolving) → `label` `""` (the frontend
+  shows a spinner), `colour` gray;
+- `unknown` (not in the roster, settled) → `label` `"Unknown"`, `colour` gray.
+
+`tracker_id` is the seam id for React keys / API correlation; it is **never**
+rendered to the operator for a non-recognised state (no raw id ever appears in a
+label — D4). `detections` is sorted by `tracker_id` and comes from one capture
+snapshot; `thumbnail` is normally a small aspect-preserving transparent PNG
+cutout data URI. If a producer has no usable mask, the backend defensively falls
+back to the previous JPEG crop; `null` means that neither preview could be
+validated/encoded (one bad item must not fail the response).
+The API returns **all** current detections in order. The setup constellation is a
+catalog view: it renders only `recognised` detections, capped at the catalog's
+eight instruments around the centre. `recognising` and `unknown` objects remain
+visible on the video and still affect the count, blocking reason, and Start gate,
+but are deliberately not added to the constellation. `detected_count` (session
+state) and `detections.length` (latest snapshot) may differ by a frame; tolerate
+that and fall back to a representative icon for a recognised detection whose
+thumbnail is missing/null.
+
+#### Colours derive from the fixed catalog (T11/D5)
+
+**`recording.instruments[].colour`** and **`setup.detections[].colour`** are the
+SAME value the overlay draws that object's mask with on `/stream`. Render the
+swatch straight from this field; never re-derive a colour from `tracker_id`.
+
+- **Pure function of `(catalog, specimen_id)`** — palette slot at the id's index
+  in `sorted(catalog)`. Because the basis is the *fixed catalog*, not the current
+  roster, a partial roster gaining a lower id later **cannot** shift an
+  already-recognised instrument's colour. Distinct within the catalog, and stable
+  before/during/after recording — a returned instrument regains its exact colour.
+- **The hexes are a TUNABLE.** Assert *distinctness* and *stability*; never assert
+  specific hex values. The palette will be re-tuned against branding + real camera.
+- **Unknown/foreign → gray `"#9ca3af"`.** In `recording`, unknown/foreign ids are
+  absent from `instruments` entirely (the roster filter in `Session`, D8a) — no
+  entry, no Usage, no Completeness. In `setup` they appear as gray
+  `recognising`/`unknown` detections in the payload and on the video (the operator
+  must clear them to pass the gate); they do not become constellation tiles.
+- **One transient:** before the first published frame there is no snapshot yet and
+  a recording colour resolves to the gray placeholder. Harmless and
+  self-correcting; don't special-case it.
 
 ### `GET /stream` — MJPEG
 
 Live frames with the tracker overlay drawn (boxes + masks, live count burned in
-or not — overlay content is backend's call and NOT part of this contract, with
-one exception: while `phase == "recording"`, a roster instrument's mask is drawn
-in exactly the `colour` `/status` reports for it. Outside `recording` the overlay
-is per-track colours and `"Instrument {id}"` labels, as before; not-in-roster
-objects are gray, with a ~1 s resolving spinner before they settle to
-`"Unknown"`).
+or not — overlay content is mostly backend's call and NOT part of this contract).
+Since T11/R1 the overlay uses **one identity policy in every phase** (setup,
+recording, finished): a recognised instrument's mask is drawn in exactly the
+`colour` `/status` reports for it and labelled `"Instrument {id}"`; a not-in-roster
+object is gray, with a resolving spinner before it settles to `"Unknown"`. The
+setup frame immediately before Track and the first recording frame after Track are
+therefore visually identical for unchanged detections (apart from the recording UI
+chrome) — pressing Track never recolours or relabels an already-recognised object.
 
 ### `POST /recording/start` → `200 {"started_at": ...}`
 
-Allowed from `setup` or `finished` (discards the old report). Calls
-`tracker.reset()`. `409` if already `recording`.
+Allowed from `setup` or `finished`. It is a **server-enforced fail-closed gate**
+(D3): it re-checks the same state behind `setup.ready` and returns
+`409 {"detail": ...}` for every not-ready condition even if the frontend button
+was enabled — mapped details: `"recognition still in progress"` (recognising),
+`"remove unknown objects before starting"` (unknown_objects), `"all 8 instruments
+must be recognised before starting"` (missing_instruments), `"hold the tray steady
+before starting"` (hold_steady), `"capture stalled"` (unhealthy capture). `409` if
+already `recording`. On success it changes only the session phase: the exact
+roster/catalog state that passed the gate is preserved into recording, the
+previous report is discarded, and recording begins. Start does not reset the
+tracker and therefore has no tracker-reset `503` path.
 
 ### `POST /recording/stop` → `200` (the same body as `GET /report`)
 
@@ -203,6 +290,30 @@ Invariants: every instrument ever tracked in the session appears exactly once;
 `completeness == "missing"` ⟺ the last usage window has `on_s: null`; windows
 don't overlap and are sorted; an instrument never picked up has `usage: []`.
 
+### `PATCH /settings/detection-confidence` → `200` (a `detector_control` object)  (T11/B5/D6)
+
+Body `{"confidence": 0.60}`. Sets the **runtime** detection-confidence threshold —
+an advanced setup control, an operational fallback, NOT an identity-safety
+mechanism. Returns the updated `detector_control` object (same shape as in
+`/status`).
+
+- `422` for a value outside `[0.30, 0.90]`.
+- Allowed only from `setup` and `finished`; `409` during `recording`.
+- A **no-op** value equal to the current one returns immediately without resetting.
+- A **changed** value is applied together with a tracker reset as one serialised
+  capture command, then setup readiness clears (enrolment restarts) — so the
+  frontend returns to `recognising`. The response is sent only after the new value
+  and reset are acknowledged.
+- If reset fails after the new confidence was assigned, the tracker rolls back to
+  the previous confidence; the last confirmed API value stays the source of truth
+  and the call returns `503`.
+- Runtime-only: `mvp.toml` is **never** rewritten, and the value is not persisted
+  in the browser. **Reset to default** re-sends `default_confidence`.
+
+```jsonc
+{ "confidence": 0.60, "default_confidence": 0.50, "minimum": 0.30, "maximum": 0.90, "step": 0.05 }
+```
+
 ---
 
 ## Semantics the backend owns (not exposed, but pinned here)
@@ -212,18 +323,19 @@ don't overlap and are sorted; an instrument never picked up has `usage: []`.
   present for `> ON_DEBOUNCE` (~1.0 s). Otherwise detector flicker becomes fake
   pickups. Config values, not API.
 - **Identity = `tracker_id`.** The report trusts the tracker's ids completely.
-- **The roster filters recording, not setup.** The model freezes a roster of
-  enrolled identities ~0.7 s after Start and exposes it across the model seam;
-  the backend admits only those ids into recording state, which is what keeps
-  foreign objects out of `instruments`, Usage and Completeness. The `setup` block
-  is deliberately **not** filtered — `detected_count` / `stable_for_s` count
-  *everything* detected, because the Start gate is the operator's judgment on the
-  whole table and is made before any roster exists. Config and internals, not
-  API; see DESIGN D8a.
+- **The roster filters recording; setup reports everything, classified.** The
+  model freezes a roster of enrolled catalog identities during enrolment and
+  exposes it across the model seam; the backend admits only those ids into
+  recording state, which keeps foreign objects out of `instruments`, Usage and
+  Completeness. The `setup` block is **not** filtered — it reports *every* detected
+  id, but classified against the roster/catalog (`recognised` / `recognising` /
+  `unknown`), because the T11 Start gate is a server check on the whole table
+  (exact catalog present, zero unknowns, stable ≥ 2 s), not an unstructured count.
+  Config and internals, not API; see DESIGN D8a and T11/D3.
 - **Detection previews are presentation data, not model output.** The backend
   owns the original frame passed to `InstrumentTracker.update()` and derives
-  `/status` thumbnails from that frame plus the returned `xyxy` and
-  `tracker_id`. Crop geometry, encoding and HTTP transport do not extend the
+  `/status` cutouts from that frame plus the returned `xyxy`, `mask`, and
+  `tracker_id`. Cutout geometry, encoding and HTTP transport do not extend the
   model contract; see
   [`tracker-interface.md` §Consumer-generated crops and previews](../../model/docs/tracker-interface.md#consumer-generated-crops-and-previews).
 - **Completeness = debounced state at Stop.** `"missing"` ⟺ the instrument is
@@ -258,6 +370,12 @@ camera is attached. The frontend therefore always talks to the one real API
 implementation — there is no mock server to drift out of sync. (Note:
 `FakeInstrumentTracker` in `model/` only *drifts* — it can't demo Usage, so it
 is NOT the app's fake; see D10.)
+
+The fake's pickup timeline is anchored by injected `begin_recording` /
+`end_recording` lifecycle callbacks. Those callbacks change only the synthetic
+scene clock; they do not call `tracker.reset()`. This keeps `--fake` aligned with
+the production rule that Start preserves the approved roster, and returns the
+synthetic tray to setup choreography after Stop so a second run can become ready.
 
 To make the fake useful for THIS app, extend it with a **scripted scenario**
 (the frozen `DEFAULT_SCENARIO` in T01: instrument 1 leaves at t=20 s and returns

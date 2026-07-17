@@ -3436,3 +3436,282 @@ def test_ur17_rearm_emits_a_structured_orc_event(caplog):
     assert rearm["quality_gain"] == 0.0
     assert rearm["old_candidates"] == [session_id] and rearm["new_candidates"] == [session_id]
     assert isinstance(rearm["frames_since_decision"], int) and rearm["frames_since_decision"] >= 1
+
+
+# ==========================================================================
+# T11 SPEC-M — catalog-only enrolment (safe setup)
+#
+# Contract: the SPEC-M-phase1-model spec for ticket T11
+# (docs/wayfinder/session-linker/tickets/T11-safe-setup-enrolment.md, M1-M4).
+# In catalog-only mode ONLY a raw track that confidently binds to a loaded
+# persistent specimen may join the roster; every other majority-present track
+# (foreign object, below-threshold, contested loser) stays in the offset
+# (Unknown) range and is NEVER renumbered into a session-only identity. The
+# `catalog` is the fixed set of loaded specimen ids, known from construction
+# and constant across reset(); in this mode `roster` is always a subset of it.
+# Legacy (catalog_only_enrolment=False) behaviour is preserved unchanged.
+# ==========================================================================
+
+
+def catalog_linker(matcher, galleries, *, bind_tau, bind_margin, fps=4.0, **kwargs):
+    """A `bind_linker` (freeze on the first call) run in catalog-only mode."""
+    return bind_linker(
+        matcher,
+        galleries,
+        bind_tau=bind_tau,
+        bind_margin=bind_margin,
+        fps=fps,
+        catalog_only_enrolment=True,
+        **kwargs,
+    )
+
+
+def _grid_boxes(n):
+    """`n` non-overlapping quality boxes on the 64x64 frame (14x14 = 196 px^2,
+    inset from every edge), laid out on a 3-wide grid. Each keeps clear of the
+    frame edge so build_call's quality gate accepts it."""
+    boxes = []
+    for k in range(n):
+        col, row = k % 3, k // 3
+        x0 = 4 + 20 * col
+        y0 = 4 + 20 * row
+        boxes.append((x0, y0, x0 + 14, y0 + 14))
+    return boxes
+
+
+def _distinct_bgr(k):
+    """A distinct, non-background paint per crop so each row carries its own
+    FakeMatcher marker (see FakeMatcher.score)."""
+    return (5 + 2 * k, 40 + 3 * k, 90 + 5 * k)
+
+
+def _run_catalog_only_freeze(
+    n_known, *, include_foreign=True, bind_tau=0.5, bind_margin=0.1, fps=4.0
+):
+    """Drive one catalog-only enrolment freeze with `n_known` crops each
+    programmed to confidently bind specimen 1..n_known, plus (optionally) one
+    foreign crop scored below `bind_tau`. Returns
+    (linker, matcher, out, rows, known_raw_ids, foreign_raw)."""
+    matcher = FakeMatcher()
+    galleries = {s: persistent_gallery(s) for s in range(1, n_known + 1)}
+    n_rows = n_known + (1 if include_foreign else 0)
+    boxes = _grid_boxes(n_rows)
+    rows = []
+    known_raw_ids = []
+    for i in range(n_known):
+        specimen = i + 1
+        bgr = _distinct_bgr(i)
+        # A clean best on this crop's own specimen, everything else far below.
+        scores = {s: (0.9 if s == specimen else 0.05) for s in range(1, n_known + 1)}
+        matcher.program(rgb_marker_for_bgr(bgr), [(scores, None)])
+        raw_id = 201 + i
+        known_raw_ids.append(raw_id)
+        rows.append({"tracker_id": raw_id, "box": boxes[i], "bgr": bgr})
+    foreign_raw = None
+    if include_foreign:
+        foreign_raw = 201 + n_known
+        bgr = _distinct_bgr(n_known)
+        below = {s: 0.1 for s in range(1, n_known + 1)}  # best < bind_tau -> unbound
+        matcher.program(rgb_marker_for_bgr(bgr), [(below, None)])
+        rows.append({"tracker_id": foreign_raw, "box": boxes[n_known], "bgr": bgr})
+    linker = catalog_linker(
+        matcher, galleries, bind_tau=bind_tau, bind_margin=bind_margin, fps=fps
+    )
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+    return linker, matcher, out, rows, known_raw_ids, foreign_raw
+
+
+# SPEC-M test 1 — catalog constant + survives reset (SessionLinker half).
+def test_catalog_is_constant_before_freeze_after_freeze_and_after_reset():
+    matcher = FakeMatcher()
+    bgr = (10, 20, 30)
+    matcher.program(rgb_marker_for_bgr(bgr), [({1: 0.9, 2: 0.05}, None)])
+    galleries = {1: persistent_gallery(1), 2: persistent_gallery(2)}
+    linker = catalog_linker(matcher, galleries, bind_tau=0.5, bind_margin=0.1)
+
+    catalog = frozenset({1, 2})
+    assert linker.catalog == catalog, "catalog is known from construction, before any enrolment freeze"
+    assert isinstance(linker.catalog, frozenset)
+    assert linker.roster == frozenset(), "roster is empty until the freeze; catalog is not"
+
+    raw_id = 301
+    rows = [{"tracker_id": raw_id, "box": BOX_A, "bgr": bgr}]
+    frame, dets = build_call(rows)
+    linker.update(dets, frame)  # freezes on the first call
+    assert linker.roster == frozenset({1}), "sanity: the freeze bound specimen 1"
+    assert linker.catalog == catalog, "the enrolment freeze must not change the catalog"
+
+    linker.reset()
+    assert linker.catalog == catalog, "reset() preserves the catalog"
+    assert linker.roster == frozenset(), "reset() empties the roster"
+
+
+# SPEC-M test 2 — catalog-only freeze admits a confidently bound known specimen.
+def test_catalog_only_freeze_admits_a_confidently_bound_specimen():
+    matcher = FakeMatcher()
+    bgr = (10, 20, 30)
+    # >= bind_tau; with a single gallery the margin is vacuous (cf. B-B3).
+    matcher.program(rgb_marker_for_bgr(bgr), [({1: 0.9}, None)])
+    linker = catalog_linker(matcher, {1: persistent_gallery(1)}, bind_tau=0.5, bind_margin=0.1)
+
+    raw_id = 401
+    rows = [{"tracker_id": raw_id, "box": BOX_A, "bgr": bgr}]
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+
+    assert linker.roster == frozenset({1}), "a confidently bound known specimen joins the catalog-only roster"
+    assert 1 in linker.catalog
+    assert output_tracker_id(out, rows, raw_id) == 1, "the bound row emits its specimen id on the freeze frame"
+    assert 1 in linker.roster
+    assert not resolving_of(out, rows, raw_id), "a bound roster id is settled on the freeze frame"
+
+
+# SPEC-M test 3 — below-threshold setup object emits offset + absent from roster.
+def test_catalog_only_below_threshold_object_emits_offset_and_is_absent_from_roster():
+    matcher = FakeMatcher()
+    bgr = (10, 20, 30)
+    matcher.program(rgb_marker_for_bgr(bgr), [({1: 0.1}, None)])  # < bind_tau=0.5 -> never binds
+    linker = catalog_linker(matcher, {1: persistent_gallery(1)}, bind_tau=0.5, bind_margin=0.1)
+
+    raw_id = 501
+    rows = [{"tracker_id": raw_id, "box": BOX_A, "bgr": bgr}]
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+
+    assert linker.roster == frozenset(), "a below-threshold setup object never joins the roster"
+    assert output_tracker_id(out, rows, raw_id) == raw_id + UNKNOWN_OFFSET, (
+        "an unbound setup track emits its offset (Unknown) id, never a session-only identity"
+    )
+    assert resolving_of(out, rows, raw_id), "an offset id on the freeze frame is still resolving"
+    assert (raw_id + UNKNOWN_OFFSET) not in linker.roster
+
+
+# SPEC-M test 4 — contested binding loser is absent from roster, never takes second choice.
+def test_catalog_only_contested_binding_loser_is_absent_from_roster():
+    matcher = FakeMatcher()
+    galleries = {1: persistent_gallery(1), 2: persistent_gallery(2)}
+    bgr_winner, bgr_loser = (10, 20, 30), (40, 50, 60)
+    # Both best-match specimen 1; the higher score wins the one-to-one contest.
+    matcher.program(rgb_marker_for_bgr(bgr_winner), [({1: 0.9, 2: 0.05}, None)])
+    matcher.program(rgb_marker_for_bgr(bgr_loser), [({1: 0.8, 2: 0.04}, None)])
+    linker = catalog_linker(matcher, galleries, bind_tau=0.5, bind_margin=0.1)
+
+    raw_winner, raw_loser = 601, 602
+    rows = [
+        {"tracker_id": raw_winner, "box": BOX_A, "bgr": bgr_winner},
+        {"tracker_id": raw_loser, "box": BOX_B, "bgr": bgr_loser},
+    ]
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+
+    assert linker.roster == frozenset({1}), "only the contest winner binds; the loser does not join"
+    assert 2 not in linker.roster, "the loser is never pushed onto its second-choice specimen"
+    assert output_tracker_id(out, rows, raw_winner) == 1
+    assert output_tracker_id(out, rows, raw_loser) == raw_loser + UNKNOWN_OFFSET, (
+        "a contest loser stays Unknown (offset), never renumbered into a session-only identity"
+    )
+    assert not resolving_of(out, rows, raw_winner)
+    assert resolving_of(out, rows, raw_loser)
+    assert linker.roster <= linker.catalog
+
+
+# SPEC-M test 5 — eight known + rejected foreign -> roster == catalog, one non-roster detection.
+def test_catalog_only_eight_known_plus_foreign_roster_equals_catalog():
+    linker, _matcher, out, rows, known_raw_ids, foreign_raw = _run_catalog_only_freeze(8)
+    catalog = frozenset(range(1, 9))
+
+    assert linker.catalog == catalog
+    assert linker.roster == catalog, "every confidently bound specimen joins; nothing else does"
+    assert linker.roster == linker.catalog
+
+    emitted = {output_tracker_id(out, rows, r["tracker_id"]) for r in rows}
+    assert emitted == catalog | {foreign_raw + UNKNOWN_OFFSET}, (
+        "emitted ids are the eight specimen numbers plus the single foreign offset id"
+    )
+    for i, raw_id in enumerate(known_raw_ids):
+        assert output_tracker_id(out, rows, raw_id) == i + 1
+        assert not resolving_of(out, rows, raw_id), "a bound specimen is settled on the freeze frame"
+    assert output_tracker_id(out, rows, foreign_raw) == foreign_raw + UNKNOWN_OFFSET
+    assert resolving_of(out, rows, foreign_raw), "only the foreign row is still resolving"
+    assert (foreign_raw + UNKNOWN_OFFSET) not in linker.roster
+
+
+# SPEC-M test 6 — catalog-only mode never creates a session-only roster id.
+def test_catalog_only_never_creates_a_session_only_roster_id():
+    matcher = FakeMatcher()
+    galleries = {1: persistent_gallery(1), 2: persistent_gallery(2)}
+    bgr_bound, bgr_unbound = (10, 20, 30), (40, 50, 60)
+    matcher.program(rgb_marker_for_bgr(bgr_bound), [({1: 0.9, 2: 0.05}, None)])   # binds specimen 1
+    matcher.program(rgb_marker_for_bgr(bgr_unbound), [({1: 0.2, 2: 0.1}, None)])  # < tau -> unbound
+    linker = catalog_linker(matcher, galleries, bind_tau=0.5, bind_margin=0.1)
+
+    raw_bound, raw_unbound = 701, 702
+    rows = [
+        {"tracker_id": raw_bound, "box": BOX_A, "bgr": bgr_bound},
+        {"tracker_id": raw_unbound, "box": BOX_B, "bgr": bgr_unbound},
+    ]
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+
+    # Legacy mode WOULD have renumbered the unbound majority track to base + 1
+    # where base == max(catalog); that session-only number must never appear.
+    first_session_only_id = max(linker.catalog) + 1  # == 3 for catalog {1, 2}
+    assert linker.roster == frozenset({1})
+    assert linker.roster <= linker.catalog, "the catalog-only roster is always a subset of the catalog"
+    assert all(sid < first_session_only_id for sid in linker.roster), (
+        "no roster id may reach the first session-only number legacy mode would have assigned"
+    )
+    assert first_session_only_id not in linker.roster
+    assert output_tracker_id(out, rows, raw_unbound) == raw_unbound + UNKNOWN_OFFSET
+
+
+# SPEC-M test 7 — legacy non-catalog mode retains session-only behaviour.
+def test_legacy_mode_unbound_majority_track_still_gets_a_session_only_roster_id():
+    matcher = FakeMatcher()
+    galleries = {1: persistent_gallery(1), 2: persistent_gallery(2)}
+    bgr_bound, bgr_unbound = (10, 20, 30), (40, 50, 60)
+    matcher.program(rgb_marker_for_bgr(bgr_bound), [({1: 0.9, 2: 0.05}, None)])
+    matcher.program(rgb_marker_for_bgr(bgr_unbound), [({1: 0.2, 2: 0.1}, None)])
+    # Default catalog_only_enrolment=False: the pre-T11 behaviour must survive.
+    linker = bind_linker(matcher, galleries, bind_tau=0.5, bind_margin=0.1)
+
+    raw_bound, raw_unbound = 701, 702
+    rows = [
+        {"tracker_id": raw_bound, "box": BOX_A, "bgr": bgr_bound},
+        {"tracker_id": raw_unbound, "box": BOX_B, "bgr": bgr_unbound},
+    ]
+    frame, dets = build_call(rows)
+    out = linker.update(dets, frame)
+
+    # base = max({1, 2}) = 2 -> the unbound majority track renumbers to 3 and JOINS.
+    session_only_id = 3
+    assert linker.roster == frozenset({1, session_only_id}), (
+        "legacy mode still admits an unbound majority-present track as a session-only identity"
+    )
+    assert output_tracker_id(out, rows, raw_bound) == 1
+    assert output_tracker_id(out, rows, raw_unbound) == session_only_id, (
+        "in legacy mode the unbound track wears its session-only id, not an offset id"
+    )
+
+
+# SPEC-M test 9 — freeze-frame ids, roster, resolving, catalog same-tick consistent.
+def test_catalog_only_freeze_frame_is_same_tick_consistent():
+    # Read emitted ids, roster, resolving and catalog from the SAME update()
+    # return and assert they are mutually consistent for that one tick.
+    linker, _matcher, out, rows, _known_raw_ids, _foreign_raw = _run_catalog_only_freeze(3)
+    roster = linker.roster
+    catalog = linker.catalog
+
+    assert roster == frozenset({1, 2, 3})
+    assert roster <= catalog
+    for row in rows:
+        raw_id = row["tracker_id"]
+        emitted = output_tracker_id(out, rows, raw_id)
+        resolving = resolving_of(out, rows, raw_id)
+        if emitted in roster:
+            assert not resolving, "an in-roster row has settled -> resolving False"
+            assert emitted in catalog, "an in-roster id is always a catalog specimen"
+        else:
+            assert resolving, "an offset (not-in-roster) row is still resolving on the freeze frame"
+            assert emitted not in roster

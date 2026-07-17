@@ -42,6 +42,23 @@ class Report:
     instruments: tuple[InstrumentReport, ...]
 
 
+@dataclass(frozen=True)
+class SetupReadiness:
+    """Immutable, clock-free verdict on whether setup is ready to start
+    recording, computed purely from the latest same-tick observation (T11/B2).
+    Capture health is NOT folded in here — the API combines it (D3 cond 1)."""
+
+    detected_count: int
+    expected_count: int
+    recognised_count: int
+    resolving_count: int
+    unknown_count: int
+    stable_for_s: float
+    ready: bool
+    blocking_reason: str | None   # "recognising" | "missing_instruments" |
+                                  # "unknown_objects" | "hold_steady" | None
+
+
 class InvalidPhase(RuntimeError):
     """Raised by a method call that isn't legal in the session's current
     phase."""
@@ -80,9 +97,17 @@ def _project(track: _Track, t: float, on_debounce_s: float, off_debounce_s: floa
 
 
 class Session:
-    def __init__(self, off_debounce_s: float = 1.5, on_debounce_s: float = 1.0) -> None:
+    def __init__(
+        self,
+        off_debounce_s: float = 1.5,
+        on_debounce_s: float = 1.0,
+        setup_stable_s: float = 2.0,
+    ) -> None:
         self._off_debounce_s = off_debounce_s
         self._on_debounce_s = on_debounce_s
+        # D3 condition 5: the id-set must be unchanged for at least this long
+        # before setup counts as stable enough to start.
+        self._setup_stable_s = setup_stable_s
         self._phase = Phase.SETUP
         self._last_t: float | None = None
         self._idset: frozenset[int] | None = None
@@ -90,6 +115,13 @@ class Session:
         self._start_t: float = 0.0
         self._tracks: dict[int, _Track] = {}
         self._report: Report | None = None
+        # Latest same-tick setup observation, stored so setup_readiness can be a
+        # pure function of state (no tracker, no clock). None present => nothing
+        # observed yet (readiness reports "recognising").
+        self._setup_present: frozenset[int] | None = None
+        self._setup_roster: frozenset[int] = frozenset()
+        self._setup_catalog: frozenset[int] = frozenset()
+        self._setup_resolving: frozenset[int] = frozenset()
 
     @property
     def phase(self) -> Phase:
@@ -100,27 +132,105 @@ class Session:
         t: float,
         present_ids: frozenset[int],
         roster: frozenset[int] | None = None,
+        catalog: frozenset[int] | None = None,
+        resolving_ids: frozenset[int] | None = None,
     ) -> None:
         """`roster` (T10/D8a) filters the RECORDING half only: an id outside it
         is not an instrument, so it never becomes a track, never confirms, and
-        never reaches the report. The Start gate below deliberately keeps using
-        the FULL `present_ids` — it is the operator's judgment on everything
-        detected, made before any roster exists. `roster=None` means unfiltered."""
+        never reaches the report. Setup readiness deliberately judges the full
+        `present_ids` against the already-enrolled roster/catalog: every object
+        on the table must be classified. `roster=None` means unfiltered.
+
+        `catalog`/`resolving_ids` (T11/B2) are stored alongside `present_ids`/
+        `roster` so `setup_readiness` can compute a pure verdict from the latest
+        same-tick observation without reaching into the tracker or a clock."""
         self._advance(t, strict=True)
         if present_ids != self._idset:
             self._idset = present_ids
             self._idset_since_t = t
+        # Store the latest same-tick setup observation for setup_readiness. This
+        # runs in every phase (cheap) — readiness itself is only legal in
+        # SETUP/FINISHED, and prepare() resets these fields.
+        self._setup_present = present_ids
+        self._setup_roster = roster or frozenset()
+        self._setup_catalog = catalog or frozenset()
+        self._setup_resolving = resolving_ids or frozenset()
         if self._phase is Phase.RECORDING:
             recorded_ids = present_ids if roster is None else present_ids & roster
             self._observe_recording(t, recorded_ids)
 
-    def setup_status(self, t: float) -> tuple[int, float]:
+    def setup_readiness(self, t: float) -> SetupReadiness:
+        """Pure verdict on setup readiness from the latest same-tick observation.
+        Legal only in SETUP/FINISHED. Priority order for the blocking reason
+        (D3/B2): recognising > unknown_objects > missing_instruments >
+        hold_steady. Capture health is combined by the API, not here."""
         if self._phase not in (Phase.SETUP, Phase.FINISHED):
-            raise InvalidPhase(f"setup_status invalid in {self._phase}")
-        if self._idset is None:
-            return (0, 0.0)
-        effective_t = self._effective_t(t)
-        return (len(self._idset), effective_t - self._idset_since_t)
+            raise InvalidPhase(f"setup_readiness invalid in {self._phase}")
+        if self._setup_present is None:
+            # Nothing observed yet -> not ready, still coming up.
+            return SetupReadiness(0, 0, 0, 0, 0, 0.0, False, "recognising")
+
+        present = self._setup_present
+        roster = self._setup_roster
+        catalog = self._setup_catalog
+        resolving_ids = self._setup_resolving
+
+        recognised = present & roster
+        non_roster = present - roster
+        resolving = resolving_ids & present
+        unknown = non_roster - resolving
+
+        detected_count = len(present)
+        expected_count = len(catalog)
+        recognised_count = len(recognised)
+        resolving_count = len(resolving)
+        unknown_count = len(unknown)
+        stable_for_s = max(0.0, self._effective_t(t) - self._idset_since_t)
+
+        all_recognised = expected_count > 0 and recognised == catalog
+        ready = (
+            all_recognised
+            and unknown_count == 0
+            and resolving_count == 0
+            and stable_for_s >= self._setup_stable_s
+        )
+        if ready:
+            blocking_reason = None
+        elif resolving_count > 0:
+            blocking_reason = "recognising"
+        elif unknown_count > 0:
+            blocking_reason = "unknown_objects"
+        elif not all_recognised:
+            blocking_reason = "missing_instruments"
+        else:
+            blocking_reason = "hold_steady"
+        return SetupReadiness(
+            detected_count,
+            expected_count,
+            recognised_count,
+            resolving_count,
+            unknown_count,
+            stable_for_s,
+            ready,
+            blocking_reason,
+        )
+
+    def prepare(self, t: float) -> None:
+        """Begin a fresh setup pass. Legal only from SETUP or FINISHED. Clears the
+        setup id-set/stability and recording tracks so the next observation starts
+        at zero seconds, but PRESERVES the finished report and the current phase
+        (the previous report is discarded only on a successful start())."""
+        if self._phase not in (Phase.SETUP, Phase.FINISHED):
+            raise InvalidPhase(f"cannot prepare from {self._phase}")
+        self._advance(t, strict=False)
+        self._idset = None
+        self._idset_since_t = t
+        self._setup_present = None
+        self._setup_roster = frozenset()
+        self._setup_catalog = frozenset()
+        self._setup_resolving = frozenset()
+        self._tracks = {}
+        # Deliberately does NOT touch self._phase or self._report.
 
     def start(self, t: float) -> None:
         if self._phase not in (Phase.SETUP, Phase.FINISHED):

@@ -94,6 +94,13 @@ class MatcherConfig:
 class LinkerConfig:
     bind_threshold: float = 0.30
     bind_margin: float = 0.02
+    # Catalog-only enrolment: only tracks that bind to a loaded persistent
+    # specimen may join the roster (defaults preserve legacy session-only
+    # behaviour). `expected_catalog_size`, when set, asserts the number of
+    # galleries actually loaded -- enforced in `load_tracker` (needs the loaded
+    # galleries), not here.
+    catalog_only_enrolment: bool = False
+    expected_catalog_size: int | None = None
     unknown_id_offset: int = 1000
     enrolment_window_s: float = 0.5
     evidence_window_s: float = 0.5
@@ -129,6 +136,8 @@ class LinkerConfig:
             raise ValueError("linker pixel sizes must be positive")
         if self.unknown_recheck_cooldown_s < 0:
             raise ValueError("unknown_recheck_cooldown_s cannot be negative")
+        if self.expected_catalog_size is not None and self.expected_catalog_size < 1:
+            raise ValueError("expected_catalog_size must be positive when provided")
 
 
 @dataclass(frozen=True)

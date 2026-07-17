@@ -3,10 +3,14 @@ import { http, HttpResponse } from "msw"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import { useStatus } from "./useStatus"
 import { api, BASE } from "./client"
+import type { Status } from "./types"
 import { server } from "@/test/server"
 import { setupStable, setupUnstable } from "@/test/fixtures"
 
-afterEach(() => vi.useRealTimers())
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
 
 const tick = (ms: number) =>
   act(async () => {
@@ -50,6 +54,69 @@ describe("useStatus", () => {
     await tick(500)
     expect(calls).toBe(1) // no overlap while one is in flight
     release()
+  })
+
+  test("refresh waits for an older poll and then fetches mutation-fresh status", async () => {
+    vi.useFakeTimers()
+    let releaseFirst!: () => void
+    const first = new Promise<Status>((resolve) => {
+      releaseFirst = () => resolve(setupStable)
+    })
+    const statusSpy = vi
+      .spyOn(api, "status")
+      .mockImplementationOnce(() => first)
+      .mockResolvedValue(setupUnstable)
+
+    const { result } = renderHook(() => useStatus(10_000))
+    await tick(0)
+    expect(statusSpy).toHaveBeenCalledTimes(1)
+
+    let refreshed!: Promise<Status | null>
+    act(() => {
+      refreshed = result.current.refresh()
+    })
+    expect(statusSpy).toHaveBeenCalledTimes(1)
+
+    releaseFirst()
+    await act(async () => {
+      await refreshed
+    })
+
+    expect(statusSpy).toHaveBeenCalledTimes(2)
+    expect(result.current.status).toEqual(setupUnstable)
+    statusSpy.mockRestore()
+  })
+
+  test("refresh stays pending after a failed fresh request and resolves on recovery", async () => {
+    vi.useFakeTimers()
+    const statusSpy = vi
+      .spyOn(api, "status")
+      .mockResolvedValueOnce(setupStable)
+      .mockRejectedValueOnce(new Error("temporary outage"))
+      .mockResolvedValue(setupUnstable)
+
+    const { result } = renderHook(() => useStatus(500))
+    await tick(0)
+
+    let refreshed!: Promise<Status | null>
+    act(() => {
+      refreshed = result.current.refresh()
+    })
+    await tick(0)
+
+    let settled = false
+    void refreshed.then(() => {
+      settled = true
+    })
+    await tick(0)
+    expect(settled).toBe(false)
+
+    await tick(500)
+    await act(async () => {
+      expect(await refreshed).toEqual(setupUnstable)
+    })
+    expect(result.current.status).toEqual(setupUnstable)
+    statusSpy.mockRestore()
   })
 
   test("a failed poll keeps last good status + sets error; recovery clears it (AC4)", async () => {

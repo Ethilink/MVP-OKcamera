@@ -107,6 +107,33 @@ def test_freeze_renders_raw_to_specimen_and_flags_a_thin_bind():
     assert "build 495 ms" in out
 
 
+def test_freeze_renders_catalog_only_unbound_track_without_degrading():
+    # Catalog-only enrolment emits session_id=None for an unbound setup track
+    # (foreign object / below-tau). The formatter must render it as Unknown keyed
+    # by raw id -- NOT crash on f"{None:<3}" and silently fall back to the plain
+    # line, losing the whole freeze narrative in the demo's headline
+    # "two foreign objects during setup" case.
+    fmt = OrcDebugFormatter()
+    out = fmt.format(_record(msg="raw log line", orc={
+        "event": "freeze",
+        "build_ms": 480.0,
+        "bind_tau": 0.30,
+        "roster": [
+            {"session_id": 2, "raw_id": 5, "specimen": 2, "score": 0.61},   # bound
+            {"session_id": None, "raw_id": 41, "specimen": None, "score": None},  # foreign
+            {"session_id": None, "raw_id": 42, "specimen": None, "score": None},  # foreign
+        ],
+    }))
+    assert "ENROLMENT FREEZE" in out, "the pretty block must render, not fall back"
+    assert "raw log line" not in out, "must NOT silently degrade to the plain message"
+    assert "raw track 5" in out and "specimen 2" in out
+    assert "raw track 41" in out and "raw track 42" in out, (
+        "both foreign tracks must be shown by raw id, not collapsed onto None"
+    )
+    assert out.count("Unknown") == 2, "each unbound track reads Unknown, keyed by raw id"
+    assert "Instrument None" not in out and "session-only" not in out
+
+
 def test_decision_renders_link_unknown_and_deferred():
     fmt = OrcDebugFormatter()
     out = fmt.format(_record(orc={

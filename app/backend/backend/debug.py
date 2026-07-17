@@ -74,6 +74,17 @@ class OrcDebugFormatter(logging.Formatter):
             sid, raw, specimen, score = (
                 e["session_id"], e["raw_id"], e.get("specimen"), e.get("score"),
             )
+            if sid is None:
+                # Catalog-only enrolment: an unbound setup track (foreign object,
+                # below-tau, or contested loser) is never given a session identity,
+                # so its payload carries session_id=None. Render it keyed by raw id
+                # as Unknown -- NOT "Instrument None ... session-only", which both
+                # misreads the state and would crash on f"{None:<3}" (this whole
+                # block would then silently degrade to the plain fallback line).
+                lines.append(
+                    f"     {'Unknown':<14} ← raw track {raw:<5} foreign / no catalog bind"
+                )
+                continue
             if specimen is not None:
                 thin = ""
                 if tau is not None and score is not None and score - tau < _THIN_MARGIN:

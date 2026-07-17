@@ -11,18 +11,18 @@ import os
 import threading
 import time
 from datetime import datetime
-from typing import Literal
+from typing import Callable, Literal
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.capture import CaptureLoop, TrackerResetError
 from backend.fakes import FakeCaptureSource, ScenarioTracker
 from backend.mvp_settings import DEFAULT_MVP_CONFIG_PATH, load_mvp_settings
-from backend.render import OverlayRenderer, roster_colour
+from backend.render import OverlayRenderer, catalog_colour
 from backend.session import InvalidPhase, Phase, Session
 from backend.thumbnails import build_detections
 
@@ -30,25 +30,63 @@ _STREAM_BOUNDARY = "frame"
 _STREAM_POLL_S = 0.02
 _VITE_DEV_ORIGIN = "http://localhost:5173"
 
+# Runtime detection-confidence bounds (T11/B5). The PATCH rejects values outside
+# [CONF_MIN, CONF_MAX] with 422 (Pydantic Field); CONF_STEP is advisory metadata
+# the frontend slider snaps to. These gate the RUNTIME value only — the TOML on
+# disk is never rewritten.
+CONF_MIN = 0.30
+CONF_MAX = 0.90
+CONF_STEP = 0.05
+
 
 class DetectionModel(BaseModel):
     tracker_id: int
+    # The detection's identity state (T11/B6). `recognised` iff its id is in the
+    # same snapshot's roster; else `recognising` iff still resolving; else
+    # `unknown`. The frontend renders the tile from this, not from the raw id.
+    state: Literal["recognising", "recognised", "unknown"]
+    # `Instrument N` when recognised, `Unknown` when settled non-roster, `""`
+    # while recognising (spinner, no name) — never a raw id (D4).
     label: str
+    # Fixed catalog colour when recognised, gray otherwise — the same hex the
+    # overlay draws this detection's mask with (R1/R3).
+    colour: str
     thumbnail: str | None
 
 
 class SetupStatus(BaseModel):
+    # Readiness scalars from Session.setup_readiness (T11/B2); `ready` also folds
+    # in capture health at the API. `detections` carries the per-item identity
+    # shape (state/label/colour, T11/B6) — see DetectionModel.
     detected_count: int
+    expected_count: int
+    recognised_count: int
+    resolving_count: int
+    unknown_count: int
     stable_for_s: float
+    ready: bool
+    blocking_reason: str | None
     detections: list[DetectionModel]
+
+
+class DetectorControlModel(BaseModel):
+    confidence: float
+    default_confidence: float
+    minimum: float
+    maximum: float
+    step: float
+
+
+class ConfidencePatch(BaseModel):
+    confidence: float = Field(ge=CONF_MIN, le=CONF_MAX)  # out-of-range -> 422
 
 
 class InstrumentStatusModel(BaseModel):
     tracker_id: int
     label: str
     on_table: bool
-    # A live crop of the instrument from the current frame, when it is visible
-    # this poll (letterboxed data-URI, same crop path as the setup thumbnails).
+    # A live transparent cutout from the current frame, when it is visible this
+    # poll (data-URI, same preview path as the setup thumbnails).
     # `None` whenever the instrument is off the table / not detected this frame —
     # the app keeps showing its last-seen crop, so a missing instrument's tile
     # never blanks out.
@@ -70,6 +108,7 @@ class StatusResponse(BaseModel):
     model_version: str
     setup: SetupStatus | None
     recording: RecordingStatus | None
+    detector_control: DetectorControlModel
 
 
 class StartResponse(BaseModel):
@@ -116,12 +155,38 @@ async def _mjpeg_stream(capture: CaptureLoop):
         await asyncio.sleep(_STREAM_POLL_S)
 
 
+def _start_block_detail(readiness, capture_health) -> str | None:
+    """Map a readiness+health verdict to the 409 detail that blocks Start, or
+    None when everything is ready. Pure, so it is shared by the Start gate and
+    trivially testable. Capture health outranks every readiness reason (D3)."""
+    if capture_health != "ok":
+        return "capture stalled"
+    reason = readiness.blocking_reason
+    if reason is None:
+        return None
+    if reason == "recognising":
+        return "recognition still in progress"
+    if reason == "unknown_objects":
+        return "remove unknown objects before starting"
+    if reason == "missing_instruments":
+        return (
+            f"all {readiness.expected_count} instruments must be recognised "
+            "before starting"
+        )
+    if reason == "hold_steady":
+        return "hold the tray steady before starting"
+    return "setup is not ready"
+
+
 def create_app(
     capture: CaptureLoop,
     session: Session,
     model_version: str,
     clock=time.monotonic,
     now=lambda: datetime.now().astimezone(),
+    default_confidence: float = 0.5,
+    on_recording_start: Callable[[], None] | None = None,
+    on_recording_stop: Callable[[], None] | None = None,
 ) -> FastAPI:
     """Wire `capture` + `session` behind the frozen `api-contract.md` HTTP
     surface. Owns the session lock: `capture.on_frame` is registered here to
@@ -136,17 +201,35 @@ def create_app(
     )
 
     lock = threading.Lock()
+    # Coarse mutation lock (T11): held for the WHOLE of start / confidence so a
+    # confidence reset cannot land between Start's readiness check and its phase
+    # transition. `_on_frame` does NOT take it, so confidence may hold it across
+    # the blocking capture command while the capture thread keeps publishing.
+    # The fine session `lock` is only ever held in short critical sections, and
+    # NEVER while a blocking capture command runs (that would deadlock the
+    # capture thread, which needs `lock` in `_on_frame`).
+    mutation_lock = threading.Lock()
     timestamps: dict[str, str | None] = {"started_at": None, "stopped_at": None}
+    # Runtime confidence view (B5). `confidence` is the last CONFIRMED value
+    # (updated only after set_confidence_and_reset succeeds); `default` is the
+    # config baseline shown to the operator. The TOML on disk is never written.
+    detector_state = {"confidence": default_confidence, "default": default_confidence}
 
-    def _on_frame(t: float, present_ids: frozenset[int], roster: frozenset[int]) -> None:
+    def _on_frame(
+        t: float,
+        present_ids: frozenset[int],
+        roster: frozenset[int],
+        catalog: frozenset[int],
+        resolving_ids: frozenset[int],
+    ) -> None:
         with lock:
-            session.observe(t, present_ids, roster)
+            session.observe(t, present_ids, roster, catalog, resolving_ids)
 
     capture.set_on_frame(_on_frame)
 
-    # create_app owns the renderer because it owns the phase: the start/stop
-    # handlers below are the only things that know when a recording begins, and
-    # the overlay only goes roster-aware while one is running (T10/B-V6).
+    # The overlay renderer is CaptureLoop's render_fn. Since T11/R1 it is stateless
+    # and roster-aware in every phase, so create_app just wires it in once — the
+    # start/stop handlers no longer signal it (identity is phase-independent).
     renderer = OverlayRenderer()
     capture.set_render_fn(renderer)
 
@@ -168,7 +251,7 @@ def create_app(
         )
 
     def _snapshot_detections() -> list:
-        """Crop the current snapshot's boxes into per-detection thumbnails. Runs
+        """Build per-detection cutouts from the current snapshot. Runs
         OUTSIDE the session lock — the capture thread takes that lock on every
         frame, so no image work may block it. `snapshot()` is immutable/thread-
         safe, and `[]` is the honest answer before the first frame is published.
@@ -176,7 +259,9 @@ def create_app(
         snapshot = capture.snapshot()
         if snapshot is None:
             return []
-        return build_detections(snapshot.frame_bgr, snapshot.detections)
+        return build_detections(
+            snapshot.frame_bgr, snapshot.detections, snapshot.roster, snapshot.catalog
+        )
 
     def _setup_detections() -> list[DetectionModel]:
         # Detection (a plain dataclass) → DetectionModel by matching field names,
@@ -186,20 +271,31 @@ def create_app(
             for detection in _snapshot_detections()
         ]
 
+    def _detector_control() -> DetectorControlModel:
+        return DetectorControlModel(
+            confidence=detector_state["confidence"],
+            default_confidence=detector_state["default"],
+            minimum=CONF_MIN,
+            maximum=CONF_MAX,
+            step=CONF_STEP,
+        )
+
     @app.get("/status", response_model=StatusResponse)
     def get_status() -> StatusResponse:
         # Read all session/capture state under the lock, but do NOTHING heavy
         # here — the capture thread holds this same lock every frame. Thumbnail
         # cropping happens after the lock is released (see below).
         recording_raw: tuple[float, list] | None = None
+        readiness = None
         with lock:
             t = clock()
             phase = session.phase
             capture_health = "ok" if capture.health == "ok" else "stalled"
 
-            setup_meta: tuple[int, float] | None = None
+            # setup_readiness is cheap + pure (no tracker, no clock read of its
+            # own), so it is safe to compute under the capture-shared lock.
             if phase in (Phase.SETUP, Phase.FINISHED):
-                setup_meta = session.setup_status(t)
+                readiness = session.setup_readiness(t)
 
             # Just read the session state under the lock; the image work (crops)
             # happens below, after the lock is released.
@@ -207,11 +303,20 @@ def create_app(
                 recording_raw = session.recording_status(t)
 
         setup = None
-        if setup_meta is not None:
-            detected_count, stable_for_s = setup_meta
+        if readiness is not None:
             setup = SetupStatus(
-                detected_count=detected_count,
-                stable_for_s=stable_for_s,
+                detected_count=readiness.detected_count,
+                expected_count=readiness.expected_count,
+                recognised_count=readiness.recognised_count,
+                resolving_count=readiness.resolving_count,
+                unknown_count=readiness.unknown_count,
+                stable_for_s=readiness.stable_for_s,
+                # D3 cond 1: fold capture health into `ready` here. The pure
+                # `blocking_reason` stays as-is; the frontend shows the
+                # camera-stalled message from `capture_health`, which it reads
+                # separately.
+                ready=readiness.ready and capture_health == "ok",
+                blocking_reason=readiness.blocking_reason,
                 detections=_setup_detections(),
             )
 
@@ -223,12 +328,14 @@ def create_app(
             # they get `thumbnail=None` and the app falls back to their last-seen
             # crop. Cropped outside the lock (see `_snapshot_detections`).
             crops = {det.tracker_id: det.thumbnail for det in _snapshot_detections()}
-            # The roster the overlay is drawing with right now, so a panel swatch
-            # and its mask are the same hex by construction. Before the first
-            # frame (or the linker's enrolment freeze) there is no roster yet and
-            # every colour resolves to the gray — transient and harmless (B-A1).
+            # The fixed catalog the overlay colours with right now, so a panel
+            # swatch and its mask are the same hex by construction (R2/D5 — the
+            # colour is a pure function of the CATALOG index, not the current
+            # roster, so a partial roster can't shift it). Before the first frame
+            # there is no snapshot yet and every colour resolves to the gray —
+            # transient and harmless (B-A1).
             snapshot = capture.snapshot()
-            roster = snapshot.roster if snapshot is not None else frozenset()
+            catalog = snapshot.catalog if snapshot is not None else frozenset()
             recording = RecordingStatus(
                 started_at=timestamps["started_at"],
                 elapsed_s=elapsed_s,
@@ -238,7 +345,7 @@ def create_app(
                         label=status.label,
                         on_table=status.on_table,
                         thumbnail=crops.get(status.tracker_id),
-                        colour=roster_colour(roster, status.tracker_id),
+                        colour=catalog_colour(catalog, status.tracker_id),
                     )
                     for status in statuses
                 ],
@@ -250,6 +357,7 @@ def create_app(
             model_version=model_version,
             setup=setup,
             recording=recording,
+            detector_control=_detector_control(),
         )
 
     @app.get("/stream")
@@ -261,28 +369,33 @@ def create_app(
 
     @app.post("/recording/start", response_model=StartResponse)
     def post_recording_start() -> StartResponse:
-        # reset_tracker() blocks waiting for the capture thread, which itself
-        # takes `lock` (via `_on_frame`) to publish each frame — holding `lock`
-        # across the wait would deadlock the two threads against each other.
-        # So: check eligibility, reset OUTSIDE the lock, then re-take it for
-        # the (fast) session mutation, sampling clock() right before it.
-        with lock:
-            if session.phase not in (Phase.SETUP, Phase.FINISHED):
-                raise HTTPException(status_code=409, detail=f"cannot start from {session.phase}")
-        try:
-            capture.reset_tracker()
-        except TimeoutError:
-            raise HTTPException(status_code=503, detail="capture stalled")
-        except TrackerResetError:
-            raise HTTPException(status_code=503, detail="tracker reset failed")
-        with lock:
-            if session.phase not in (Phase.SETUP, Phase.FINISHED):
-                raise HTTPException(status_code=409, detail=f"cannot start from {session.phase}")
-            session.start(clock())
-            renderer.set_recording(True)
-            timestamps["started_at"] = now().isoformat()
-            timestamps["stopped_at"] = None
-            return StartResponse(started_at=timestamps["started_at"])
+        # Start is a pure, fail-closed phase transition: the exact roster/catalog
+        # state approved here IS the state recording continues with. Resetting the
+        # tracker after this check would empty the roster and silently perform a
+        # second enrolment during recording. mutation_lock prevents a confidence
+        # reset from landing between the check and session.start().
+        with mutation_lock:
+            with lock:
+                t = clock()
+                if session.phase not in (Phase.SETUP, Phase.FINISHED):
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"cannot start from {session.phase}",
+                    )
+                capture_health = "ok" if capture.health == "ok" else "stalled"
+                readiness = session.setup_readiness(t)
+                detail = _start_block_detail(readiness, capture_health)
+                if detail is not None:
+                    raise HTTPException(status_code=409, detail=detail)
+                # Optional lifecycle signal for injected simulations. Production
+                # leaves it unset; `--fake` only anchors its pickup timeline.
+                # This does not reset or otherwise mutate tracker identity state.
+                if on_recording_start is not None:
+                    on_recording_start()
+                session.start(t)
+                timestamps["started_at"] = now().isoformat()
+                timestamps["stopped_at"] = None
+                return StartResponse(started_at=timestamps["started_at"])
 
     @app.post("/recording/stop", response_model=ReportResponse)
     def post_recording_stop() -> ReportResponse:
@@ -292,7 +405,8 @@ def create_app(
             except InvalidPhase as exc:
                 # A wrong-phase stop changes nothing, the overlay included.
                 raise HTTPException(status_code=409, detail=str(exc))
-            renderer.set_recording(False)
+            if on_recording_stop is not None:
+                on_recording_stop()
             timestamps["stopped_at"] = now().isoformat()
             return _report_response(report)
 
@@ -304,6 +418,39 @@ def create_app(
             except InvalidPhase as exc:
                 raise HTTPException(status_code=409, detail=str(exc))
             return _report_response(report)
+
+    @app.patch("/settings/detection-confidence", response_model=DetectorControlModel)
+    def patch_detection_confidence(body: ConfidencePatch) -> DetectorControlModel:
+        # ConfidencePatch's Field(ge=CONF_MIN, le=CONF_MAX) already 422s an
+        # out-of-range value before we get here. Serialise the whole op on
+        # mutation_lock so it can't interleave with Start (T11/B5).
+        value = body.confidence
+        with mutation_lock:
+            with lock:
+                if session.phase is Phase.RECORDING:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="cannot change confidence during recording",
+                    )
+                current = detector_state["confidence"]
+            if value == current:
+                return _detector_control()   # no-op: no reset, immediate return
+            # Apply the change as ONE serialised capture command (set confidence
+            # + reset together, on the capture thread). Blocks outside `lock` so
+            # the capture thread can keep publishing; on failure the last
+            # confirmed value is preserved (503, detector_state untouched).
+            try:
+                capture.set_confidence_and_reset(value)
+            except TimeoutError:
+                raise HTTPException(status_code=503, detail="capture stalled")
+            except TrackerResetError:
+                raise HTTPException(status_code=503, detail="confidence change failed")
+            # Source of truth advances only after the capture command succeeds.
+            detector_state["confidence"] = value
+            with lock:
+                # A changed confidence restarts enrolment and clears readiness.
+                session.prepare(clock())
+        return _detector_control()
 
     return app
 
@@ -350,7 +497,8 @@ def main(argv: list[str] | None = None) -> None:
     if args.fake:
         tracker = ScenarioTracker(fps=settings.capture.fake_fps)
         # Share ONE ScenarioState so the drawn frames and the detections stay in
-        # lockstep (and re-align on Start, which resets the shared clock).
+        # lockstep. Its scripted recording lifecycle is separate from reset(),
+        # because recording Start preserves the approved tracker roster.
         capture = CaptureLoop(
             tracker,
             0,
@@ -361,6 +509,8 @@ def main(argv: list[str] | None = None) -> None:
             frame_size=settings.capture.frame_size,
             stale_after_s=settings.capture.stale_after_s,
         )
+        on_recording_start = tracker.begin_recording
+        on_recording_stop = tracker.end_recording
     else:
         if args.camera is None or args.weights is None:
             parser.error("--camera and --weights are required without --fake")
@@ -377,8 +527,17 @@ def main(argv: list[str] | None = None) -> None:
             frame_size=settings.capture.frame_size,
             stale_after_s=settings.capture.stale_after_s,
         )
+        on_recording_start = None
+        on_recording_stop = None
 
-    app = create_app(capture, session, tracker.model_version)
+    app = create_app(
+        capture,
+        session,
+        tracker.model_version,
+        default_confidence=settings.tracker.detector.confidence,
+        on_recording_start=on_recording_start,
+        on_recording_stop=on_recording_stop,
+    )
     capture.start()
     try:
         uvicorn.run(app, host="0.0.0.0", port=8000)

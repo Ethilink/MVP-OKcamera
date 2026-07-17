@@ -1,8 +1,9 @@
 import { useState } from "react"
 import { LayoutGroup } from "motion/react"
 import { ApiError, api } from "@/api/client"
-import type { Status } from "@/api/types"
+import type { BlockingReason, Status } from "@/api/types"
 import type { CropMap } from "@/api/useLastSeenCrops"
+import { AdvancedConfidence } from "@/components/AdvancedConfidence"
 import { DetectionConstellation } from "@/components/DetectionConstellation"
 import { HaloBrand } from "@/components/HaloMark"
 import { HealthBanner } from "@/components/HealthBanner"
@@ -34,13 +35,21 @@ interface LiveScreenProps {
   /** finished ∧ newRecordingRequested — show a way back to the still-held report. */
   showBackToReport: boolean
   onBackToReport: () => void
+  /** A confidence change reset enrolment but the pre-reset `/status` is still held:
+   *  show "Recognising" and keep Track disabled until a fresh poll (T11/F3/D2). */
+  awaitingReset?: boolean
+  /** Arm the awaiting-reset hold after a local reset (a confidence change). */
+  onReset?: () => void | Promise<unknown>
 }
 
 /**
  * The operator's live screen for `setup` and `recording` (and `finished` routed
  * here for run 2, which reuses the setup layout — D15). Layout is chosen from
- * `phase`; all state comes from the poll (no optimistic flips). The Start gate
- * lives here per api-contract §/status.
+ * `phase`; all state comes from the poll (no optimistic flips).
+ *
+ * The Start gate is the BACKEND's verdict (T11/D3/F1): the button renders
+ * `setup.ready` directly — the frontend never recomputes eligibility. A disabled
+ * Track states the specific blocking reason; a stalled camera's banner wins.
  */
 export function LiveScreen({
   status,
@@ -48,16 +57,26 @@ export function LiveScreen({
   crops,
   showBackToReport,
   onBackToReport,
+  awaitingReset = false,
+  onReset,
 }: LiveScreenProps) {
   const [actionError, setActionError] = useState<string | null>(null)
-  const [pending, setPending] = useState(false)
+  // WHICH action is in flight, so only the relevant button shows its pending
+  // label ("Starting…" / "Stopping…") while all of them disable. A confidence
+  // PATCH is tracked separately (`settingsPending`) so it disables Track without
+  // ever reading as "Starting…" (F4).
+  const [pendingAction, setPendingAction] = useState<"start" | "stop" | null>(
+    null,
+  )
+  const [settingsPending, setSettingsPending] = useState(false)
+  const busy = pendingAction !== null
 
   const isRecording = status?.phase === "recording"
   // Interpolate live counters only while recording; re-anchors on each poll.
   const secondsSincePoll = useSecondsSince(status, isRecording)
 
-  async function run(action: () => Promise<unknown>) {
-    setPending(true)
+  async function run(name: "start" | "stop", action: () => Promise<unknown>) {
+    setPendingAction(name)
     setActionError(null)
     try {
       await action()
@@ -67,7 +86,7 @@ export function LiveScreen({
         err instanceof ApiError ? err.detail : "Something went wrong — try again."
       )
     } finally {
-      setPending(false)
+      setPendingAction(null)
     }
   }
 
@@ -112,13 +131,6 @@ export function LiveScreen({
 
   function renderRecording() {
     const rec = status!.recording!
-    // Same STAGE/STAGE_GRID as setup so the feed keeps its exact size and
-    // position across Start. The right column is absolutely filled inside a
-    // zero-intrinsic cell, so it takes the feed's height precisely (never taller,
-    // never a growing column): the list fills the space and scrolls internally
-    // when the tray is large, and the timer+Stop row sits pinned at the bottom —
-    // exactly where the setup Track pill is, so it slides down and reddens into
-    // Stop (shared layoutId).
     return (
       <div className={STAGE}>
         <div className={STAGE_GRID}>
@@ -133,8 +145,8 @@ export function LiveScreen({
                 </span>
                 <StopButton
                   layoutId={PRIMARY_CTA}
-                  pending={pending}
-                  onStop={() => run(api.stopRecording)}
+                  pending={pendingAction === "stop"}
+                  onStop={() => run("stop", api.stopRecording)}
                 />
               </div>
             </div>
@@ -148,20 +160,18 @@ export function LiveScreen({
     const setup = status?.setup ?? null
     const connecting = !status
     const stalled = status?.capture_health === "stalled"
-    const healthOk = status?.capture_health === "ok"
-    const gateablePhase =
-      status?.phase === "setup" || status?.phase === "finished"
-    const detectedCount = setup?.detected_count ?? 0
-    const stableForS = setup?.stable_for_s ?? 0
-    const enabled =
-      gateablePhase && healthOk && detectedCount >= 1 && stableForS >= 2
-
-    let reason = "Connecting to the camera…"
-    if (status) {
-      if (!healthOk) reason = "Camera stalled"
-      else if (detectedCount < 1) reason = "Waiting for instruments"
-      else if (stableForS < 2) reason = "Hold steady…"
-    }
+    const ready = setup?.ready ?? false
+    // A reset (confidence change) is under way or its fresh `/status` hasn't
+    // landed yet — the tray is being re-recognised, so show "Recognising" and
+    // hold Track regardless of the still-stale `ready` (T11/F3/D2).
+    const resetting = settingsPending || awaitingReset
+    // Track follows the server verdict directly (F1). It is additionally held
+    // while a start is in flight or a confidence PATCH is pending, and across the
+    // post-reset stale-status gap (F4).
+    const enabled = ready && !busy && !settingsPending && !awaitingReset
+    const reason = resetting
+      ? "Recognising instruments…"
+      : blockingReasonCopy(status, connecting)
 
     return (
       <div className={STAGE}>
@@ -169,26 +179,64 @@ export function LiveScreen({
           {/* Left — the camera the operator is framing the tray in. */}
           <VideoFeed />
 
-          {/* Right — the detection hub and the one action, centred to the feed. */}
+          {/* Right — the detection hub and the one action, centred to the feed.
+              The currently-detected instruments ring the count pill (the dynamic
+              hub-and-spoke from T06). Track is held disabled while a reset is
+              settling; the ring keeps showing the last detections. */}
           <div className="flex h-full flex-col items-center justify-center gap-7">
             <DetectionConstellation
-              detectedCount={detectedCount}
+              detectedCount={setup?.detected_count ?? 0}
               detections={setup?.detections}
-              ready={enabled}
+              ready={ready && !resetting}
               stalled={stalled}
               connecting={connecting}
             />
-            <TrackButton
-              layoutId={PRIMARY_CTA}
-              enabled={enabled}
-              reason={reason}
-              pending={pending}
-              onTrack={() => run(api.startRecording)}
-            />
+            <div className="flex flex-col items-center gap-3">
+              <TrackButton
+                layoutId={PRIMARY_CTA}
+                enabled={enabled}
+                reason={reason}
+                pending={pendingAction === "start"}
+                onTrack={() => run("start", api.startRecording)}
+              />
+              {status?.detector_control && (
+                <AdvancedConfidence
+                  control={status.detector_control}
+                  disabled={busy}
+                  onPendingChange={setSettingsPending}
+                  onReset={onReset}
+                />
+              )}
+            </div>
           </div>
         </div>
       </div>
     )
+  }
+}
+
+/** Map the backend's `blocking_reason` (+ capture health) to the operator copy
+ *  under Track (F1). Capture health is folded into `ready` on the backend but NOT
+ *  into `blocking_reason`, so a stalled camera is handled here explicitly. */
+function blockingReasonCopy(status: Status | null, connecting: boolean): string {
+  if (connecting || !status) return "Connecting to the camera…"
+  if (status.capture_health === "stalled") return "Camera stalled"
+  const setup = status.setup
+  if (!setup || setup.ready) return ""
+  switch (setup.blocking_reason as BlockingReason | null) {
+    case "recognising":
+      return "Recognising instruments…"
+    case "missing_instruments":
+      return `Recognised ${setup.recognised_count} of ${setup.expected_count} instruments`
+    case "unknown_objects":
+      return `Remove ${setup.unknown_count} unknown object${setup.unknown_count === 1 ? "" : "s"}`
+    case "hold_steady":
+      return "Hold the tray steady…"
+    default:
+      // Not ready, but the reason isn't one we render copy for (an unexpected or
+      // future backend value). Track stays disabled (fail-safe) with a generic
+      // line rather than a blank caption.
+      return "Setup isn’t ready yet…"
   }
 }
 

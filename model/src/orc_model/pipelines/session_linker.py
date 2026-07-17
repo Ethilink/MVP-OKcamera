@@ -163,6 +163,7 @@ class SessionLinker:
         persistent_galleries: dict[int, ChampionGallery] | None = None,
         bind_tau: float = DEFAULT_BIND_TAU,
         bind_margin: float = DEFAULT_BIND_MARGIN,
+        catalog_only_enrolment: bool = False,
         unknown_id_offset: int = DEFAULT_UNKNOWN_ID_OFFSET,
         enrolment_window_s: float = 0.5,
         evidence_window_s: float = 0.5,
@@ -181,6 +182,10 @@ class SessionLinker:
         self._persistent_galleries = persistent_galleries or {}
         self._bind_tau = bind_tau
         self._bind_margin = bind_margin
+        # Catalog-only: at the freeze, ONLY confidently bound raw tracks join the
+        # roster -- everything else stays offset (Unknown) and is never renumbered
+        # into a session-only identity. Default-false preserves legacy behaviour.
+        self._catalog_only_enrolment = catalog_only_enrolment
         self._unknown_id_offset = unknown_id_offset
         self._matcher = matcher
         self._evidence_frames = evidence_frames
@@ -217,6 +222,12 @@ class SessionLinker:
     @property
     def roster(self) -> frozenset[int]:
         return self._roster
+
+    @property
+    def catalog(self) -> frozenset[int]:
+        """Loaded persistent specimen IDs — the fixed catalog. Constant for the
+        linker's lifetime; unaffected by reset() or the enrolment freeze."""
+        return frozenset(self._persistent_galleries)
 
     # -- main entry point -----------------------------------------------
 
@@ -395,7 +406,19 @@ class SessionLinker:
             start_views[raw_id] = gallery.views
 
         bound, bind_scores = self._bind_specimens(roster_ids, start_crops)
-        session_ids = self._assign_session_ids(roster_ids, bound)
+        if self._catalog_only_enrolment:
+            # Catalog-only: ONLY confidently bound raw tracks join the roster. An
+            # unbound setup track (foreign object, below-threshold, or contested
+            # loser) is never renumbered into a session-only identity. It emits its
+            # offset id on the freeze frame and proceeds through the normal
+            # Pending -> Unknown path on later frames. A catalog specimen missed at
+            # the freeze has no identity and can only be recognised by a fresh
+            # prepare/enrolment pass (Rescan).
+            enrolled_raw_ids = [raw_id for raw_id in roster_ids if raw_id in bound]
+            session_ids = {raw_id: bound[raw_id] for raw_id in enrolled_raw_ids}
+        else:
+            enrolled_raw_ids = roster_ids
+            session_ids = self._assign_session_ids(roster_ids, bound)
         build_ms = (time.monotonic() - t0) * 1000
 
         self._identities = {
@@ -406,9 +429,9 @@ class SessionLinker:
                 start_views=start_views.get(raw_id),
                 bound_specimen=bound.get(raw_id),
             )
-            for raw_id in roster_ids
+            for raw_id in enrolled_raw_ids
         }
-        self._raw_to_session = {raw_id: session_ids[raw_id] for raw_id in roster_ids}
+        self._raw_to_session = {raw_id: session_ids[raw_id] for raw_id in enrolled_raw_ids}
         self._roster = frozenset(session_ids.values())
         self._enrolled = True
         # B-O1: `bound` keyed by session id is tautological (session_id == specimen
@@ -416,16 +439,35 @@ class SessionLinker:
         # id claimed which photo set. `raw_binds` is the diagnostic a live mis-bind
         # actually needs -> raw tracker id -> specimen.
         raw_binds = {raw: specimen for raw, specimen in sorted(bound.items())}
+        # Unbound majority-present tracks. Legacy reports their session-only ids;
+        # catalog-only mode never assigns those (an unbound track has no session
+        # id), so it reports them by raw id instead. Branching keeps legacy log
+        # output byte-for-byte unchanged.
+        session_only = (
+            sorted(r for r in roster_ids if r not in bound)
+            if self._catalog_only_enrolment
+            else sorted(session_ids[r] for r in roster_ids if r not in bound)
+        )
+
+        # Diagnostic dict keys: legacy has a session id for every majority-present
+        # raw id, so this returns `session_ids[r]` and the log output stays
+        # byte-identical. Catalog-only has NO session id for unbound tracks -- key
+        # those by raw id, else two rejected setup objects collapse onto a single
+        # `None` key and the freeze loses the per-object views/bind-scores it
+        # exists to record (the demo's headline "two foreign objects" case).
+        def _log_key(raw_id: int) -> int | str:
+            return session_ids[raw_id] if raw_id in session_ids else f"raw{raw_id}"
+
         self._logger.info(
             "enrolment freeze: roster_size=%d views=%s bound=%s raw_binds=%s session_only=%s "
             "bind_scores=%s build_ms=%.1f",
-            len(roster_ids),
-            {session_ids[r]: len(start_views.get(r, ())) for r in roster_ids},
-            {session_ids[r]: specimen for r, specimen in sorted(bound.items())},
+            len(enrolled_raw_ids),
+            {_log_key(r): len(start_views.get(r, ())) for r in roster_ids},
+            {_log_key(r): specimen for r, specimen in sorted(bound.items())},
             raw_binds,
-            sorted(session_ids[r] for r in roster_ids if r not in bound),
+            session_only,
             {
-                session_ids[r]: (round(best, 4), round(second, 4))
+                _log_key(r): (round(best, 4), round(second, 4))
                 for r, (best, second) in sorted(bind_scores.items())
             },
             build_ms,
@@ -438,7 +480,7 @@ class SessionLinker:
                     "bind_tau": self._bind_tau,
                     "roster": [
                         {
-                            "session_id": session_ids[r],
+                            "session_id": session_ids.get(r),
                             "raw_id": r,
                             "specimen": bound.get(r),
                             "score": (

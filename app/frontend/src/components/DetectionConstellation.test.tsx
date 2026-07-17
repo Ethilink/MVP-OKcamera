@@ -6,8 +6,18 @@ import { DetectionConstellation } from "./DetectionConstellation"
 const PIXEL =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
 
-function detection(id: number, thumbnail: string | null): Detection {
-  return { tracker_id: id, label: `Instrument ${id}`, thumbnail }
+function detection(
+  id: number,
+  thumbnail: string | null,
+  state: Detection["state"] = "recognised",
+): Detection {
+  return {
+    tracker_id: id,
+    state,
+    label: state === "recognised" ? `Instrument ${id}` : state === "unknown" ? "Unknown" : "",
+    colour: state === "recognised" ? "#4285f4" : "#9ca3af",
+    thumbnail,
+  }
 }
 
 const base = { ready: false, stalled: false, connecting: false }
@@ -47,9 +57,22 @@ test("badge shows detectedCount even when it differs from the tile count", () =>
   expect(screen.getAllByRole("img")).toHaveLength(3)
 })
 
-test("caps at seven tiles for a large tray", () => {
-  const detections = Array.from({ length: 10 }, (_, i) => detection(i + 1, PIXEL))
+test("renders all eight catalog instruments around the constellation", () => {
+  const detections = Array.from({ length: 8 }, (_, i) => detection(i + 1, PIXEL))
+  render(<DetectionConstellation {...base} detectedCount={8} detections={detections} />)
+
+  expect(screen.getAllByTestId("constellation-tile")).toHaveLength(8)
+})
+
+test("does not add unknown or resolving detections to the constellation", () => {
+  const detections = [
+    ...Array.from({ length: 8 }, (_, i) => detection(i + 1, PIXEL)),
+    detection(1042, PIXEL, "unknown"),
+    detection(1043, null, "recognising"),
+  ]
   render(<DetectionConstellation {...base} detectedCount={10} detections={detections} />)
 
-  expect(screen.getAllByRole("img")).toHaveLength(7)
+  expect(screen.getAllByTestId("constellation-tile")).toHaveLength(8)
+  expect(screen.queryByText("Unknown")).toBeNull()
+  expect(screen.queryByText("Recognising…")).toBeNull()
 })

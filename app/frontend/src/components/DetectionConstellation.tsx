@@ -17,20 +17,21 @@ const EASE = [0.22, 1, 0.36, 1] as const
 const MOVE_S = 0.55 // ring re-spread (make space) — tiles AND their connectors
 
 /**
- * The setup "detection hub": a floating count pill with the currently-detected
- * instruments arranged around it as tiles, each tethered to the hub by a thin
- * connector string (the sketch's hub-and-spoke). It is the one brand moment on
+ * The setup "detection hub": a floating count pill with up to eight recognised
+ * catalog instruments arranged around it as tiles, each tethered to the hub by
+ * a thin connector string (the sketch's hub-and-spoke). It is the brand moment on
  * the operator's idle screen — calm, not a rainbow dashboard: the spectrum is
  * reserved for the logo and the Track glow; here the accent is teal.
  *
- * Tiles show the backend's real per-detection crops (`detections[].thumbnail`,
+ * Tiles show the backend's real per-detection cutouts (`detections[].thumbnail`,
  * from `/status`). A representative icon is the graceful fallback whenever a
- * crop is unavailable — no `detections` yet, or an individual `thumbnail: null`
- * (api-contract.md §/status). The count badge always comes from `detectedCount`,
- * which may differ from the number of tiles by a frame.
+ * preview is unavailable — no `detections` yet, or an individual `thumbnail: null`
+ * (api-contract.md §/status). The count badge always comes from `detectedCount`;
+ * it intentionally includes resolving/unknown detections that are excluded from
+ * the constellation tiles.
  */
 
-const MAX_TILES = 7
+const MAX_TILES = 8
 const RX = 37 // ellipse radii in the 0–100 hub coordinate space
 const RY = 39
 
@@ -51,30 +52,38 @@ interface Tile {
   key: string | number
   thumbnail: string | null
   label: string
+  colour: string
   iconIndex: number
 }
 
 /**
- * The tiles to render: real detections (first `MAX_TILES`, backend-sorted) when
- * present, else `detectedCount` representative placeholders. Either way each
- * tile falls back to an icon when it has no usable thumbnail.
+ * The tiles to render: at most the eight recognised catalog instruments.
+ * Resolving/unknown detections still contribute to the backend count and blocking
+ * reason, and remain visible on the video overlay, but are deliberately not part
+ * of this catalog constellation. Each recognised tile falls back to an icon when
+ * it has no usable thumbnail.
  */
 function tilesFor(detectedCount: number, detections?: Detection[]): Tile[] {
-  if (detections && detections.length > 0) {
-    return detections.slice(0, MAX_TILES).map((d) => ({
-      key: d.tracker_id,
-      thumbnail: d.thumbnail,
-      label: d.label,
-      // Key the fallback icon to the instrument, not its slot — so a surviving
-      // tile keeps its glyph when a lower id drops out between polls.
-      iconIndex: d.tracker_id,
-    }))
+  if (detections !== undefined) {
+    return detections
+      .filter((d) => d.state === "recognised")
+      .slice(0, MAX_TILES)
+      .map((d) => ({
+        key: d.tracker_id,
+        thumbnail: d.thumbnail,
+        label: d.label,
+        colour: d.colour,
+        // Key the fallback icon to the instrument, not its slot — so a surviving
+        // tile keeps its glyph when a lower id drops out between polls.
+        iconIndex: d.tracker_id,
+      }))
   }
   const count = Math.min(Math.max(0, detectedCount), MAX_TILES)
   return Array.from({ length: count }, (_, i) => ({
     key: i,
     thumbnail: null,
     label: `Instrument ${i + 1}`,
+    colour: "var(--primary)",
     iconIndex: i,
   }))
 }
@@ -233,11 +242,13 @@ function Tile({
       }}
     >
       <div
+        data-testid="constellation-tile"
         className={cn(
-          "grid size-[3.25rem] place-items-center overflow-hidden rounded-xl bg-card text-foreground/80 ring-1 ring-border transition-[box-shadow] duration-300",
+          "grid size-[3.25rem] place-items-center overflow-hidden rounded-xl border-2 bg-card text-foreground/80 transition-[box-shadow] duration-300",
           "shadow-[0_6px_20px_-10px_oklch(0.22_0.025_205_/_0.35)]",
-          ready && "ring-primary/25"
+          ready && "shadow-[0_0_18px_-8px_var(--primary)]"
         )}
+        style={{ borderColor: tile.colour }}
       >
         <div
           className="grid size-full place-items-center"
@@ -252,7 +263,7 @@ function Tile({
             <img
               src={tile.thumbnail}
               alt={tile.label}
-              className="size-full object-cover"
+              className="size-full object-contain"
               draggable={false}
             />
           ) : (
