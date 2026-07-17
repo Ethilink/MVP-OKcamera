@@ -28,6 +28,20 @@ file, set `status: closed`, add one line under Decisions-so-far here.
 > load-bearing is unbuilt any more. The frontier is now
 > **[T09 — first live camera check](tickets/T09-first-live-check.md)** alone —
 > everything the demo needs exists, and none of it has met a live camera.
+>
+> **Frozen 2026-07-17 (archive) — the design phase is over; this tracker is now a
+> decision record, not a live steering doc.** The canonical, current contracts
+> live in [`app/docs/api-contract.md`](../../../app/docs/api-contract.md),
+> [`app/docs/DESIGN.md`](../../../app/docs/DESIGN.md), and
+> [`model/docs/linker-design.md`](../../../model/docs/linker-design.md) — treat
+> those as authoritative over anything below. After T10, a **[T11] safety
+> workstream** landed (the four `tickets/T11-*.md` specs): catalog-only Start
+> gate, unified identity/colour across setup↔recording, and a `detector_control`
+> confidence PATCH. **Phases 1–3 are built and committed (HEAD `eec24f7`); Phases
+> 4 (frontend regen) and 5 (real-camera calibration) remain.** Remaining live work
+> is therefore **T09 + T11 P4/5**; everything else here is history. Reopen this
+> tracker as a *living* doc only if post-demo linker R&D (the "Not yet specified"
+> threads below) actually resumes.
 
 A **demo-ready session linker** means "Instrument N" identifies the *specimen*
 and survives absence. Start-time enrolment, open-set SRC matching, §3 gallery
@@ -38,7 +52,9 @@ id is the bound specimen number, not Deep OC-SORT's raw counter, and returns
 rematch against `persistent ∪ Start` instead of ≤3 Start crops. What is left is
 **proving it live**. UZ Leuven demo **2026-07-20**.
 
-**The frontier is now one ticket.** [T07](tickets/T07-capture-reference-gallery.md)
+**The frontier is now one ticket.** ⚠️ **Superseded 2026-07-17 — T11 opened after
+this; live work is now T09 + T11 P4/5 (see the Frozen note above).**
+[T07](tickets/T07-capture-reference-gallery.md)
 **closed 2026-07-16: the photos ARE the demo specimens (Bram), binding helps.**
 That leaves [T09](tickets/T09-first-live-check.md) alone:
 
@@ -178,6 +194,28 @@ Grilled 2026-07-16 (remote-control session, Bram):
 - **Nothing blocks T09** — it can run once the offline pre-flight is confirmed on
   the demo machine; Bram runs it. The eight T08/T10 engineering flags are ratify/
   defer/demo-polish, none gating (dispositions being recorded on the tickets).
+
+Landed 2026-07-17 (T11 — safe setup enrolment; specs in `tickets/T11-*.md`):
+
+- **Catalog-only Start gate.** Only a detection that confidently binds one-to-one
+  to a loaded specimen may join the roster; unbound/contested setup detections are
+  Pending/Unknown, never a "session-only instrument". Missing/duplicate/unloadable
+  galleries **fail closed at startup** — no silent session-only fallback. (D1)
+- **Unified identity + colour across setup↔recording.** Pressing **Track** no
+  longer renames/renumbers/rebinds/recolours a recognised instrument; setup shows
+  the same canonical id + hue that recording will use. The public `prepare`
+  endpoint and Rescan button were **dropped**; a changed detector confidence is the
+  only setup action that resets enrolment. (D2 — supersedes the ticket's own
+  prepare/Rescan wording; see the note at the top of T11-safe-setup-enrolment.)
+- **`detector_control` confidence PATCH.** `/status` now carries detector
+  min/max/step/current/default; changing confidence resets and re-runs enrolment.
+- **Canonical contract now lives in the code docs.**
+  [`app/docs/api-contract.md`](../../../app/docs/api-contract.md) is authoritative
+  for the `/status` shape and the Start gate; `linker-design.md`,
+  `tracker-interface.md`, and `DESIGN.md` were updated in the same commit (`eec24f7`).
+- **Status: Phases 1–3 built & committed; Phases 4 (frontend regen) + 5 (real-camera
+  calibration) remain.** The T11 files are implementation-handoff specs and
+  intentionally do **not** carry the `status:`/`assignee:` frontmatter of T01–T10.
 
 <!-- one line per closed ticket below -->
 
